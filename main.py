@@ -353,6 +353,7 @@ except Exception as e:
 
 # print("=" * 60)
 
+
 st.markdown(get_compact_css(), unsafe_allow_html=True)
     
 # Try to import advanced optimizer
@@ -362,6 +363,53 @@ try:
 except ImportError:
     ADVANCED_OPTIMIZER_AVAILABLE = False
     debug_print("⚠️ Advanced optimizer not available - using fallback")
+
+# At the beginning of main.py, after imports
+def ensure_password_hashes():
+    """Fix password hashes on startup"""
+    import hashlib
+    import sqlite3
+    import os
+    
+    db_path = "data/tender_system.db"
+    if not os.path.exists(db_path):
+        return
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if users table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if not cursor.fetchone():
+            conn.close()
+            return
+        
+        # Check all users
+        cursor.execute("SELECT id, username, password FROM users")
+        users = cursor.fetchall()
+        
+        fixed = 0
+        for user_id, username, password in users:
+            # Check if SHA256
+            is_sha256 = len(password) == 64 and all(c in '0123456789abcdef' for c in password.lower())
+            if not is_sha256:
+                if username == 'admin':
+                    new_hash = hashlib.sha256('admin123'.encode()).hexdigest()
+                elif username == 'shomonrobie':
+                    new_hash = hashlib.sha256('shomonrobie'.encode()).hexdigest()
+                else:
+                    new_hash = hashlib.sha256('password123'.encode()).hexdigest()
+                
+                cursor.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user_id))
+                fixed += 1
+        
+        conn.commit()
+        conn.close()
+        if fixed > 0:
+            print(f"✅ Fixed {fixed} password hashes")
+    except Exception as e:
+        print(f"⚠️ Password fix error: {e}")
 
 # Custom CSS
 st.markdown("""
@@ -1427,6 +1475,10 @@ def main() -> None:
     from migrations.add_is_active_to_tender_milestones import run_migration2
     run_migration2()
     ensure_database_schema()
+    # Call this at the start of main()
+    ensure_password_hashes()
+
+
     # =========================================================================
     # FIRST: Check if user is already logged in - redirect immediately
     # =========================================================================
