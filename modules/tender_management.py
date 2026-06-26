@@ -4446,197 +4446,55 @@ def _render_milestone_status_update(tender_db_id: int):
                 except:
                     st.caption(f"• {m['milestone_name']} - Due: {due_date}")
 
-    """Render tender form with data from session_state.extracted_data"""
-    
-    from utils.helpers import format_currency_bd
-    
-    # Get data source
-    data = st.session_state.extracted_data if editing else st.session_state.get('extracted_data', {})
-    
-    # Set default values with proper types
-    default_values = {
-        'tender_id': str(data.get('tender_id', '')) if data else '',
-        'tender_title': str(data.get('tender_title', '')) if data else '',
-        'procuring_entity': str(data.get('procuring_entity', '')) if data else '',
-        'division': str(data.get('division', 'Dhaka')) if data else 'Dhaka',
-        'procurement_type': str(data.get('procurement_type', 'works')) if data else 'works',
-        'official_estimate': float(data.get('official_estimate', 0.0)) if data else 0.0,
-        'submission_deadline': data.get('submission_deadline', datetime.now().date()) if data else datetime.now().date(),
-        'tender_security': float(data.get('tender_security', 0.0)) if data else 0.0,
-        'document_fee': float(data.get('document_fee', 0.0)) if data else 0.0,
-        'project_code': str(data.get('project_code', '')) if data else '',
-        'project_name': str(data.get('project_name', '')) if data else '',
-        'package_no': str(data.get('package_no', '')) if data else '',
-        'budget_type': str(data.get('budget_type', 'Development')) if data else 'Development',
-        'notes': str(data.get('notes', '')) if data else ''
-    }
-    
-    # Show edit header with Cancel button
-    if editing:
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.success(f"📝 **Editing Tender #{st.session_state.edit_tender_id}**")
-            # Display current OCE prominently
-            current_oce = default_values['official_estimate']
-            if current_oce > 0:
-                st.info(f"💰 **Current OCE:** {format_currency_bd(current_oce)}")
-            st.info("💡 Modify the fields below and click '💾 Update Tender' to save changes.")
-        with col2:
-            if st.button("❌ Cancel Edit", key="cancel_edit_btn", use_container_width=True):
-                st.session_state.edit_mode = False
-                st.session_state.edit_tender_id = None
-                st.session_state.extracted_data = None
-                st.session_state.skip_review = False
-                st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
-                st.session_state.active_tab = "📊 Dashboard"
-                st.rerun()
-    
-    # Display current data summary if available
-    if default_values['official_estimate'] > 0:
-        st.info(f"💰 Current Estimate: {format_currency_bd(default_values['official_estimate'])}")
-    
-    # Main form
-    with st.form("tender_form", clear_on_submit=False):
-        st.markdown("### 📝 Core Tender Details")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            tender_id = st.text_input("Tender ID *", value=default_values['tender_id'], key="form_tender_id")
-            tender_title = st.text_area("Tender Title *", value=default_values['tender_title'], height=80, key="form_tender_title")
-            procuring_entity = st.text_input("Procuring Entity *", value=default_values['procuring_entity'], key="form_procuring_entity")
-            divisions = ["Dhaka", "Chittagong", "Rajshahi", "Khulna", "Barisal", "Sylhet", "Rangpur", "Mymensingh"]
-            division_index = divisions.index(default_values['division']) if default_values['division'] in divisions else 0
-            division = st.selectbox("Division", divisions, index=division_index, key="form_division")
-        
-        with col2:
-            valid_pt = ["works", "goods", "services"]
-            pt_index = valid_pt.index(default_values['procurement_type']) if default_values['procurement_type'] in valid_pt else 0
-            procurement_type = st.selectbox("Procurement Type", valid_pt, index=pt_index, key="form_procurement_type")
-            
-            # OCE field - make it very clear
-            st.markdown("**Official Estimate (OCE) *️⃣**")
-            st.caption("This is used for NPPI calculations in bid analysis")
-            
-            official_estimate = st.number_input(
-                "Official Estimate (BDT) *", 
-                min_value=0.0,
-                step=1000000.0,
-                value=default_values['official_estimate'],
-                key="form_official_estimate",
-                format="%0.3f",
-                label_visibility="collapsed"
-            )
-            
-            # Show formatted value
-            if official_estimate > 0:
-                st.caption(f"💡 Formatted: {format_currency_bd(official_estimate)}")
-            
-            submission_deadline = st.date_input("Submission Deadline *", value=default_values['submission_deadline'], key="form_deadline")
-            
-            tender_security = st.number_input(
-                "Tender Security (BDT)", 
-                min_value=0.0,
-                step=10000.0,
-                value=default_values['tender_security'],
-                key="form_security",
-                format="%0.3f"
-            )
-            
-            document_fee = st.number_input(
-                "Document Fee (BDT)", 
-                min_value=0.0,
-                step=500.0,
-                value=default_values['document_fee'],
-                key="form_doc_fee",
-                format="%0.3f"
-            )
-        
-        with st.expander("📝 Additional Information", expanded=False):
-            col1, col2 = st.columns(2)
-            with col1:
-                project_code = st.text_input("Project Code", value=default_values['project_code'], key="form_project_code")
-                package_no = st.text_input("Package No.", value=default_values['package_no'], key="form_package_no")
-                budget_type = st.text_input("Budget Type", value=default_values['budget_type'], key="form_budget_type")
-            with col2:
-                project_name = st.text_area("Project Name", value=default_values['project_name'], height=60, key="form_project_name")
-                notes = st.text_area("Notes", value=default_values['notes'], height=60, key="form_notes")
-        
-        # Display formatted values for preview
-        if official_estimate > 0:
-            st.caption(f"💡 Formatted estimate: {format_currency_bd(official_estimate)}")
-        
-        # Submit button
-        btn_text = "💾 Update Tender" if editing else "🚀 Create Tender"
-        submitted = st.form_submit_button(btn_text, use_container_width=True, type="primary")
-        
-        # Cancel button inside form (for manual mode)
-        if not editing:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col2:
-                if st.form_submit_button("🗑️ Clear Form", use_container_width=True):
-                    st.session_state.extracted_data = None
-                    st.session_state.skip_review = False
-                    st.session_state._last_pdf_name = None
-                    st.rerun()
-        
-        if submitted:
-            # Validate
-            if not all([tender_id, tender_title, procuring_entity, official_estimate > 0]):
-                st.error("❌ Please fill all required fields marked with *")
-                return
-            
-            tender_data = {
-                'tender_id': tender_id,
-                'tender_title': tender_title,
-                'procuring_entity': procuring_entity,
-                'division': division,
-                'procurement_type': procurement_type,
-                'official_estimate': official_estimate,
-                'submission_deadline': submission_deadline,
-                'tender_security': tender_security,
-                'document_fee': document_fee,
-                'project_code': project_code,
-                'project_name': project_name,
-                'package_no': package_no,
-                'budget_type': budget_type,
-                'notes': notes,
-                'is_active': 1
-            }
-            
-            if editing:
-                # Update existing tender
-                success = db.update_tender(st.session_state.edit_tender_id, tender_data, st.session_state.user_id)
 
-                if success:
-                    st.success(f"✅ Tender updated successfully!")
-                    st.success(f"💰 OCE updated to: {format_currency_bd(official_estimate)}")
-                    st.balloons()
-                    # Clear edit session states
-                    for key in ['edit_mode', 'edit_tender_id', 'extracted_data', 'skip_review', '_last_pdf_name']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
-                    st.session_state.active_tab = "📊 Dashboard"
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to update tender")
-                    st.error("Please check the logs for details.")
-            else:
-                # Create new tender
-                tender_db_id = db.create_tender(st.session_state.company_id, tender_data, st.session_state.user_id)
-                if tender_db_id:
-                    st.success(f"✅ Tender '{tender_title}' created successfully!")
-                    st.balloons()
-                    
-                    # Clear ALL PDF and form related session state
-                    keys_to_clear = ['extracted_data', 'skip_review', '_last_pdf_name', '_tender_pdf_upload_new']
-                    for key in keys_to_clear:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    
-                    st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
-                    st.session_state.active_tab = "📊 Dashboard"
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to create tender")
+def _load_tender_for_edit(tender_id: int) -> bool:
+    """Helper to load tender data and prepare for editing"""
+    
+    debug_print(f"_load_tender_for_edit() called with tender_id: {tender_id}")
+    
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM company_tenders WHERE id = ?", (tender_id,))
+        cols = [desc[0] for desc in cursor.description]
+        row = cursor.fetchone()
+        conn.close()
+        
+        debug_print(f"Query executed. Row found: {row is not None}")
+        if row:
+            debug_print(f"Columns: {cols}")
+            debug_print(f"Row data: {dict(zip(cols, row))}")
+            
+            # Convert row to dict
+            tender_data = dict(zip(cols, row))
+            
+            # Store in session state
+            st.session_state.extracted_data = tender_data
+            st.session_state.skip_review = True
+            st.session_state.edit_tender_id = tender_id
+            st.session_state.edit_mode = True
+            
+            debug_print("Session state after loading data:", {
+                'extracted_data': st.session_state.extracted_data is not None,
+                'skip_review': st.session_state.skip_review,
+                'edit_tender_id': st.session_state.edit_tender_id,
+                'edit_mode': st.session_state.edit_mode
+            })
+            
+            # Clear stale form state
+            keys_to_clear = [k for k in list(st.session_state.keys()) 
+                           if k.startswith('form_') or k in ('_form_submitting', '_form_reset', '_tender_pdf_upload')]
+            debug_print(f"Clearing form keys: {keys_to_clear}")
+            for k in keys_to_clear:
+                del st.session_state[k]
+            
+            return True
+        else:
+            debug_print("No row found for tender_id!")
+            return False
+            
+    except Exception as e:
+        debug_print(f"Exception in _load_tender_for_edit: {str(e)}")
+        debug_print(traceback.format_exc())
+        st.error(f"❌ Failed to load tender: {str(e)}")
+        return False
