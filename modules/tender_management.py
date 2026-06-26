@@ -19,8 +19,11 @@ import numpy as np
 import logging
 from typing import Optional, Dict, List, Any, Tuple
 from database.unified_db_manager import UnifiedDatabaseManager
+import traceback
 
 DEBUG_MODE = True
+logging.basicConfig(level=logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 db = UnifiedDatabaseManager()
 
@@ -35,6 +38,14 @@ from modules.bid_analysis.bid_core import (
     WinProbabilityEngine, OptimumBidEngine, get_config, get_nested_config
 )
 from modules.tender_data_importer import TenderDataImporter
+
+def debug_print(msg, data=None):
+    """Debug print with timestamp"""
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"[{timestamp}] 🔍 {msg}")
+    if data is not None:
+        print(f"   └─ {data}")
 
 # =============================================================================
 # 🔄 SHARED TENDER SELECTOR INSTANCE
@@ -860,6 +871,8 @@ db.get_bid_revisions = get_bid_revisions
 def render_tender_dashboard() -> None:
     """Main dashboard with e-GP style table and navigation"""
     
+    debug_print("render_tender_dashboard() called")
+    
     if 'view_tender_detail' not in st.session_state:
         st.session_state.view_tender_detail = None
     if 'tender_search_filters' not in st.session_state:
@@ -873,16 +886,19 @@ def render_tender_dashboard() -> None:
             'publishing_date_to': None
         }
     
+    debug_print(f"view_tender_detail: {st.session_state.view_tender_detail is not None}")
+    
     # Check if we're viewing a specific tender
     if st.session_state.view_tender_detail:
+        debug_print("Rendering tender detail page...")
         _render_tender_detail_page(st.session_state.view_tender_detail)
         return
     
     # Main dashboard
+    debug_print("Rendering main dashboard...")
     _render_dashboard_header()
     _render_search_filters()
     _render_tenders_table()
-
 
 def _render_dashboard_header():
     """Render dashboard header with e-GP style"""
@@ -1037,532 +1053,21 @@ def _render_search_filters():
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-# =============================================================================
-# FIX: Update _render_tender_detail_page function
-# =============================================================================
-
-def _render_tender_detail_page_bak(tender_data: Dict[str, Any]):
-    """Render e-GP style tender detail page with full options"""
-    
-    st.markdown("""
-    <style>
-    .detail-header {
-        background: linear-gradient(135deg, #1a1a3e 0%, #2d1b69 100%);
-        padding: 20px 30px;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 20px;
-        border: 1px solid rgba(102, 126, 234, 0.2);
-    }
-    .detail-header h1 {
-        color: white;
-        margin: 0;
-        font-size: 22px;
-        font-weight: 600;
-    }
-    .detail-header .subtitle {
-        color: #94a3b8;
-        font-size: 14px;
-        margin-top: 4px;
-    }
-    .detail-header .meta-row {
-        display: flex;
-        gap: 30px;
-        flex-wrap: wrap;
-        margin-top: 12px;
-    }
-    .detail-header .meta-item {
-        background: rgba(255,255,255,0.05);
-        padding: 6px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        color: #94a3b8;
-    }
-    .detail-header .meta-item strong {
-        color: white;
-    }
-    .detail-tabs {
-        background: #1a1a2e;
-        padding: 12px 20px;
-        border-radius: 10px;
-        margin: 15px 0;
-        display: flex;
-        gap: 20px;
-        flex-wrap: wrap;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link {
-        color: #94a3b8;
-        text-decoration: none;
-        font-size: 14px;
-        padding: 6px 12px;
-        border-radius: 6px;
-        transition: all 0.3s;
-        cursor: pointer;
-    }
-    .detail-tabs .tab-link:hover {
-        color: white;
-        background: rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link.active {
-        color: white;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-    }
-    .back-btn {
-        background: rgba(102, 126, 234, 0.1) !important;
-        color: #94a3b8 !important;
-        border: 1px solid rgba(102, 126, 234, 0.2) !important;
-        padding: 6px 20px !important;
-        border-radius: 8px !important;
-        transition: all 0.3s !important;
-    }
-    .back-btn:hover {
-        background: rgba(102, 126, 234, 0.2) !important;
-        color: white !important;
-    }
-    .action-buttons {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 15px 0;
-    }
-    .action-buttons .stButton button {
-        padding: 8px 20px !important;
-        font-size: 14px !important;
-        border-radius: 8px !important;
-    }
-    .action-buttons .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Header
-    tender_id = tender_data.get('tender_id', 'N/A')
-    title = tender_data.get('tender_title', 'Untitled')
-    procuring_entity = tender_data.get('procuring_entity', 'N/A')
-    closing_date = tender_data.get('submission_deadline', 'N/A')
-    status = tender_data.get('bid_status', 'draft')
-    status_display = {
-        'won': 'Contract Awarded',
-        'submitted': 'Being processed',
-        'draft': 'Draft',
-        'lost': 'Lost',
-        'awarded': 'Contract Awarded'
-    }.get(status, status.title())
-    
-    # Format closing date
-    if closing_date and closing_date != 'N/A':
-        try:
-            closing_date = pd.to_datetime(closing_date).strftime('%d-%b-%Y %H:%M')
-        except:
-            pass
-    
-    st.markdown(f"""
-    <div class="detail-header">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap;">
-            <div>
-                <h1>📄 Tender/Proposal Detail</h1>
-                <div class="subtitle">{title}</div>
-            </div>
-            <div>
-                <span class="status-badge status-{status}">{status_display}</span>
-            </div>
-        </div>
-        <div class="meta-row">
-            <span class="meta-item"><strong>Tender/Proposal ID:</strong> {tender_id}</span>
-            <span class="meta-item"><strong>Closing Date:</strong> {closing_date}</span>
-            <span class="meta-item"><strong>Procuring Entity:</strong> {procuring_entity[:60]}</span>
-            <span class="meta-item"><strong>Status:</strong> {status_display}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Back button
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("← Back to Dashboard", key="back_to_dashboard", use_container_width=True):
-            st.session_state.view_tender_detail = None
-            st.rerun()
-    
-    # ===== TENDER/PROPOSAL DASHBOARD =====
-    st.markdown("---")
-    st.markdown("### TENDER/PROPOSAL DASHBOARD")
-    
-    # Action Buttons Row - All Options
-    st.markdown('<div class="action-buttons">', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    with col1:
-        if st.button("📊 Analysis", use_container_width=True, type="secondary"):
-            st.session_state.selected_tender_for_analysis = tender_id
-            st.session_state.active_tab = "analysis"
-            st.rerun()
-    
-    with col2:
-        if st.button("🏆 Results CRUD", use_container_width=True, type="secondary"):
-            st.session_state.selected_tender_for_results = tender_id
-            st.session_state.active_tab = "result_crud"
-            st.rerun()
-    
-    with col3:
-        if st.button("📥 Import Data", use_container_width=True, type="secondary"):
-            st.session_state.selected_tender_for_import = tender_id
-            st.session_state.active_tab = "import"
-            st.rerun()
-    
-    with col4:
-        if st.button("✏️ Edit Tender", use_container_width=True, type="primary"):
-            st.session_state.edit_tender_id = tender_data.get('id')
-            st.session_state.extracted_data = tender_data
-            st.session_state.edit_mode = True
-            st.session_state.active_tab = "edit"
-            st.rerun()
-    
-    with col5:
-        if st.button("📑 Reports", use_container_width=True, type="secondary"):
-            st.session_state.selected_tender_for_reports = tender_id
-            st.session_state.active_tab = "reports"
-            st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Get safe values with proper type conversion
-    official_estimate = float(tender_data.get('official_estimate', 0) or 0)
-    our_bid = tender_data.get('our_bid_amount')
-    if our_bid is None:
-        our_bid = 0
-    else:
-        try:
-            our_bid = float(our_bid)
-        except (ValueError, TypeError):
-            our_bid = 0
-    
-    total_bidders = tender_data.get('total_bidders')
-    if total_bidders is None:
-        total_bidders = 'N/A'
-    
-    our_rank = tender_data.get('our_rank')
-    if our_rank is None:
-        our_rank = 'N/A'
-    
-    # Summary cards
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Official Estimate",
-            f"BDT {official_estimate:,.2f}",
-            help="Official Cost Estimate"
-        )
-    with col2:
-        if our_bid > 0:
-            st.metric(
-                "Our Bid",
-                f"BDT {our_bid:,.2f}",
-                help="Our submitted bid amount"
-            )
-        else:
-            st.metric(
-                "Our Bid",
-                "Not Set",
-                help="Our submitted bid amount"
-            )
-    with col3:
-        st.metric(
-            "Total Bidders",
-            total_bidders,
-            help="Total number of bidders"
-        )
-    with col4:
-        st.metric(
-            "Our Rank",
-            our_rank,
-            help="Our rank among bidders"
-        )
-    
-    # Detail sections
-    tab1, tab2, tab3 = st.tabs(["📋 Tender Information", "🏆 Winner Information", "📊 Bid Analysis"])
-    
-    with tab1:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### Basic Information")
-            st.info(f"**Tender ID:** {tender_data.get('tender_id', 'N/A')}")
-            st.markdown(f"**Title:** {tender_data.get('tender_title', 'N/A')}")
-            st.markdown(f"**Procuring Entity:** {tender_data.get('procuring_entity', 'N/A')}")
-            st.markdown(f"**Division:** {tender_data.get('division', 'N/A')}")
-            st.markdown(f"**District:** {tender_data.get('district', 'N/A')}")
-            st.markdown(f"**Procurement Type:** {tender_data.get('procurement_type', 'N/A').upper()}")
-            
-        with col2:
-            st.markdown("#### Financial Information")
-            st.info(f"**Official Estimate:** BDT {official_estimate:,.2f}")
-            st.markdown(f"**Tender Security:** BDT {float(tender_data.get('tender_security', 0) or 0):,.2f}")
-            st.markdown(f"**Document Fee:** BDT {float(tender_data.get('document_fee', 0) or 0):,.2f}")
-            if our_bid > 0:
-                st.markdown(f"**Our Bid:** BDT {our_bid:,.2f}")
-            else:
-                st.markdown("**Our Bid:** Not set")
-        
-        st.markdown("#### Important Dates")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            deadline = tender_data.get('submission_deadline')
-            if deadline:
-                try:
-                    deadline_dt = pd.to_datetime(deadline)
-                    st.markdown(f"**Submission Deadline:** {deadline_dt.strftime('%d %b %Y %H:%M')}")
-                except:
-                    st.markdown(f"**Submission Deadline:** {deadline}")
-        with col2:
-            pub_date = tender_data.get('tender_publication_date')
-            if pub_date:
-                try:
-                    pub_dt = pd.to_datetime(pub_date)
-                    st.markdown(f"**Published:** {pub_dt.strftime('%d %b %Y')}")
-                except:
-                    st.markdown(f"**Published:** {pub_date}")
-        with col3:
-            opening_date = tender_data.get('bid_opening_date')
-            if opening_date:
-                try:
-                    opening_dt = pd.to_datetime(opening_date)
-                    st.markdown(f"**Opening Date:** {opening_dt.strftime('%d %b %Y %H:%M')}")
-                except:
-                    st.markdown(f"**Opening Date:** {opening_date}")
-            
-
-    with tab2:
-        st.markdown("#### Winner Information")
-        
-        winner = tender_data.get('winning_competitor')
-        winner_amount = tender_data.get('winning_bid_amount')
-        if winner_amount:
-            try:
-                winner_amount = float(winner_amount)
-            except (ValueError, TypeError):
-                winner_amount = None
-        
-        if winner:
-            st.success(f"🏆 **Winner:** {winner}")
-            st.info(f"**Winning Bid Amount:** BDT {winner_amount:,.2f}" if winner_amount else "**Winning Bid Amount:** N/A")
-            
-            # Calculate NPPI
-            if official_estimate > 0 and winner_amount:
-                nppi = (winner_amount / official_estimate) * 100
-                st.metric("NPPI Factor", f"{nppi:.2f}%")
-        else:
-            st.warning("No winner declared yet for this tender.")
-        
-        # Bid history
-        st.markdown("#### Bid History")
-        try:
-            with db.get_connection() as conn:
-                cursor = db.db_conn.get_cursor(conn)
-                cursor.execute("""
-                    SELECT competitor_name, bid_amount, was_winner, bid_date
-                    FROM competitor_bid_history
-                    WHERE tender_id = ? AND company_id = ?
-                    ORDER BY bid_amount ASC
-                """, (tender_id, st.session_state.company_id))
-                rows = cursor.fetchall()
-                if rows:
-                    bid_data = [dict(row) for row in rows]
-                    df = pd.DataFrame(bid_data)
-                    df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
-                    df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No bid history available.")
-        except Exception as e:
-            st.warning(f"Could not load bid history: {e}")
-    
-    with tab3:
-        st.markdown("#### Bid Analysis")
-        st.info("Comprehensive analysis available in the Analysis tab above.")
-        
-        # Quick stats
-        if official_estimate > 0 and our_bid > 0:
-            nppi = (our_bid / official_estimate) * 100
-            st.metric("Our NPPI", f"{nppi:.2f}%", help="Our bid as percentage of OCE")
-            
-            if nppi < 85:
-                st.warning("⚠️ Your bid is significantly below OCE. This may trigger SLT scrutiny.")
-            elif nppi > 105:
-                st.warning("⚠️ Your bid is above OCE. Consider reviewing your pricing.")
-            else:
-                st.success("✅ Your bid is within a reasonable range.")
-        elif official_estimate > 0 and our_bid == 0:
-            st.info("💡 Set your bid amount to see NPPI analysis.")
-        else:
-            st.warning("⚠️ Official Estimate not set. Please update tender with OCE.")
-    
-    # Footer
-    # render_footer()
-
-# =============================================================================
-# COMPLETE _render_tender_detail_page with All Tabs
-# =============================================================================
 
 def _render_tender_detail_page(tender_data: Dict[str, Any]):
     """Render e-GP style tender detail page with all tabs"""
     
-    st.markdown("""
-    <style>
-    .detail-header {
-        background: linear-gradient(135deg, #1a1a3e 0%, #2d1b69 100%);
-        padding: 20px 30px;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 20px;
-        border: 1px solid rgba(102, 126, 234, 0.2);
-    }
-    .detail-header h1 {
-        color: white;
-        margin: 0;
-        font-size: 22px;
-        font-weight: 600;
-    }
-    .detail-header .subtitle {
-        color: #94a3b8;
-        font-size: 14px;
-        margin-top: 4px;
-    }
-    .detail-header .meta-row {
-        display: flex;
-        gap: 30px;
-        flex-wrap: wrap;
-        margin-top: 12px;
-    }
-    .detail-header .meta-item {
-        background: rgba(255,255,255,0.05);
-        padding: 6px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        color: #94a3b8;
-    }
-    .detail-header .meta-item strong {
-        color: white;
-    }
-    .detail-tabs {
-        background: #1a1a2e;
-        padding: 12px 20px;
-        border-radius: 10px;
-        margin: 15px 0;
-        display: flex;
-        gap: 20px;
-        flex-wrap: wrap;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link {
-        color: #94a3b8;
-        text-decoration: none;
-        font-size: 14px;
-        padding: 6px 12px;
-        border-radius: 6px;
-        transition: all 0.3s;
-        cursor: pointer;
-    }
-    .detail-tabs .tab-link:hover {
-        color: white;
-        background: rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link.active {
-        color: white;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-    }
-    .back-btn {
-        background: rgba(102, 126, 234, 0.1) !important;
-        color: #94a3b8 !important;
-        border: 1px solid rgba(102, 126, 234, 0.2) !important;
-        padding: 6px 20px !important;
-        border-radius: 8px !important;
-        transition: all 0.3s !important;
-    }
-    .back-btn:hover {
-        background: rgba(102, 126, 234, 0.2) !important;
-        color: white !important;
-    }
-    .action-buttons {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 15px 0;
-    }
-    .action-buttons .stButton button {
-        padding: 8px 20px !important;
-        font-size: 14px !important;
-        border-radius: 8px !important;
-    }
-    .action-buttons .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    .edit-section {
-        background: #1a1a2e;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-        margin-top: 15px;
-    }
-    .edit-section .stButton button {
-        background: linear-gradient(135deg, #667eea, #764ba2) !important;
-        color: white !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    _render_detail_header(tender_data)
     
-    # Header
-    
-    tender_id = tender_data.get('tender_id', 'N/A')
-    title = tender_data.get('tender_title', 'Untitled')
-    procuring_entity = tender_data.get('procuring_entity', 'N/A')
-    closing_date = tender_data.get('submission_deadline', 'N/A')
-    status = tender_data.get('bid_status', 'draft')
-    status_display = {
-        'won': 'Contract Awarded',
-        'submitted': 'Being processed',
-        'draft': 'Draft',
-        'lost': 'Lost',
-        'awarded': 'Contract Awarded'
-    }.get(status, status.title())
-    
-    # Format closing date
-    if closing_date and closing_date != 'N/A':
-        try:
-            closing_date = pd.to_datetime(closing_date).strftime('%d-%b-%Y %H:%M')
-        except:
-            pass
-    
-    st.markdown(f"""
-    <div class="detail-header">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap;">
-            <div>
-                <h1>📄 Tender/Proposal Detail</h1>
-                <div class="subtitle">{title}</div>
-            </div>
-            <div>
-                <span class="status-badge status-{status}">{status_display}</span>
-            </div>
-        </div>
-        <div class="meta-row">
-            <span class="meta-item"><strong>Tender/Proposal ID:</strong> {tender_id}</span>
-            <span class="meta-item"><strong>Closing Date:</strong> {closing_date}</span>
-            <span class="meta-item"><strong>Procuring Entity:</strong> {procuring_entity[:60]}</span>
-            <span class="meta-item"><strong>Status:</strong> {status_display}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
     tender_db_id = tender_data.get('id')
-    tender_id_str = tender_data.get('tender_id', 'N/A')
-
+    tender_id = tender_data.get('tender_id', 'N/A')
+    
     # Back button
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("← Back to Dashboard", key=f"back_to_dashboard_{tender_db_id}", use_container_width=True):
             st.session_state.view_tender_detail = None
+            st.session_state.page = "tender_management"
             st.rerun()
 
     # ===== TENDER/PROPOSAL DASHBOARD =====
@@ -1570,58 +1075,10 @@ def _render_tender_detail_page(tender_data: Dict[str, Any]):
     st.markdown("### TENDER/PROPOSAL DASHBOARD")
     
     # Get safe values
-    official_estimate = float(tender_data.get('official_estimate', 0) or 0)
-    our_bid = tender_data.get('our_bid_amount')
-    if our_bid is None:
-        our_bid = 0
-    else:
-        try:
-            our_bid = float(our_bid)
-        except (ValueError, TypeError):
-            our_bid = 0
-    
-    total_bidders = tender_data.get('total_bidders')
-    if total_bidders is None:
-        total_bidders = 'N/A'
-    
-    our_rank = tender_data.get('our_rank')
-    if our_rank is None:
-        our_rank = 'N/A'
+    official_estimate, our_bid, total_bidders, our_rank = _get_safe_tender_values(tender_data)
     
     # Summary cards
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Official Estimate",
-            f"BDT {official_estimate:,.2f}",
-            help="Official Cost Estimate"
-        )
-    with col2:
-        if our_bid > 0:
-            st.metric(
-                "Our Bid",
-                f"BDT {our_bid:,.2f}",
-                help="Our submitted bid amount"
-            )
-        else:
-            st.metric(
-                "Our Bid",
-                "Not Set",
-                help="Our submitted bid amount"
-            )
-    with col3:
-        st.metric(
-            "Total Bidders",
-            total_bidders,
-            help="Total number of bidders"
-        )
-    with col4:
-        st.metric(
-            "Our Rank",
-            our_rank,
-            help="Our rank among bidders"
-        )
-    
+    _render_summary_cards(official_estimate, our_bid, total_bidders, our_rank)
     
     # ===== ALL TABS =====
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -1631,190 +1088,283 @@ def _render_tender_detail_page(tender_data: Dict[str, Any]):
         "📊 Analysis Report",
         "🏆 Tender Results CRUD",
         "📥 Import Tender Data",
-        "👥 Team & Milestones"  # NEW TAB
+        "👥 Team & Milestones"
     ])
-
-
-
     
     with tab1:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### Basic Information")
-            st.info(f"**Tender ID:** `{tender_data.get('tender_id', 'N/A')}`")
-            st.markdown(f"**Title:** {tender_data.get('tender_title', 'N/A')}")
-            st.markdown(f"**Procuring Entity:** {tender_data.get('procuring_entity', 'N/A')}")
-            st.markdown(f"**Division:** {tender_data.get('division', 'N/A')}")
-            st.markdown(f"**District:** {tender_data.get('district', 'N/A')}")
-            st.markdown(f"**Procurement Type:** {tender_data.get('procurement_type', 'N/A').upper()}")
-            
-        with col2:
-            st.markdown("#### Financial Information")
-            st.info(f"**Official Estimate:** BDT {official_estimate:,.2f}")
-            st.markdown(f"**Tender Security:** BDT {float(tender_data.get('tender_security', 0) or 0):,.2f}")
-            st.markdown(f"**Document Fee:** BDT {float(tender_data.get('document_fee', 0) or 0):,.2f}")
-            if our_bid > 0:
-                st.markdown(f"**Our Bid:** BDT {our_bid:,.2f}")
-            else:
-                st.markdown("**Our Bid:** Not set")
-        
-        st.markdown("#### Important Dates")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            deadline = tender_data.get('submission_deadline')
-            if deadline:
-                try:
-                    deadline_dt = pd.to_datetime(deadline)
-                    st.markdown(f"**Submission Deadline:** {deadline_dt.strftime('%d %b %Y %H:%M')}")
-                except:
-                    st.markdown(f"**Submission Deadline:** {deadline}")
-        with col2:
-            pub_date = tender_data.get('tender_publication_date')
-            if pub_date:
-                try:
-                    pub_dt = pd.to_datetime(pub_date)
-                    st.markdown(f"**Published:** {pub_dt.strftime('%d %b %Y')}")
-                except:
-                    st.markdown(f"**Published:** {pub_date}")
-        with col3:
-            opening_date = tender_data.get('bid_opening_date')
-            if opening_date:
-                try:
-                    opening_dt = pd.to_datetime(opening_date)
-                    st.markdown(f"**Opening Date:** {opening_dt.strftime('%d %b %Y %H:%M')}")
-                except:
-                    st.markdown(f"**Opening Date:** {opening_date}")
-        
-        # ===== ADD TEAM SUMMARY HERE =====
-        _add_team_summary_to_information_tab(tender_data)
-        
-        # ===== EDIT SECTION - USE DATABASE ID FOR KEY =====
-        st.markdown("---")
-        st.markdown("#### ✏️ Edit Tender")
-        if st.button("✏️ Edit This Tender", key=f"edit_tender_{tender_db_id}", use_container_width=True, type="primary"):
-            st.session_state.edit_tender_id = tender_db_id
-            st.session_state.extracted_data = tender_data
-            st.session_state.edit_mode = True
-            st.session_state.page = "boq_generator"
-            st.rerun()
+        _render_information_tab(tender_data, official_estimate, our_bid, tender_db_id, tender_id)
     
-    # ===== TAB 2: WINNER INFORMATION =====
     with tab2:
-        st.markdown("#### Winner Information")
-        
-        winner = tender_data.get('winning_competitor')
-        winner_amount = tender_data.get('winning_bid_amount')
-        if winner_amount:
-            try:
-                winner_amount = float(winner_amount)
-            except (ValueError, TypeError):
-                winner_amount = None
-        
-        if winner:
-            st.success(f"🏆 **Winner:** {winner}")
-            st.info(f"**Winning Bid Amount:** BDT {winner_amount:,.2f}" if winner_amount else "**Winning Bid Amount:** N/A")
-            
-            # Calculate NPPI
-            if official_estimate > 0 and winner_amount:
-                nppi = (winner_amount / official_estimate) * 100
-                st.metric("NPPI Factor", f"{nppi:.2f}%")
-        else:
-            st.warning("No winner declared yet for this tender.")
-            st.info("💡 You can declare a winner in the 'Tender Results CRUD' tab.")
-        
-        # Bid history
-        st.markdown("#### Bid History")
-        try:
-            with db.get_connection() as conn:
-                cursor = db.db_conn.get_cursor(conn)
-                cursor.execute("""
-                    SELECT competitor_name, bid_amount, was_winner, bid_date
-                    FROM competitor_bid_history
-                    WHERE tender_id = ? AND company_id = ?
-                    ORDER BY bid_amount ASC
-                """, (tender_id, st.session_state.company_id))
-                rows = cursor.fetchall()
-                if rows:
-                    bid_data = [dict(row) for row in rows]
-                    df = pd.DataFrame(bid_data)
-                    df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
-                    df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No bid history available. Import bid data first.")
-        except Exception as e:
-            st.warning(f"Could not load bid history: {e}")
+        _render_winner_tab(tender_data, official_estimate, tender_id)
     
-    # ===== TAB 3: BID ANALYSIS (Quick Stats) =====
     with tab3:
-        st.markdown("#### Bid Analysis")
-        st.info("Comprehensive analysis available in the 'Analysis Report' tab above.")
-        
-        # Quick stats
-        if official_estimate > 0 and our_bid > 0:
-            nppi = (our_bid / official_estimate) * 100
-            st.metric("Our NPPI", f"{nppi:.2f}%", help="Our bid as percentage of OCE")
-            
-            if nppi < 85:
-                st.warning("⚠️ Your bid is significantly below OCE. This may trigger SLT scrutiny.")
-            elif nppi > 105:
-                st.warning("⚠️ Your bid is above OCE. Consider reviewing your pricing.")
-            else:
-                st.success("✅ Your bid is within a reasonable range.")
-            
-            # Show bid comparison
-            st.markdown("#### Bid Comparison")
-            try:
-                with db.get_connection() as conn:
-                    cursor = db.db_conn.get_cursor(conn)
-                    cursor.execute("""
-                        SELECT competitor_name, bid_amount, was_winner
-                        FROM competitor_bid_history
-                        WHERE tender_id = ? AND company_id = ?
-                        ORDER BY bid_amount ASC
-                        LIMIT 10
-                    """, (tender_id, st.session_state.company_id))
-                    rows = cursor.fetchall()
-                    if rows:
-                        bid_data = [dict(row) for row in rows]
-                        df = pd.DataFrame(bid_data)
-                        
-                        # Add our bid to comparison
-                        our_row = {'competitor_name': '🏢 Our Bid', 'bid_amount': our_bid, 'was_winner': 0}
-                        df = pd.concat([df, pd.DataFrame([our_row])], ignore_index=True)
-                        df = df.sort_values('bid_amount').reset_index(drop=True)
-                        
-                        df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}")
-                        df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
-                        
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No competitor data available.")
-            except Exception as e:
-                st.warning(f"Could not load bid comparison: {e}")
-        elif official_estimate > 0 and our_bid == 0:
-            st.info("💡 Set your bid amount to see NPPI analysis.")
-        else:
-            st.warning("⚠️ Official Estimate not set. Please update tender with OCE.")
+        _render_bid_analysis_tab(tender_data, official_estimate, our_bid, tender_id)
     
-    # ===== TAB 4: ANALYSIS REPORT =====
     with tab4:
         _render_tender_analysis_for_tender(tender_data, tender_id, official_estimate)
     
-    # ===== TAB 5: TENDER RESULTS CRUD =====
     with tab5:
         _render_tender_result_crud_for_tender(tender_data, tender_id, official_estimate)
     
-    # ===== TAB 6: IMPORT TENDER DATA =====
     with tab6:
         _render_tender_importer_for_tender(tender_data, tender_id, official_estimate)
     
     with tab7:
         _render_team_and_milestones_for_tender(tender_data, tender_id)
 
-    # Footer
-    #render_footer()
 
+# =============================================================================
+# HELPER FUNCTIONS FOR _render_tender_detail_page
+# =============================================================================
+
+def _render_detail_header(tender_data: Dict[str, Any]):
+    """Render the detail page header"""
+    
+    tender_id = tender_data.get('tender_id', 'N/A')
+    title = tender_data.get('tender_title', 'Untitled')
+    procuring_entity = tender_data.get('procuring_entity', 'N/A')
+    closing_date = tender_data.get('submission_deadline', 'N/A')
+    status = tender_data.get('bid_status', 'draft')
+    
+    status_display = {
+        'won': 'Contract Awarded',
+        'submitted': 'Being processed',
+        'draft': 'Draft',
+        'lost': 'Lost',
+        'awarded': 'Contract Awarded'
+    }.get(status, status.title())
+    
+    # Format closing date
+    if closing_date and closing_date != 'N/A':
+        try:
+            closing_date = pd.to_datetime(closing_date).strftime('%d-%b-%Y %H:%M')
+        except:
+            pass
+    
+    st.markdown(f"""
+    <div class="detail-header">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap;">
+            <div>
+                <h1>📄 Tender/Proposal Detail</h1>
+                <div class="subtitle">{title}</div>
+            </div>
+            <div>
+                <span class="status-badge status-{status}">{status_display}</span>
+            </div>
+        </div>
+        <div class="meta-row">
+            <span class="meta-item"><strong>Tender/Proposal ID:</strong> {tender_id}</span>
+            <span class="meta-item"><strong>Closing Date:</strong> {closing_date}</span>
+            <span class="meta-item"><strong>Procuring Entity:</strong> {procuring_entity[:60]}</span>
+            <span class="meta-item"><strong>Status:</strong> {status_display}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def _get_safe_tender_values(tender_data: Dict[str, Any]) -> tuple:
+    """Extract and normalize tender values"""
+    official_estimate = float(tender_data.get('official_estimate', 0) or 0)
+    
+    our_bid = tender_data.get('our_bid_amount')
+    if our_bid is None:
+        our_bid = 0
+    else:
+        try:
+            our_bid = float(our_bid)
+        except (ValueError, TypeError):
+            our_bid = 0
+    
+    total_bidders = tender_data.get('total_bidders')
+    if total_bidders is None:
+        total_bidders = 'N/A'
+    
+    our_rank = tender_data.get('our_rank')
+    if our_rank is None:
+        our_rank = 'N/A'
+    
+    return official_estimate, our_bid, total_bidders, our_rank
+
+
+def _render_summary_cards(official_estimate: float, our_bid: float, total_bidders, our_rank):
+    """Render summary metric cards"""
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Official Estimate", f"BDT {official_estimate:,.2f}", help="Official Cost Estimate")
+    with col2:
+        if our_bid > 0:
+            st.metric("Our Bid", f"BDT {our_bid:,.2f}", help="Our submitted bid amount")
+        else:
+            st.metric("Our Bid", "Not Set", help="Our submitted bid amount")
+    with col3:
+        st.metric("Total Bidders", total_bidders, help="Total number of bidders")
+    with col4:
+        st.metric("Our Rank", our_rank, help="Our rank among bidders")
+
+def _render_information_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_db_id: int, tender_id: str):
+    """Render the Tender Information tab"""
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### Basic Information")
+        st.info(f"**Tender ID:** `{tender_data.get('tender_id', 'N/A')}`")
+        st.markdown(f"**Title:** {tender_data.get('tender_title', 'N/A')}")
+        st.markdown(f"**Procuring Entity:** {tender_data.get('procuring_entity', 'N/A')}")
+        st.markdown(f"**Division:** {tender_data.get('division', 'N/A')}")
+        st.markdown(f"**District:** {tender_data.get('district', 'N/A')}")
+        st.markdown(f"**Procurement Type:** {tender_data.get('procurement_type', 'N/A').upper()}")
+        
+    with col2:
+        st.markdown("#### Financial Information")
+        st.info(f"**Official Estimate:** BDT {official_estimate:,.2f}")
+        st.markdown(f"**Tender Security:** BDT {float(tender_data.get('tender_security', 0) or 0):,.2f}")
+        st.markdown(f"**Document Fee:** BDT {float(tender_data.get('document_fee', 0) or 0):,.2f}")
+        if our_bid > 0:
+            st.markdown(f"**Our Bid:** BDT {our_bid:,.2f}")
+        else:
+            st.markdown("**Our Bid:** Not set")
+    
+    st.markdown("#### Important Dates")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        deadline = tender_data.get('submission_deadline')
+        if deadline:
+            try:
+                deadline_dt = pd.to_datetime(deadline)
+                st.markdown(f"**Submission Deadline:** {deadline_dt.strftime('%d %b %Y %H:%M')}")
+            except:
+                st.markdown(f"**Submission Deadline:** {deadline}")
+    with col2:
+        pub_date = tender_data.get('tender_publication_date')
+        if pub_date:
+            try:
+                pub_dt = pd.to_datetime(pub_date)
+                st.markdown(f"**Published:** {pub_dt.strftime('%d %b %Y')}")
+            except:
+                st.markdown(f"**Published:** {pub_date}")
+    with col3:
+        opening_date = tender_data.get('bid_opening_date')
+        if opening_date:
+            try:
+                opening_dt = pd.to_datetime(opening_date)
+                st.markdown(f"**Opening Date:** {opening_dt.strftime('%d %b %Y %H:%M')}")
+            except:
+                st.markdown(f"**Opening Date:** {opening_date}")
+    
+    # Team summary
+    _add_team_summary_to_information_tab(tender_data)
+
+    # ===== EDIT SECTION =====
+    st.markdown("---")
+    st.markdown("#### ✏️ Edit Tender")
+
+    from modules.rbac import can_edit_tender
+    if can_edit_tender():
+        if st.button("✏️ Edit This Tender", key=f"edit_tender_{tender_db_id}", use_container_width=True, type="primary"):
+        # Load tender data
+            success = _load_tender_for_edit(tender_db_id)
+            if success:
+                st.session_state.view_tender_detail = None
+                st.session_state.page = "tender_form"
+                st.rerun()
+
+def _render_winner_tab(tender_data: Dict[str, Any], official_estimate: float, tender_id: str):
+    """Render the Winner Information tab"""
+    
+    st.markdown("#### Winner Information")
+    
+    winner = tender_data.get('winning_competitor')
+    winner_amount = tender_data.get('winning_bid_amount')
+    if winner_amount:
+        try:
+            winner_amount = float(winner_amount)
+        except (ValueError, TypeError):
+            winner_amount = None
+    
+    if winner:
+        st.success(f"🏆 **Winner:** {winner}")
+        st.info(f"**Winning Bid Amount:** BDT {winner_amount:,.2f}" if winner_amount else "**Winning Bid Amount:** N/A")
+        
+        if official_estimate > 0 and winner_amount:
+            nppi = (winner_amount / official_estimate) * 100
+            st.metric("NPPI Factor", f"{nppi:.2f}%")
+    else:
+        st.warning("No winner declared yet for this tender.")
+        st.info("💡 You can declare a winner in the 'Tender Results CRUD' tab.")
+    
+    # Bid history
+    st.markdown("#### Bid History")
+    try:
+        with db.get_connection() as conn:
+            cursor = db.db_conn.get_cursor(conn)
+            cursor.execute("""
+                SELECT competitor_name, bid_amount, was_winner, bid_date
+                FROM competitor_bid_history
+                WHERE tender_id = ? AND company_id = ?
+                ORDER BY bid_amount ASC
+            """, (tender_id, st.session_state.company_id))
+            rows = cursor.fetchall()
+            if rows:
+                bid_data = [dict(row) for row in rows]
+                df = pd.DataFrame(bid_data)
+                df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
+                df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No bid history available. Import bid data first.")
+    except Exception as e:
+        st.warning(f"Could not load bid history: {e}")
+
+
+def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_id: str):
+    """Render the Bid Analysis tab (quick stats)"""
+    
+    st.markdown("#### Bid Analysis")
+    st.info("Comprehensive analysis available in the 'Analysis Report' tab above.")
+    
+    if official_estimate > 0 and our_bid > 0:
+        nppi = (our_bid / official_estimate) * 100
+        st.metric("Our NPPI", f"{nppi:.2f}%", help="Our bid as percentage of OCE")
+        
+        if nppi < 85:
+            st.warning("⚠️ Your bid is significantly below OCE. This may trigger SLT scrutiny.")
+        elif nppi > 105:
+            st.warning("⚠️ Your bid is above OCE. Consider reviewing your pricing.")
+        else:
+            st.success("✅ Your bid is within a reasonable range.")
+        
+        st.markdown("#### Bid Comparison")
+        try:
+            with db.get_connection() as conn:
+                cursor = db.db_conn.get_cursor(conn)
+                cursor.execute("""
+                    SELECT competitor_name, bid_amount, was_winner
+                    FROM competitor_bid_history
+                    WHERE tender_id = ? AND company_id = ?
+                    ORDER BY bid_amount ASC
+                    LIMIT 10
+                """, (tender_id, st.session_state.company_id))
+                rows = cursor.fetchall()
+                if rows:
+                    bid_data = [dict(row) for row in rows]
+                    df = pd.DataFrame(bid_data)
+                    
+                    our_row = {'competitor_name': '🏢 Our Bid', 'bid_amount': our_bid, 'was_winner': 0}
+                    df = pd.concat([df, pd.DataFrame([our_row])], ignore_index=True)
+                    df = df.sort_values('bid_amount').reset_index(drop=True)
+                    
+                    df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}")
+                    df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
+                    
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No competitor data available.")
+        except Exception as e:
+            st.warning(f"Could not load bid comparison: {e}")
+    elif official_estimate > 0 and our_bid == 0:
+        st.info("💡 Set your bid amount to see NPPI analysis.")
+    else:
+        st.warning("⚠️ Official Estimate not set. Please update tender with OCE.")
 
 # =============================================================================
 # TAB 4: TENDER ANALYSIS (Full Report)
@@ -2638,14 +2188,6 @@ def _render_tenders_table():
         overflow: hidden;
         margin-top: 10px;
     }
-    .table-header-actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 20px;
-        background: #1a1a2e;
-        border-bottom: 1px solid rgba(102, 126, 234, 0.1);
-    }
     .tender-table {
         width: 100%;
         border-collapse: collapse;
@@ -2709,6 +2251,44 @@ def _render_tenders_table():
         font-weight: 500;
         color: #e0e0e0;
     }
+    .pagination-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        padding: 15px 0;
+        flex-wrap: wrap;
+    }
+    .pagination-container .page-info {
+        color: #94a3b8;
+        font-size: 13px;
+    }
+    .pagination-container .page-btn {
+        background: rgba(102, 126, 234, 0.1) !important;
+        color: #94a3b8 !important;
+        border: 1px solid rgba(102, 126, 234, 0.2) !important;
+        padding: 4px 12px !important;
+        font-size: 13px !important;
+        border-radius: 4px !important;
+    }
+    .pagination-container .page-btn:hover:not(:disabled) {
+        background: rgba(102, 126, 234, 0.2) !important;
+        color: white !important;
+    }
+    .pagination-container .page-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+    .pagination-container .page-number {
+        display: flex;
+        gap: 4px;
+    }
+    .pagination-container .page-number button {
+        padding: 4px 10px !important;
+        font-size: 13px !important;
+        border-radius: 4px !important;
+        min-width: 32px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -2725,140 +2305,252 @@ def _render_tenders_table():
         return
     
     # Apply filters
-    filters = st.session_state.tender_search_filters
-    filtered_df = tenders_df.copy()
-    
-    if filters['procurement_nature'] != 'All':
-        filtered_df = filtered_df[filtered_df['procurement_nature'] == filters['procurement_nature']]
-    if filters['procurement_type'] != 'All':
-        filtered_df = filtered_df[filtered_df['procurement_type'] == filters['procurement_type']]
-    if filters['tender_id']:
-        filtered_df = filtered_df[filtered_df['tender_id'].str.contains(filters['tender_id'], case=False, na=False)]
-    if filters['publishing_date_from']:
-        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) >= pd.to_datetime(filters['publishing_date_from'])]
-    if filters['publishing_date_to']:
-        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) <= pd.to_datetime(filters['publishing_date_to'])]
+    filtered_df = _apply_filters(tenders_df)
     
     # Header with action buttons
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown(f"### 📋 Tender/Proposal Search Result")
         st.caption(f"Showing {len(filtered_df)} of {len(tenders_df)} tenders")
+    # In _render_tenders_table, replace the create button with:
+
     with col2:
-        if st.button("➕ Create New Tender", use_container_width=True, type="primary"):
-            st.session_state.page = "boq_generator"
+        if st.button("➕ Create New Tender", key="create_new_tender", use_container_width=True, type="primary"):
+            # Reset edit state
+            st.session_state.edit_mode = False
+            st.session_state.edit_tender_id = None
+            st.session_state.extracted_data = None
+            st.session_state.skip_review = False
+            
+            # Navigate to tender form
+            st.session_state.page = "tender_form"
             st.rerun()
+
     
-    # Table
     if filtered_df.empty:
         st.info("No tenders match the current filters.")
         return
     
-    # Create a container for the table
-    with st.container():
-        # Prepare table data
-        display_data = []
-        for _, row in filtered_df.iterrows():
-            status = row.get('bid_status', 'draft')
-            status_display = {
-                'won': 'Contract Awarded',
-                'submitted': 'Being processed',
-                'draft': 'Draft',
-                'lost': 'Lost',
-                'awarded': 'Contract Awarded'
-            }.get(status, status.title())
-            
-            status_class = {
-                'won': 'status-awarded',
-                'submitted': 'status-processing',
-                'draft': 'status-draft',
-                'lost': 'status-lost',
-                'awarded': 'status-awarded'
-            }.get(status, 'status-draft')
-            
-            tender_id = row.get('tender_id', 'N/A')
-            title = row.get('tender_title', 'Untitled')
-            procuring_entity = row.get('procuring_entity', 'N/A')
-            procurement_type = row.get('procurement_type', 'N/A').upper()
-            pub_date = row.get('tender_publication_date')
-            closing_date = row.get('submission_deadline')
-            
-            display_data.append({
-                'id': row['id'],
-                'tender_id': tender_id,
-                'title': title,
-                'procuring_entity': procuring_entity,
-                'procurement_type': procurement_type,
-                'status': status,
-                'status_display': status_display,
-                'status_class': status_class,
-                'pub_date': pub_date,
-                'closing_date': closing_date
-            })
+    # Prepare display data
+    display_data = _prepare_tender_display_data(filtered_df)
+    
+    # Render table with pagination
+    _render_tender_table_rows(display_data, company_id)
+
+
+def _apply_filters(tenders_df: pd.DataFrame) -> pd.DataFrame:
+    """Apply search filters to tender data"""
+    filters = st.session_state.tender_search_filters
+    filtered_df = tenders_df.copy()
+    
+    if filters.get('procurement_nature') and filters['procurement_nature'] != 'All':
+        filtered_df = filtered_df[filtered_df['procurement_nature'] == filters['procurement_nature']]
+    if filters.get('procurement_type') and filters['procurement_type'] != 'All':
+        filtered_df = filtered_df[filtered_df['procurement_type'] == filters['procurement_type']]
+    if filters.get('tender_id'):
+        filtered_df = filtered_df[filtered_df['tender_id'].str.contains(filters['tender_id'], case=False, na=False)]
+    if filters.get('publishing_date_from'):
+        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) >= pd.to_datetime(filters['publishing_date_from'])]
+    if filters.get('publishing_date_to'):
+        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) <= pd.to_datetime(filters['publishing_date_to'])]
+    
+    # Apply status filter if set
+    if 'status_filter' in st.session_state.tender_search_filters:
+        status_filter = st.session_state.tender_search_filters['status_filter']
+        if status_filter == 'submitted':
+            filtered_df = filtered_df[filtered_df['bid_status'] == 'submitted']
+        elif status_filter == 'archived':
+            filtered_df = filtered_df[filtered_df['bid_status'] == 'archived']
+        elif status_filter == 'cancelled':
+            filtered_df = filtered_df[filtered_df['bid_status'] == 'cancelled']
+    
+    return filtered_df
+
+
+def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
+    """Prepare tender data for display"""
+    display_data = []
+    for _, row in filtered_df.iterrows():
+        status = row.get('bid_status', 'draft')
+        status_display = {
+            'won': 'Contract Awarded',
+            'submitted': 'Being processed',
+            'draft': 'Draft',
+            'lost': 'Lost',
+            'awarded': 'Contract Awarded'
+        }.get(status, status.title())
         
-        # Display using Streamlit columns (one row at a time with dashboard button)
-        for idx, item in enumerate(display_data):
-            # Format dates
-            pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
-            closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
-            
-            # Use columns to display each row
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 3, 3, 2, 2, 2, 1.2])
-            
-            with col1:
-                st.write(f"{idx + 1}")
-            
-            with col2:
-                st.markdown(f"""
-                <div class="tender-id-cell">{item['tender_id']}</div>
-                <div class="ref-text">REF: {item['tender_id']}</div>
-                <span class="status-badge {item['status_class']}">{item['status_display']}</span>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f"""
-                <div class="tender-title-cell">
-                    <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                st.caption(item['procuring_entity'][:50])
-            
-            with col5:
-                st.write(item['procurement_type'])
-                st.caption("LTM")
-            
-            with col6:
-                st.caption(pub_date_str)
-                st.caption(closing_date_str)
-            
-            with col7:
-                if st.button("📊", key=f"dash_{item['id']}_{idx}", use_container_width=True):
-                    tender_data = get_tender_by_id(item['tender_id'], company_id)
-                    if tender_data:
-                        # Normalize the data
-                        tender_data = _normalize_tender_data(tender_data)
-                        st.session_state.view_tender_detail = tender_data
-                        st.rerun()
-                    else:
-                        st.error("Failed to load tender details")
-            
-            # Add a divider between rows
-            st.divider()
+        status_class = {
+            'won': 'status-awarded',
+            'submitted': 'status-processing',
+            'draft': 'status-draft',
+            'lost': 'status-lost',
+            'awarded': 'status-awarded'
+        }.get(status, 'status-draft')
+        
+        display_data.append({
+            'id': row['id'],
+            'tender_id': row.get('tender_id', 'N/A'),
+            'title': row.get('tender_title', 'Untitled'),
+            'procuring_entity': row.get('procuring_entity', 'N/A'),
+            'procurement_type': row.get('procurement_type', 'N/A').upper(),
+            'status': status,
+            'status_display': status_display,
+            'status_class': status_class,
+            'pub_date': row.get('tender_publication_date'),
+            'closing_date': row.get('submission_deadline')
+        })
+    
+    return display_data
+
+
+def _render_tender_table_rows(display_data: List[Dict], company_id: int):
+    """Render table rows with pagination"""
+    
+    # Initialize pagination
+    if 'tender_page' not in st.session_state:
+        st.session_state.tender_page = 1
+    
+    items_per_page = 10
+    total_items = len(display_data)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    
+    # Ensure current page is valid
+    if st.session_state.tender_page < 1:
+        st.session_state.tender_page = 1
+    elif st.session_state.tender_page > total_pages:
+        st.session_state.tender_page = total_pages
+    
+    # Calculate slice
+    start_idx = (st.session_state.tender_page - 1) * items_per_page
+    end_idx = min(start_idx + items_per_page, total_items)
+    page_items = display_data[start_idx:end_idx]
+    
+    # Table header
+    st.markdown("""
+    <div style="display:grid; grid-template-columns: 0.5fr 2.5fr 2.5fr 2fr 1.5fr 1.5fr 1fr; gap:0; padding:10px 12px; background:#1a1a3e; border-radius:8px 8px 0 0; border-bottom:2px solid rgba(102,126,234,0.2);">
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">S.No</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Tender/Proposal ID, Reference No., Status</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Procurement Nature, Title</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">PE</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Type, Method</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Publishing Date, Closing Date</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Dashboard</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Render rows
+    for idx, item in enumerate(page_items, start=start_idx + 1):
+        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
+        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
+        
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
+        
+        with col1:
+            st.write(f"{idx}")
+        with col2:
+            st.markdown(f"""
+            <div class="tender-id-cell">{item['tender_id']}</div>
+            <div class="ref-text">REF: {item['tender_id']}</div>
+            <span class="status-badge {item['status_class']}">{item['status_display']}</span>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="tender-title-cell">
+                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.caption(item['procuring_entity'][:50])
+        with col5:
+            st.write(item['procurement_type'])
+            st.caption("LTM")
+        with col6:
+            st.caption(pub_date_str)
+            st.caption(closing_date_str)
+        with col7:
+            if st.button("📊", key=f"dash_{item['id']}_{idx}", use_container_width=True):
+                tender_data = get_tender_by_id(item['tender_id'], company_id)
+                if tender_data:
+                    tender_data = _normalize_tender_data(tender_data)
+                    st.session_state.view_tender_detail = tender_data
+                    st.rerun()
+                else:
+                    st.error("Failed to load tender details")
+        
+        st.divider()
     
     # Pagination
-    if len(display_data) > 10:
-        st.markdown("---")
-        col1, col2, col3, col4, col5 = st.columns([1, 1, 2, 1, 1])
-        with col2:
-            st.button("« First", use_container_width=True)
-        with col3:
-            st.button("Go To Page", use_container_width=True)
-        with col4:
-            st.button("Next »", use_container_width=True)
-        with col5:
-            st.button("Last »", use_container_width=True)
+    if total_pages > 1:
+        _render_pagination(total_pages)
+
+
+def _render_pagination(total_pages: int):
+    """Render pagination controls"""
+    
+    st.markdown('<div class="pagination-container">', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 4, 2])
+    
+    with col1:
+        st.markdown(f"""
+        <div class="page-info">
+            Page <strong>{st.session_state.tender_page}</strong> of <strong>{total_pages}</strong>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        nav_cols = st.columns([1, 1, 3, 1, 1])
+        
+        with nav_cols[0]:
+            if st.button("«", key="first_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
+                st.session_state.tender_page = 1
+                st.rerun()
+        
+        with nav_cols[1]:
+            if st.button("‹", key="prev_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
+                st.session_state.tender_page -= 1
+                st.rerun()
+        
+        with nav_cols[2]:
+            # Page number buttons
+            page_cols = st.columns(min(total_pages, 5))
+            start_page = max(1, st.session_state.tender_page - 2)
+            end_page = min(total_pages, start_page + 4)
+            
+            for i, p in enumerate(range(start_page, end_page + 1)):
+                with page_cols[i]:
+                    if st.button(str(p), key=f"page_{p}", use_container_width=True, 
+                                type="primary" if p == st.session_state.tender_page else "secondary"):
+                        st.session_state.tender_page = p
+                        st.rerun()
+        
+        with nav_cols[3]:
+            if st.button("›", key="next_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
+                st.session_state.tender_page += 1
+                st.rerun()
+        
+        with nav_cols[4]:
+            if st.button("»", key="last_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
+                st.session_state.tender_page = total_pages
+                st.rerun()
+    
+    with col3:
+        # Go to page
+        go_to_page = st.number_input(
+            "Go to",
+            min_value=1,
+            max_value=total_pages,
+            value=st.session_state.tender_page,
+            step=1,
+            key="go_to_page_input",
+            label_visibility="collapsed"
+        )
+        if go_to_page != st.session_state.tender_page:
+            st.session_state.tender_page = go_to_page
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
     """Render tender analysis for a specific tender"""
@@ -3934,6 +3626,33 @@ def _get_simulated_nppi(procurement_type: str, tender_date: str = None) -> float
 def render_tender_management() -> None:
     """Main tender management entry point"""
     
+    # Check if we need to show the tender form
+    if st.session_state.get('page') == "tender_form":
+        from modules.tender_form import render_tender_form
+        render_tender_form()
+        return
+    
+    render_role_badge()
+    st.markdown("---")
+    
+    if not can_view_tenders():
+        st.error("🔒 You don't have permission to view tenders.")
+        return
+    
+    # Initialize view state
+    if 'view_tender_detail' not in st.session_state:
+        st.session_state.view_tender_detail = None
+    
+    # Initialize active tab
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "📊 Dashboard"
+    
+    # Render the dashboard
+    render_tender_dashboard()
+
+def render_tender_management_bak() -> None:
+    """Main tender management entry point"""
+    
     render_role_badge()
     st.markdown("---")
     
@@ -4726,3 +4445,198 @@ def _render_milestone_status_update(tender_db_id: int):
                     st.caption(f"• {m['milestone_name']} - Due in {days_left} days")
                 except:
                     st.caption(f"• {m['milestone_name']} - Due: {due_date}")
+
+    """Render tender form with data from session_state.extracted_data"""
+    
+    from utils.helpers import format_currency_bd
+    
+    # Get data source
+    data = st.session_state.extracted_data if editing else st.session_state.get('extracted_data', {})
+    
+    # Set default values with proper types
+    default_values = {
+        'tender_id': str(data.get('tender_id', '')) if data else '',
+        'tender_title': str(data.get('tender_title', '')) if data else '',
+        'procuring_entity': str(data.get('procuring_entity', '')) if data else '',
+        'division': str(data.get('division', 'Dhaka')) if data else 'Dhaka',
+        'procurement_type': str(data.get('procurement_type', 'works')) if data else 'works',
+        'official_estimate': float(data.get('official_estimate', 0.0)) if data else 0.0,
+        'submission_deadline': data.get('submission_deadline', datetime.now().date()) if data else datetime.now().date(),
+        'tender_security': float(data.get('tender_security', 0.0)) if data else 0.0,
+        'document_fee': float(data.get('document_fee', 0.0)) if data else 0.0,
+        'project_code': str(data.get('project_code', '')) if data else '',
+        'project_name': str(data.get('project_name', '')) if data else '',
+        'package_no': str(data.get('package_no', '')) if data else '',
+        'budget_type': str(data.get('budget_type', 'Development')) if data else 'Development',
+        'notes': str(data.get('notes', '')) if data else ''
+    }
+    
+    # Show edit header with Cancel button
+    if editing:
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            st.success(f"📝 **Editing Tender #{st.session_state.edit_tender_id}**")
+            # Display current OCE prominently
+            current_oce = default_values['official_estimate']
+            if current_oce > 0:
+                st.info(f"💰 **Current OCE:** {format_currency_bd(current_oce)}")
+            st.info("💡 Modify the fields below and click '💾 Update Tender' to save changes.")
+        with col2:
+            if st.button("❌ Cancel Edit", key="cancel_edit_btn", use_container_width=True):
+                st.session_state.edit_mode = False
+                st.session_state.edit_tender_id = None
+                st.session_state.extracted_data = None
+                st.session_state.skip_review = False
+                st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
+                st.session_state.active_tab = "📊 Dashboard"
+                st.rerun()
+    
+    # Display current data summary if available
+    if default_values['official_estimate'] > 0:
+        st.info(f"💰 Current Estimate: {format_currency_bd(default_values['official_estimate'])}")
+    
+    # Main form
+    with st.form("tender_form", clear_on_submit=False):
+        st.markdown("### 📝 Core Tender Details")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            tender_id = st.text_input("Tender ID *", value=default_values['tender_id'], key="form_tender_id")
+            tender_title = st.text_area("Tender Title *", value=default_values['tender_title'], height=80, key="form_tender_title")
+            procuring_entity = st.text_input("Procuring Entity *", value=default_values['procuring_entity'], key="form_procuring_entity")
+            divisions = ["Dhaka", "Chittagong", "Rajshahi", "Khulna", "Barisal", "Sylhet", "Rangpur", "Mymensingh"]
+            division_index = divisions.index(default_values['division']) if default_values['division'] in divisions else 0
+            division = st.selectbox("Division", divisions, index=division_index, key="form_division")
+        
+        with col2:
+            valid_pt = ["works", "goods", "services"]
+            pt_index = valid_pt.index(default_values['procurement_type']) if default_values['procurement_type'] in valid_pt else 0
+            procurement_type = st.selectbox("Procurement Type", valid_pt, index=pt_index, key="form_procurement_type")
+            
+            # OCE field - make it very clear
+            st.markdown("**Official Estimate (OCE) *️⃣**")
+            st.caption("This is used for NPPI calculations in bid analysis")
+            
+            official_estimate = st.number_input(
+                "Official Estimate (BDT) *", 
+                min_value=0.0,
+                step=1000000.0,
+                value=default_values['official_estimate'],
+                key="form_official_estimate",
+                format="%0.3f",
+                label_visibility="collapsed"
+            )
+            
+            # Show formatted value
+            if official_estimate > 0:
+                st.caption(f"💡 Formatted: {format_currency_bd(official_estimate)}")
+            
+            submission_deadline = st.date_input("Submission Deadline *", value=default_values['submission_deadline'], key="form_deadline")
+            
+            tender_security = st.number_input(
+                "Tender Security (BDT)", 
+                min_value=0.0,
+                step=10000.0,
+                value=default_values['tender_security'],
+                key="form_security",
+                format="%0.3f"
+            )
+            
+            document_fee = st.number_input(
+                "Document Fee (BDT)", 
+                min_value=0.0,
+                step=500.0,
+                value=default_values['document_fee'],
+                key="form_doc_fee",
+                format="%0.3f"
+            )
+        
+        with st.expander("📝 Additional Information", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                project_code = st.text_input("Project Code", value=default_values['project_code'], key="form_project_code")
+                package_no = st.text_input("Package No.", value=default_values['package_no'], key="form_package_no")
+                budget_type = st.text_input("Budget Type", value=default_values['budget_type'], key="form_budget_type")
+            with col2:
+                project_name = st.text_area("Project Name", value=default_values['project_name'], height=60, key="form_project_name")
+                notes = st.text_area("Notes", value=default_values['notes'], height=60, key="form_notes")
+        
+        # Display formatted values for preview
+        if official_estimate > 0:
+            st.caption(f"💡 Formatted estimate: {format_currency_bd(official_estimate)}")
+        
+        # Submit button
+        btn_text = "💾 Update Tender" if editing else "🚀 Create Tender"
+        submitted = st.form_submit_button(btn_text, use_container_width=True, type="primary")
+        
+        # Cancel button inside form (for manual mode)
+        if not editing:
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col2:
+                if st.form_submit_button("🗑️ Clear Form", use_container_width=True):
+                    st.session_state.extracted_data = None
+                    st.session_state.skip_review = False
+                    st.session_state._last_pdf_name = None
+                    st.rerun()
+        
+        if submitted:
+            # Validate
+            if not all([tender_id, tender_title, procuring_entity, official_estimate > 0]):
+                st.error("❌ Please fill all required fields marked with *")
+                return
+            
+            tender_data = {
+                'tender_id': tender_id,
+                'tender_title': tender_title,
+                'procuring_entity': procuring_entity,
+                'division': division,
+                'procurement_type': procurement_type,
+                'official_estimate': official_estimate,
+                'submission_deadline': submission_deadline,
+                'tender_security': tender_security,
+                'document_fee': document_fee,
+                'project_code': project_code,
+                'project_name': project_name,
+                'package_no': package_no,
+                'budget_type': budget_type,
+                'notes': notes,
+                'is_active': 1
+            }
+            
+            if editing:
+                # Update existing tender
+                success = db.update_tender(st.session_state.edit_tender_id, tender_data, st.session_state.user_id)
+
+                if success:
+                    st.success(f"✅ Tender updated successfully!")
+                    st.success(f"💰 OCE updated to: {format_currency_bd(official_estimate)}")
+                    st.balloons()
+                    # Clear edit session states
+                    for key in ['edit_mode', 'edit_tender_id', 'extracted_data', 'skip_review', '_last_pdf_name']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
+                    st.session_state.active_tab = "📊 Dashboard"
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to update tender")
+                    st.error("Please check the logs for details.")
+            else:
+                # Create new tender
+                tender_db_id = db.create_tender(st.session_state.company_id, tender_data, st.session_state.user_id)
+                if tender_db_id:
+                    st.success(f"✅ Tender '{tender_title}' created successfully!")
+                    st.balloons()
+                    
+                    # Clear ALL PDF and form related session state
+                    keys_to_clear = ['extracted_data', 'skip_review', '_last_pdf_name', '_tender_pdf_upload_new']
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    
+                    st.session_state.tender_action_mode = "➕ Create New Tender (Manual)"
+                    st.session_state.active_tab = "📊 Dashboard"
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to create tender")

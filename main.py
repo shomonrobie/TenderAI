@@ -582,6 +582,7 @@ class PageRoutes:
     COMPETITIVE_INTEL = "competitive_intel"
     AI_ADVISOR = "ai_advisor"
     COMPANY_CONFIG = "company_config"
+    TENDER_FORM = 'tender_form'  # ✅ ADD THIS NEW ROUTE
 
     # ─── Admin System Pages ──────────────────────────────────────────────────
     ADMIN_DASHBOARD = 'admin_dashboard'
@@ -1217,6 +1218,7 @@ def _render_authenticated_pages() -> None:
         PageRoutes.IMPORT_WIZARD: lambda: render_unified_import_wizard(db),
         
         PageRoutes.RATE_VIEWER: lambda: _import_and_call('modules.rate_viewer', 'render_rate_viewer', db),
+        PageRoutes.TENDER_FORM: lambda: _import_and_call('modules.tender_form', 'render_tender_form'),
 
         # Advanced modules (lazy import)
         PageRoutes.TENDER_MANAGEMENT: lambda: _import_and_call('modules.tender_management', 'render_tender_management'),
@@ -1424,6 +1426,7 @@ def main() -> None:
     run_migration()
     from migrations.add_is_active_to_tender_milestones import run_migration2
     run_migration2()
+    ensure_database_schema()
     # =========================================================================
     # FIRST: Check if user is already logged in - redirect immediately
     # =========================================================================
@@ -1631,6 +1634,36 @@ def _handle_premium_feature(feature_func):
         if st.button("💳 Upgrade Now", use_container_width=True):
             st.session_state.page = "subscription"
             st.rerun()
+
+# main.py - Add at the top after imports
+
+def ensure_database_schema():
+    """Run database fix on startup if needed"""
+    import os
+    import sqlite3
+    
+    db_path = "data/tender_system.db"
+    if not os.path.exists(db_path):
+        return
+    
+    try:
+        # Check if mobile_number column exists
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cursor.fetchall()]
+        conn.close()
+        
+        if 'mobile_number' not in columns:
+            # Run the fix script
+            import subprocess
+            subprocess.run(["python", "migrations/fix_db_final.py"], check=True)
+            print("✅ Database schema updated")
+    except Exception as e:
+        print(f"⚠️ Could not check/update schema: {e}")
+
+# Call this near the start of your app
+
 
 def _access_denied():
     """Show access denied message"""

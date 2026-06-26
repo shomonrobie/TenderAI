@@ -1,4 +1,4 @@
-# migrations/add_chapter_number_to_pwd_children.py
+# migrations/add_is_active_to_tender_milestones.py
 import sqlite3
 import sys
 from pathlib import Path
