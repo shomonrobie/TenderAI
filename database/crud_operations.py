@@ -301,7 +301,7 @@ class DatabaseCRUD:
         
 
     def authenticate_user(self, username_or_email: str, password: str) -> Optional[Dict]:
-        """Authenticate user - returns DICT"""
+        """Authenticate user - supports both SHA256 and bcrypt hashes"""
         with self.get_connection() as conn:
             cursor = self.db_conn.get_cursor(conn)
             
@@ -324,8 +324,13 @@ class DatabaseCRUD:
                     columns = [description[0] for description in cursor.description]
                     user_dict = dict(zip(columns, row))
                 
-                # Now user_dict is always a dictionary
-                if bcrypt.checkpw(password.encode(), user_dict['password'].encode()):
+                stored_password = user_dict.get('password', '')
+                
+                # ===== TRY SHA256 FIRST =====
+                import hashlib
+                hashed_input = hashlib.sha256(password.encode()).hexdigest()
+                
+                if stored_password == hashed_input:
                     # Update last login
                     cursor.execute(
                         "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
@@ -334,10 +339,35 @@ class DatabaseCRUD:
                     conn.commit()
                     del user_dict['password']
                     return user_dict
+                
+                # ===== TRY BCRYPT AS FALLBACK =====
+                try:
+                    import bcrypt
+                    # Check if it looks like a bcrypt hash
+                    if stored_password.startswith('$2'):
+                        if bcrypt.checkpw(password.encode(), stored_password.encode()):
+                            # Convert to SHA256 for future use
+                            new_hash = hashlib.sha256(password.encode()).hexdigest()
+                            cursor.execute(
+                                "UPDATE users SET password = ? WHERE id = ?",
+                                (new_hash, user_dict['id'])
+                            )
+                            conn.commit()
+                            
+                            # Update last login
+                            cursor.execute(
+                                "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
+                                (user_dict['id'],)
+                            )
+                            conn.commit()
+                            
+                            del user_dict['password']
+                            return user_dict
+                except:
+                    pass
+                
+                return None
             
-            return None
-
-    
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
         """Get user by ID (without password)"""
         with self.get_connection() as conn:
