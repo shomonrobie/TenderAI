@@ -1,0 +1,24 @@
+{
+  "summary": {
+    "total_tests": 0,
+    "passed": 0,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pass_rate": 0.0,
+    "avg_execution_time_ms": 0.0,
+    "role_breakdown": {},
+    "generated_at": "2026-04-30T03:56:06.628945"
+  },
+  "results": [],
+  "config": {
+    "roles_tested": [
+      "basic_user",
+      "professional_user",
+      "enterprise_user",
+      "company_admin",
+      "admin"
+    ],
+    "functions_tested": 0
+  }
+}

@@ -1,0 +1,756 @@
+======================================================================
+TUPLE INDEXING SCAN REPORT
+======================================================================
+
+
+📄 create_test_users.py
+   Line 88: company_id = result[0] if result else None
+   Line 122: return result[0] if result else None
+
+📄 debug_qry.py
+   Line 56: return {row[0] for row in self.cursor.fetchall()}
+   Line 67: return {row[0]: row[1] for row in self.cursor.fetchall()}
+   Line 67: return {row[0]: row[1] for row in self.cursor.fetchall()}
+   Line 105: col_name = parts[0]
+   Line 107: col_type = parts[1]
+   Line 288: if len(columns) > 5:
+   Line 308: if len(cols) > 10:
+   Line 404: if len(added_columns) > 20:
+
+📄 extract_pwd_rates_validated.py
+   Line 75: 'rate_dhaka': rates[0] if len(rates) > 0 else 0,
+   Line 76: 'rate_chattogram': rates[1] if len(rates) > 1 else 0,
+   Line 77: 'rate_khulna': rates[2] if len(rates) > 2 else 0,
+   Line 78: 'rate_rajshahi': rates[3] if len(rates) > 3 else 0,
+   Line 353: pdf_path = sys.argv[1]
+
+📄 fix_excel_codes.py
+   Line 9: col_name = df.columns[0]
+
+📄 main.py
+   Line 146: return len(data) > 0  # list, tuple, dict, etc.
+   Line 248: #         company_columns = [col[1] for col in cursor.fetchall()]
+   Line 271: #         user_columns = [col[1] for col in cursor.fetchall()]
+   Line 634: st.info(f"**Full Name:** {user[5] if len(user) > 5 else 'N/A'}")
+   Line 635: st.info(f"**Username:** {user[1] if len(user) > 1 else 'N/A'}")
+   Line 636: st.info(f"**Email:** {user[4] if len(user) > 4 else 'N/A'}")
+   Line 637: st.info(f"**Phone:** {user[7] if len(user) > 7 and user[7] else 'Not provided'}")
+   Line 641: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 642: role_value = user[6] if (user and len(user) > 6 and user[6] is not None) else 'N/A'
+   Line 644: st.info(f"**Account Status:** {'✅ Active' if user[8] else '⏳ Pending'}" if len(user) > 8 else "**Status:** N/A")
+
+📄 main_bak_new.py
+   Line 129: return len(data) > 0  # list, tuple, dict, etc.
+   Line 194: company_columns = [col[1] for col in cursor.fetchall()]
+   Line 209: user_columns = [col[1] for col in cursor.fetchall()]
+   Line 247: company_columns = [col[1] for col in cursor.fetchall()]
+   Line 530: existing_columns = [col[1] for col in cursor.fetchall()]
+   Line 1224: full_name = user[3] if len(user) > 3 else username
+   Line 1224: full_name = user[3] if len(user) > 3 else username
+   Line 1452: full_name = user[3] if len(user) > 3 else username
+   Line 1452: full_name = user[3] if len(user) > 3 else username
+   Line 2455: with cols[0]:
+   Line 2459: with cols[1]:
+   Line 2463: with cols[2]:
+   Line 2469: with cols[3]:
+   Line 2474: with cols[4]:
+   Line 2481: with cols[5]:
+   Line 2572: st.info(f"**Full Name:** {user[5] if len(user) > 5 else 'N/A'}")
+   Line 2573: st.info(f"**Username:** {user[1] if len(user) > 1 else 'N/A'}")
+   Line 2574: st.info(f"**Email:** {user[4] if len(user) > 4 else 'N/A'}")
+   Line 2575: st.info(f"**Phone:** {user[7] if len(user) > 7 and user[7] else 'Not provided'}")
+   Line 2579: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 2580: role_value = user[6] if (user and len(user) > 6 and user[6] is not None) else 'N/A'
+   Line 2582: st.info(f"**Account Status:** {'✅ Active' if user[8] else '⏳ Pending'}" if len(user) > 8 else "**Status:** N/A")
+   Line 2851: if len(competitor_sample) > 0:
+   Line 2904: columns = [desc[0] for desc in cursor.description]
+
+📄 main_old.py
+   Line 100: return len(data) > 0  # list, tuple, dict, etc.
+   Line 165: company_columns = [col[1] for col in cursor.fetchall()]
+   Line 180: user_columns = [col[1] for col in cursor.fetchall()]
+   Line 218: company_columns = [col[1] for col in cursor.fetchall()]
+   Line 501: existing_columns = [col[1] for col in cursor.fetchall()]
+   Line 1191: full_name = user[3] if len(user) > 3 else username
+   Line 1191: full_name = user[3] if len(user) > 3 else username
+   Line 1419: full_name = user[3] if len(user) > 3 else username
+   Line 1419: full_name = user[3] if len(user) > 3 else username
+   Line 2363: with cols[0]:
+   Line 2367: with cols[1]:
+   Line 2371: with cols[2]:
+   Line 2377: with cols[3]:
+   Line 2382: with cols[4]:
+   Line 2386: with cols[5]:
+   Line 2542: with cols[0]:
+   Line 2546: with cols[1]:
+   Line 2550: with cols[2]:
+   Line 2556: with cols[3]:
+   Line 2561: with cols[4]:
+   Line 2568: with cols[5]:
+   Line 2659: st.info(f"**Full Name:** {user[5] if len(user) > 5 else 'N/A'}")
+   Line 2660: st.info(f"**Username:** {user[1] if len(user) > 1 else 'N/A'}")
+   Line 2661: st.info(f"**Email:** {user[4] if len(user) > 4 else 'N/A'}")
+   Line 2662: st.info(f"**Phone:** {user[7] if len(user) > 7 and user[7] else 'Not provided'}")
+   Line 2666: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 2667: role_value = user[6] if (user and len(user) > 6 and user[6] is not None) else 'N/A'
+   Line 2669: st.info(f"**Account Status:** {'✅ Active' if user[8] else '⏳ Pending'}" if len(user) > 8 else "**Status:** N/A")
+   Line 2938: if len(competitor_sample) > 0:
+   Line 2991: columns = [desc[0] for desc in cursor.description]
+   Line 3484: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 3484: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 3923: if html_content and len(html_content) > 0:
+
+📄 test_integration.py
+   Line 24: existing_tables = [row[0] for row in cursor.fetchall()]
+
+📄 api\extension_api.py
+   Line 85: is_approved = user[9] if len(user) > 9 else 1
+   Line 85: is_approved = user[9] if len(user) > 9 else 1
+   Line 90: subscription = db.get_user_subscription(user[0])
+   Line 449: value = row[0]
+   Line 472: value = row[0]
+   Line 484: if row and row[0]:
+   Line 493: if row and row[0]:
+   Line 494: value = row[0]
+   Line 506: value = row[0]
+
+📄 api\flask_api.py
+   Line 88: is_approved = user[9] if len(user) > 9 else 1
+   Line 88: is_approved = user[9] if len(user) > 9 else 1
+   Line 93: is_active = user[8] if len(user) > 8 else 1
+   Line 93: is_active = user[8] if len(user) > 8 else 1
+   Line 98: subscription = _db.get_user_subscription(user[0])
+   Line 252: if row and row[0]:
+   Line 253: value = row[0]
+
+📄 database\connection.py
+   Line 18: return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
+   Line 23: return dict(zip([col[0] for col in cursor.description], row))
+
+📄 database\crud_operations.py
+   Line 43: columns = [description[0] for description in cursor.description]
+   Line 71: columns = [description[0] for description in cursor.description]
+   Line 78: return results[0] if results else None
+   Line 283: columns = [description[0] for description in cursor.description]
+   Line 778: columns = [description[0] for description in cursor.description]
+   Line 1922: columns = [desc[0] for desc in cursor.description]
+   Line 3751: edition_year = version[0] if version else 2025
+   Line 3826: boq_id = result[0]
+   Line 3848: boq_id = result[0]
+
+📄 database\crud_operations_bak.py
+   Line 43: columns = [description[0] for description in cursor.description]
+   Line 71: columns = [description[0] for description in cursor.description]
+   Line 78: return results[0] if results else None
+   Line 283: columns = [description[0] for description in cursor.description]
+   Line 778: columns = [description[0] for description in cursor.description]
+   Line 2009: columns = [desc[0] for desc in cursor.description]
+
+📄 database\unified_db_manager_bak.py
+   Line 3208: columns = [desc[0] for desc in cursor.description]
+
+📄 modules\advanced_bid_optimizer.py
+   Line 25: if isinstance(bids[0], dict):
+   Line 72: price = tenderer_prices[0]
+   Line 156: if competitor_bids and len(competitor_bids) > 1:
+   Line 256: if len(bid_values) > 1:
+   Line 369: if isinstance(competitor_bids[0], dict):
+   Line 476: if len(bid_values) > 1:
+   Line 534: if len(bid_values) > 1:
+
+📄 modules\advanced_win_probability.py
+   Line 101: percentile = position / len(sorted_bids) if len(sorted_bids) > 0 else 0.5
+   Line 150: current_percentile = sorted_bids.index(bid_price) / len(sorted_bids) if len(sorted_bids) > 0 else 0.5
+
+📄 modules\analysis_history.py
+   Line 244: with cols[0]:
+   Line 247: with cols[1]:
+   Line 251: with cols[2]:
+   Line 255: with cols[3]:
+   Line 263: with cols[4]:
+   Line 268: with cols[5]:
+   Line 273: with cols[6]:
+
+📄 modules\bid_scenario_generator.py
+   Line 171: if len(num_comps) > 1:
+   Line 176: recommended_bid = optimal_bids[0]
+
+📄 modules\boq_generator.py
+   Line 36: return result[0]
+
+📄 modules\boq_generator_ui.py
+   Line 273: if permissions.get('can_view_boq') and len(tabs_list) > 1:
+
+📄 modules\boq_manager.py
+   Line 41: edition_year = version[0] if version else 2025
+   Line 178: columns = [col[1] for col in cursor.description]
+
+📄 modules\company_knowledge_repo.py
+   Line 33: with tabs[0]:
+   Line 36: with tabs[1]:
+   Line 39: with tabs[2]:
+   Line 42: with tabs[3]:
+   Line 45: with tabs[4]:
+   Line 48: with tabs[5]:
+   Line 51: with tabs[6]:
+   Line 54: with tabs[7]:
+
+📄 modules\competitive_bid_simulator.py
+   Line 63: factor = np.random.uniform(self.nppi_factor_range[0], self.nppi_factor_range[1])
+   Line 63: factor = np.random.uniform(self.nppi_factor_range[0], self.nppi_factor_range[1])
+   Line 68: self.selected_nppi_factor = round((self.nppi_factor_range[0] + self.nppi_factor_range[1]) / 2, 4)
+   Line 68: self.selected_nppi_factor = round((self.nppi_factor_range[0] + self.nppi_factor_range[1]) / 2, 4)
+   Line 201: if len(num_comps) > 1:
+   Line 207: recommended_bid = optimal_bids[0]
+   Line 208: avg_nppi = nppi_factors[0]
+
+📄 modules\competitive_bid_simulator_html_report_generator.py
+   Line 580: if len(scenarios_full) > 5:
+   Line 665: <td><strong>{step[4]}</strong></td>
+
+📄 modules\competitor_master.py
+   Line 36: with tabs[0]:
+   Line 39: with tabs[1]:
+   Line 42: with tabs[2]:
+   Line 98: st.markdown(f"**Business Type:** {full_details[3] if len(full_details) > 3 else 'N/A'}")
+   Line 99: st.markdown(f"**Contact Person:** {full_details[4] if len(full_details) > 4 else 'N/A'}")
+   Line 100: st.markdown(f"**Phone:** {full_details[5] if len(full_details) > 5 else 'N/A'}")
+   Line 101: st.markdown(f"**Email:** {full_details[6] if len(full_details) > 6 else 'N/A'}")
+   Line 104: st.markdown(f"**Total Bids:** {full_details[11] if len(full_details) > 11 else 0}")
+   Line 105: st.markdown(f"**Total Wins:** {full_details[12] if len(full_details) > 12 else 0}")
+   Line 107: st.markdown(f"**Preferred Strategy:** {full_details[14] if len(full_details) > 14 else 'Unknown'}")
+   Line 109: st.markdown(f"**Notes:** {full_details[9] if len(full_details) > 9 else 'No notes'}")
+   Line 188: if len(top_winners) > 0:
+   Line 198: if len(strategy_counts) > 0:
+
+📄 modules\competitor_tracking.py
+   Line 88: new_std_dev = float(np.std(bids)) if len(bids) > 1 else 0.0
+   Line 138: bids = [row[0] for row in cursor.fetchall()]
+   Line 226: total_bids = sum(c[3] for c in competitors)
+
+📄 modules\egp_boq_workspace.py
+   Line 62: return float(res[0]) if res else None
+
+📄 modules\historical_data.py
+   Line 144: competitor_options = {c[1]: c[0] for c in competitors}
+   Line 144: competitor_options = {c[1]: c[0] for c in competitors}
+   Line 366: if len(df) > 0 and 'winning_company_type' in df.columns:
+   Line 368: win_rate = (our_wins / len(df) * 100) if len(df) > 0 else 0
+   Line 372: if len(df) > 0:
+   Line 377: if len(df) > 0:
+   Line 382: if len(df) > 0:
+   Line 388: if len(df) > 0 and 'winning_company_type' in df.columns:
+   Line 432: if len(df) > 0 and 'id' in df.columns:
+   Line 855: if len(df) > 0:
+   Line 858: if len(tenders_with_competitors) > 0:
+   Line 1109: if len(df) > 0:
+   Line 1142: if len(subset) > 0:
+   Line 1260: if len(df) > 0:
+
+📄 modules\lged_import_wizard.py
+   Line 106: zone_a = get_rate_value(row[3]) if len(row) > 3 else None
+   Line 106: zone_a = get_rate_value(row[3]) if len(row) > 3 else None
+   Line 107: zone_b = get_rate_value(row[4]) if len(row) > 4 else None
+   Line 107: zone_b = get_rate_value(row[4]) if len(row) > 4 else None
+   Line 108: zone_c = get_rate_value(row[5]) if len(row) > 5 else None
+   Line 108: zone_c = get_rate_value(row[5]) if len(row) > 5 else None
+   Line 109: zone_d = get_rate_value(row[6]) if len(row) > 6 else None
+   Line 109: zone_d = get_rate_value(row[6]) if len(row) > 6 else None
+   Line 423: format_func=lambda x: x[1] if isinstance(x, tuple) else str(x),
+   Line 427: section_num = selected_section_option[0] if selected_section_option and selected_section_option[0] else None
+   Line 427: section_num = selected_section_option[0] if selected_section_option and selected_section_option[0] else None
+   Line 536: format_func=lambda x: x[0],
+   Line 541: relationship_method = relationship_method[1]
+   Line 627: format_func=lambda x: x[1] if isinstance(x, tuple) else str(x),
+   Line 628: index=0 if not default_parent else next((i for i, opt in enumerate(parent_options) if opt[0] == default_parent), 0),
+   Line 632: parent_code = selected_parent[0] if isinstance(selected_parent, tuple) and selected_parent[0] else None
+   Line 632: parent_code = selected_parent[0] if isinstance(selected_parent, tuple) and selected_parent[0] else None
+   Line 1027: format_func=lambda x: x[0],
+   Line 1032: import_mode = import_mode[1]
+   Line 1396: actual_rates = rates_row[0] if rates_row else 0
+   Line 2225: col3.metric("Orphans", len(orphans), delta="⚠️" if len(orphans) > 0 else None)
+   Line 2245: if len(orphans) > 0:
+   Line 2344: if len(issues) > 10:
+   Line 2552: parents = stats[0] or 0
+   Line 2553: children = stats[1] or 0
+   Line 2554: rates = stats[2] or 0
+   Line 2729: chapter_id = chapter_row[0]
+   Line 2740: last_num = last_section[0]
+   Line 2770: chapter_match = parts[0] == chapter_num
+   Line 2774: section_part = int(parts[1])
+
+📄 modules\lged_import_wizard_bak.py
+   Line 409: col3.metric("Orphans", len(orphans), delta="⚠️" if len(orphans) > 0 else None)
+   Line 429: if len(orphans) > 0:
+   Line 528: if len(issues) > 10:
+
+📄 modules\manual_rate_entry.py
+   Line 644: zone_labels[0]: rates[zone_labels[0]],
+   Line 644: zone_labels[0]: rates[zone_labels[0]],
+   Line 645: zone_labels[1]: rates[zone_labels[1]],
+   Line 645: zone_labels[1]: rates[zone_labels[1]],
+   Line 646: zone_labels[2]: rates[zone_labels[2]],
+   Line 646: zone_labels[2]: rates[zone_labels[2]],
+   Line 647: zone_labels[3]: rates[zone_labels[3]]
+   Line 647: zone_labels[3]: rates[zone_labels[3]]
+   Line 792: zone_labels[0]: rates[zone_labels[0]],
+   Line 792: zone_labels[0]: rates[zone_labels[0]],
+   Line 793: zone_labels[1]: rates[zone_labels[1]],
+   Line 793: zone_labels[1]: rates[zone_labels[1]],
+   Line 794: zone_labels[2]: rates[zone_labels[2]],
+   Line 794: zone_labels[2]: rates[zone_labels[2]],
+   Line 795: zone_labels[3]: rates[zone_labels[3]]
+   Line 795: zone_labels[3]: rates[zone_labels[3]]
+   Line 1143: if code_parts and code_parts[0].isdigit():
+   Line 1144: suggested_chapter = code_parts[0]
+   Line 1228: zone_labels[0]: rates[zone_labels[0]],
+   Line 1228: zone_labels[0]: rates[zone_labels[0]],
+   Line 1229: zone_labels[1]: rates[zone_labels[1]],
+   Line 1229: zone_labels[1]: rates[zone_labels[1]],
+   Line 1230: zone_labels[2]: rates[zone_labels[2]],
+   Line 1230: zone_labels[2]: rates[zone_labels[2]],
+   Line 1231: zone_labels[3]: rates[zone_labels[3]]
+   Line 1231: zone_labels[3]: rates[zone_labels[3]]
+   Line 1358: code = parts[0].strip()
+   Line 1359: description = parts[1].strip()
+   Line 1360: unit = parts[2].strip() if len(parts) > 2 else ''
+   Line 1438: chapter = code_parts[0]
+   Line 1594: selected_row = filtered_data[filtered_data[code_column] == selected_code].iloc[0]
+   Line 1771: child_id = result[0]
+   Line 1816: child_id = result[0]
+
+📄 modules\parse_lged_pdf.py
+   Line 385: desc = remaining[:rate_matches[0].start()].strip()
+
+📄 modules\parse_pwd_pdf.py
+   Line 112: 'has_rates': len(rates) > 0,
+   Line 145: desc = remaining[:rate_matches[0].start()].strip()
+   Line 177: 'has_rates': len(rates) > 0,
+
+📄 modules\pdf_generator.py
+   Line 160: weighted_std = np.std(comp_values) if len(comp_values) > 1 else est * 0.05
+   Line 275: if len(name) > 25:
+   Line 281: sorted_data = sorted(zip(comp_names, comp_bid_values), key=lambda x: x[1], reverse=True)
+   Line 965: weighted_std = round(np.std(comp_values), 3) if len(comp_values) > 1 else round(est * 0.05, 3)
+   Line 1024: cols = [d[0] for d in cursor.description]
+
+📄 modules\pdf_parser.py
+   Line 172: if len(parts) >= 6 and parts[0].isdigit():
+   Line 196: return desc[:200] if len(desc) > 200 else desc
+
+📄 modules\post_evaluation.py
+   Line 82: selected = next(a for a in analyses if a[0] == analysis_id)
+   Line 103: if selected[10] and selected[10] > 0:
+   Line 103: if selected[10] and selected[10] > 0:
+   Line 123: value=float(selected[10]) if selected[10] else 0.0
+   Line 123: value=float(selected[10]) if selected[10] else 0.0
+   Line 135: value=int(selected[12]) if selected[12] else 1,
+   Line 135: value=int(selected[12]) if selected[12] else 1,
+   Line 167: final_bid = selected[6] if selected[6] else selected[5]
+   Line 167: final_bid = selected[6] if selected[6] else selected[5]
+   Line 167: final_bid = selected[6] if selected[6] else selected[5]
+   Line 191: if selected[10] and selected[10] > 0:
+   Line 191: if selected[10] and selected[10] > 0:
+   Line 195: final_bid = selected[6] if selected[6] else selected[5]
+   Line 195: final_bid = selected[6] if selected[6] else selected[5]
+   Line 195: final_bid = selected[6] if selected[6] else selected[5]
+   Line 196: difference = final_bid - selected[10]
+   Line 197: diff_percent = (difference / selected[10]) * 100
+   Line 262: atype = h[3]
+   Line 268: if h[9]:
+   Line 279: avg_accuracy = np.mean([h[9] for h in historical_data if h[9]]) * 100 if historical_data else 0
+   Line 279: avg_accuracy = np.mean([h[9] for h in historical_data if h[9]]) * 100 if historical_data else 0
+   Line 327: bid_ratios = [(h[5] if h[5] else h[4]) / h[10] for h in successful_bids if h[10] > 0]
+   Line 327: bid_ratios = [(h[5] if h[5] else h[4]) / h[10] for h in successful_bids if h[10] > 0]
+   Line 327: bid_ratios = [(h[5] if h[5] else h[4]) / h[10] for h in successful_bids if h[10] > 0]
+   Line 327: bid_ratios = [(h[5] if h[5] else h[4]) / h[10] for h in successful_bids if h[10] > 0]
+   Line 327: bid_ratios = [(h[5] if h[5] else h[4]) / h[10] for h in successful_bids if h[10] > 0]
+   Line 335: recommended = h[4]
+   Line 336: actual = h[5] if h[5] else recommended
+   Line 336: actual = h[5] if h[5] else recommended
+   Line 352: lessons = [h[13] for h in historical_data if h[13]]
+   Line 352: lessons = [h[13] for h in historical_data if h[13]]
+   Line 364: if h[9]:
+
+📄 modules\ppr_calculations.py
+   Line 55: if len(comp_bid_values) > 1:
+
+📄 modules\price_to_win_html_report_generator_bak.py
+   Line 378: if len(scenarios_full) > 3:
+   Line 463: <td><strong>{step[4]}</strong></td>
+
+📄 modules\price_to_win_simulator_bak.py
+   Line 172: if len(num_comps) > 1:
+   Line 177: recommended_bid = optimal_bids[0]
+
+📄 modules\pwd_data_manager.py
+   Line 94: 'has_rates': len(rates) > 0,
+   Line 126: desc = remaining[:rate_matches[0].start()].strip()
+   Line 156: 'has_rates': len(rates) > 0,
+
+📄 modules\pwd_import_wizard.py
+   Line 258: zone_a = get_rate_value(row[3]) if len(row) > 3 else None
+   Line 258: zone_a = get_rate_value(row[3]) if len(row) > 3 else None
+   Line 259: zone_b = get_rate_value(row[4]) if len(row) > 4 else None
+   Line 259: zone_b = get_rate_value(row[4]) if len(row) > 4 else None
+   Line 260: zone_c = get_rate_value(row[5]) if len(row) > 5 else None
+   Line 260: zone_c = get_rate_value(row[5]) if len(row) > 5 else None
+   Line 261: zone_d = get_rate_value(row[6]) if len(row) > 6 else None
+   Line 261: zone_d = get_rate_value(row[6]) if len(row) > 6 else None
+   Line 355: format_func=lambda x: x[0],
+   Line 360: relationship_method = relationship_method[1]
+   Line 438: format_func=lambda x: x[1] if isinstance(x, tuple) else str(x),
+   Line 439: index=0 if not default_parent else next((i for i, opt in enumerate(parent_options) if opt[0] == default_parent), 0),
+   Line 443: parent_code = selected_parent[0] if isinstance(selected_parent, tuple) and selected_parent[0] else None
+   Line 443: parent_code = selected_parent[0] if isinstance(selected_parent, tuple) and selected_parent[0] else None
+   Line 809: format_func=lambda x: x[0],
+   Line 814: import_mode = import_mode[1]
+
+📄 modules\pwd_import_wizard_bak.py
+   Line 414: col3.metric("Orphans", len(orphans), delta="⚠️" if len(orphans) > 0 else None)
+   Line 428: if len(orphans) > 0:
+   Line 510: if len(issues) > 10:
+
+📄 modules\pwd_rate_management_dashboard.py
+   Line 257: st.metric("Orphan Items", len(orphans), delta="⚠️" if len(orphans) > 0 else None)
+   Line 361: if len(orphans) > 0:
+   Line 399: col3.metric("Orphans", len(orphans), delta="⚠️" if len(orphans) > 0 else None)
+   Line 402: if len(orphans) > 0:
+   Line 438: if st.button("💾 Save to Database", type="primary", use_container_width=True, disabled=dry_run or len(orphans) > 0):
+   Line 616: 'has_rates': len(rates) > 0,
+   Line 647: desc = remaining[:rate_matches[0].start()].strip()
+   Line 675: 'has_rates': len(rates) > 0,
+
+📄 modules\pwd_rate_parser.py
+   Line 132: if tables and len(tables) > 0:
+   Line 181: chapter_num = code_parts[0]
+   Line 238: chapter_num = code_parts[0]
+   Line 249: first_rate_pos = rate_matches[0].start()
+   Line 275: if desc and len(desc) > 5 and rates:
+
+📄 modules\pwd_rate_retriever.py
+   Line 46: return result[0] if result else None
+
+📄 modules\rate_crud_forms.py
+   Line 457: existing = {str(row[0]) for row in cursor.fetchall()}
+   Line 569: existing_chapters = {str(row[0]) for row in cursor.fetchall()}
+   Line 843: 'accessibility_bonus': r[3], 'description': r[4] if len(r) > 4 else ''}
+   Line 1088: columns = [col[1] for col in cursor.fetchall()]
+   Line 1349: if parts[0] != chapter_num:
+   Line 1352: section_part = int(parts[1])
+   Line 1369: last_section = result[0]
+
+📄 modules\rate_crud_forms_bak.py
+   Line 641: if parts[0] != chapter_num:
+   Line 646: section_part = int(parts[1])
+   Line 671: last_section = result[0]
+   Line 978: columns = [col[1] for col in cursor.fetchall()]
+   Line 1377: 'accessibility_bonus': r[3], 'description': r[4] if len(r) > 4 else ''}
+
+📄 modules\rate_crud_forms_bak1.py
+   Line 490: if parts[0] != chapter_num:
+   Line 495: section_part = int(parts[1])
+   Line 520: last_section = result[0]
+   Line 827: columns = [col[1] for col in cursor.fetchall()]
+   Line 1226: 'accessibility_bonus': r[3], 'description': r[4] if len(r) > 4 else ''}
+
+📄 modules\report_generator.py
+   Line 650: sorted_comp = sorted(zip(data.competitor_names, data.competitor_bids_list), key=lambda x: x[1])
+   Line 816: num_cols = len(rows[0]) if rows else 0
+   Line 820: if rows and len(rows) > 0 and rows[0] and rows[0][0] == "Step":
+   Line 823: elif rows and len(rows) > 0 and rows[0] and rows[0][0] == "Analysis Tier":
+   Line 826: elif rows and len(rows) > 0 and rows[0] and rows[0][0] == "#":
+   Line 924: sorted_comp = sorted(zip(data.competitor_names, data.competitor_bids_list), key=lambda x: x[1])
+   Line 1267: sorted_comp = sorted(zip(data.competitor_names, data.competitor_bids_list), key=lambda x: x[1])
+
+📄 modules\subscriber_dashboard.py
+   Line 78: 'plan_name': row[21] if len(row) > 21 else row[3].capitalize(),
+   Line 80: 'boq_used': row[14] if len(row) > 14 else 0,
+   Line 81: 'max_boq': row[15] if len(row) > 15 else 5,
+   Line 82: 'bid_used': row[16] if len(row) > 16 else 0,
+   Line 83: 'max_bid': row[17] if len(row) > 17 else 5,
+   Line 84: 'analyses_used': row[6] if len(row) > 6 else 0,
+   Line 85: 'max_analyses': row[18] if len(row) > 18 else 5,
+   Line 86: 'max_users': row[19] if len(row) > 19 else 1,
+   Line 87: 'can_export': row[20] if len(row) > 20 else False,
+   Line 88: 'can_manage_team': row[21] if len(row) > 21 else False,
+   Line 487: sections = [row[0] for row in cursor.fetchall()]
+
+📄 modules\subscription_manager.py
+   Line 144: plan_name = row[3]  # plan column index
+   Line 158: columns = [col[1] for col in cursor.fetchall()]
+   Line 172: 'status': row[4] if len(row) > 4 else 'active',
+   Line 185: 'end_date': row[5] if len(row) > 5 else None
+
+📄 modules\tender_analysis.py
+   Line 373: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 373: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 820: if html_content and len(html_content) > 0:
+
+📄 modules\tender_management.py
+   Line 239: columns = [desc[0] for desc in cursor.description]
+   Line 260: if current and current[0] is not None and current[0] != bid_amount:
+   Line 260: if current and current[0] is not None and current[0] != bid_amount:
+   Line 423: columns = [desc[0] for desc in cursor.description]
+   Line 513: cols = [row[1] for row in cursor.fetchall()]
+   Line 1045: cols[0].code(tender_id, language=None)
+   Line 1047: cols[2].caption(entity)
+   Line 1048: cols[3].caption(proc_type)
+   Line 1049: cols[4].caption(deadline_str)
+   Line 1055: with cols[7]:
+   Line 1083: c_list = [desc[0] for desc in cursor.description]
+   Line 1139: cols[0].code(tender_id, language=None)
+   Line 1141: cols[2].caption(entity)
+   Line 1142: cols[3].caption(proc_type)
+   Line 1143: cols[4].caption(estimate)
+   Line 1144: cols[5].caption(our_bid)
+   Line 1145: cols[6].caption(winning_bid)
+   Line 1146: cols[7].caption(award_date)
+   Line 1155: c_list = [desc[0] for desc in cursor.description]
+   Line 1184: cols = [desc[0] for desc in cursor.description]
+   Line 1286: cols = [desc[0] for desc in cursor.description]
+   Line 1661: cols = [desc[0] for desc in cursor.description]
+   Line 1741: # u[0]=id, u[3]=name, u[5]=suffix (matches your user_options construction)
+   Line 1741: # u[0]=id, u[3]=name, u[5]=suffix (matches your user_options construction)
+   Line 1741: # u[0]=id, u[3]=name, u[5]=suffix (matches your user_options construction)
+   Line 1742: uid = u[0]
+   Line 1743: name = u[3] if len(u) > 3 else "User"
+   Line 1744: suffix = u[5] if len(u) > 5 else ""
+
+📄 modules\ui_components.py
+   Line 232: display_name = full_name[:20] if len(full_name) > 20 else full_name
+   Line 233: display_company = f"| {company_name[:20]}" if company_name and len(company_name) > 0 else ''
+
+📄 modules\unified_version_manager.py
+   Line 153: total_rates, datetime.now(), existing[0]))
+   Line 154: version_id = existing[0]
+   Line 202: source = result[0]
+
+📄 modules\user_approval.py
+   Line 63: user_id = user[0] if len(user) > 0 else None
+   Line 63: user_id = user[0] if len(user) > 0 else None
+   Line 64: username = user[1] if len(user) > 1 else 'N/A'
+   Line 65: email = user[2] if len(user) > 2 else 'N/A'
+   Line 66: full_name = user[3] if len(user) > 3 else 'N/A'
+   Line 67: role = user[5] if len(user) > 5 else 'N/A'
+   Line 68: created_at = user[6] if len(user) > 6 else 'N/A'
+   Line 69: company_name = user[8] if len(user) > 8 else 'N/A'
+
+📄 py scripts\add_missing_columns.py
+   Line 10: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\check.py
+   Line 3: print("Checking for 'if var and len(var) > 0:' patterns in main.py...")
+
+📄 py scripts\check_db_structure.py
+   Line 24: col_names = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\fix_tender_constraint.py
+   Line 11: column_names = [col[1] for col in existing_columns]
+   Line 81: new_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\fix_tender_schema.py
+   Line 10: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\generate_batch10.py
+   Line 1312: if result and result[0] == 1:
+   Line 1350: if result and result[0][0] == 1:
+
+📄 py scripts\main3.py
+   Line 190: if valid_bids and len(valid_bids) > 0:
+   Line 299: st.session_state.user_id = user[0]
+   Line 300: st.session_state.username = user[1]
+   Line 301: st.session_state.user_email = user[2]
+   Line 302: st.session_state.full_name = user[3]
+   Line 303: st.session_state.company_id = user[5]
+   Line 304: st.session_state.company_name = user[7]
+   Line 305: st.session_state.user_role = user[4]
+   Line 547: if len(analyses_df) > 0:
+   Line 563: st.info(f"**Role:** {user[6] if len(user) > 6 else 'N/A'}")
+   Line 564: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 582: active_users = len([u for u in all_users if u[6] == 1]) if all_users else 0
+   Line 1092: if search_term.lower() not in str(tender[1]).lower() and search_term.lower() not in str(tender[2]).lower():
+   Line 1092: if search_term.lower() not in str(tender[1]).lower() and search_term.lower() not in str(tender[2]).lower():
+   Line 1099: tender_map[tender[0]] = {
+   Line 1122: estimate_value = float(tender[4]) if tender[4] else 0
+   Line 1122: estimate_value = float(tender[4]) if tender[4] else 0
+   Line 1128: tender_display_to_id[display_text] = tender[0]
+   Line 1250: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 1250: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 1824: columns = [description[0] for description in cursor.description] if cursor.description else []
+
+📄 py scripts\main_2.py
+   Line 165: if valid_bids and len(valid_bids) > 0:
+   Line 274: st.session_state.user_id = user[0]
+   Line 275: st.session_state.username = user[1]
+   Line 276: st.session_state.user_email = user[2]
+   Line 277: st.session_state.full_name = user[3]
+   Line 278: st.session_state.company_id = user[5]
+   Line 279: st.session_state.company_name = user[7]
+   Line 280: st.session_state.user_role = user[4]
+   Line 522: if len(analyses_df) > 0:
+   Line 538: st.info(f"**Role:** {user[6] if len(user) > 6 else 'N/A'}")
+   Line 539: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 557: active_users = len([u for u in all_users if u[6] == 1]) if all_users else 0
+   Line 894: if search_term.lower() not in str(tender[1]).lower() and search_term.lower() not in str(tender[2]).lower():
+   Line 894: if search_term.lower() not in str(tender[1]).lower() and search_term.lower() not in str(tender[2]).lower():
+   Line 909: estimate_value = float(tender[4]) if tender[4] else 0
+   Line 909: estimate_value = float(tender[4]) if tender[4] else 0
+   Line 1039: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 1039: competitor_options = {c[1]: c[0] for c in competitors} if competitors else {}
+   Line 1155: historical_data=historical_data if len(historical_data) > 0 else None,
+   Line 1288: if competitor_bids and len(competitor_bids) > 0:
+   Line 1386: if competitor_bids and len(competitor_bids) > 0:
+
+📄 py scripts\update_analysis_schema.py
+   Line 10: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\update_database_schema.py
+   Line 97: company_id = company[0]
+   Line 104: user_id = user[0]
+   Line 146: if row[0] and row[0] > 0:
+   Line 146: if row[0] and row[0] > 0:
+   Line 147: deviation = (row[1] - row[0]) / row[0]
+   Line 147: deviation = (row[1] - row[0]) / row[0]
+   Line 147: deviation = (row[1] - row[0]) / row[0]
+
+📄 py scripts\update_tender_schema_complete.py
+   Line 11: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\update_tender_schema_complete2.py
+   Line 10: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 py scripts\update_tender_schema_final.py
+   Line 10: existing_columns = [col[1] for col in cursor.fetchall()]
+
+📄 tests\test_automation.py
+   Line 939: const role = row.cells[2].textContent.toLowerCase();
+   Line 940: const status = row.cells[3].textContent.toLowerCase();
+   Line 941: const func = row.cells[1].textContent.toLowerCase();
+   Line 942: const testName = row.cells[0].textContent.toLowerCase();
+   Line 1353: if len(failed_results) > 10:
+   Line 1409: if len(failed_results) > 10:
+
+📄 utils\analysis_helpers.py
+   Line 118: existing_columns = [col[1] for col in cursor.fetchall()]
+   Line 351: if len(competitor_sample) > 0:
+
+📄 utils\db_helpers.py
+   Line 29: columns = [desc[0] for desc in cursor.description]
+
+📄 utils\db_utils.py
+   Line 68: return row[0]
+
+📄 utils\helpers.py
+   Line 17: return len(data) > 0  # list, tuple, dict, etc.
+   Line 324: cols = [d[0] for d in cursor.description]
+   Line 510: columns = [desc[0] for desc in cursor.description]
+
+📄 utils\rate_import_helpers.py
+   Line 275: if len(issues) > 10:
+
+📄 _pages\admin_analytics_dashboard.py
+   Line 729: active = result[0] or 0
+   Line 730: inactive = result[1] or 0
+
+📄 _pages\admin_dashboard.py
+   Line 277: chapters = sorted(set(p[2] for p in parents))
+   Line 285: parent_code = parent[0]
+   Line 286: parent_desc = parent[1]
+   Line 287: parent_chapter = parent[2]
+   Line 312: child_code = child[0]
+   Line 320: if child[3]:
+   Line 347: with tabs[0]:
+   Line 350: with tabs[1]:
+   Line 353: with tabs[2]:
+   Line 423: 'is_approved': u[10] if len(u) > 10 else 1
+   Line 534: plan = sub[2] if len(sub) > 2 else 'free'
+   Line 1392: columns = [description[0] for description in cursor.description]
+   Line 1575: return result[0] if result else default_value
+   Line 1605: with tabs[0]:
+   Line 1608: with tabs[1]:
+   Line 1611: with tabs[2]:
+
+📄 _pages\admin_dashboard_bak.py
+   Line 108: 'has_rates': len(rates) > 0,
+   Line 140: desc = remaining[:rate_matches[0].start()].strip()
+   Line 170: 'has_rates': len(rates) > 0,
+   Line 773: 'is_approved': u[10] if len(u) > 10 else 1
+   Line 798: paid_subs = len([s for s in all_subs if len(s) > 2 and s[2] not in ['free', 'trial']]) if all_subs else 0
+   Line 875: chapters = sorted(set(p[2] for p in parents))
+   Line 883: parent_code = parent[0]
+   Line 884: parent_desc = parent[1]
+   Line 885: parent_chapter = parent[2]
+   Line 910: child_code = child[0]
+   Line 918: if child[3]:
+   Line 965: plan = sub[2] if len(sub) > 2 else 'free'
+   Line 1633: with tabs[0]:
+   Line 1637: with tabs[1]:
+   Line 1641: with tabs[2]:
+   Line 1945: columns = [description[0] for description in cursor.description]
+   Line 2128: return result[0] if result else default_value
+
+📄 _pages\company_analytics_dashboard.py
+   Line 270: won = row[0] or 0
+   Line 271: total = row[1] or 0
+   Line 351: avg_time = result[0] if result and result[0] else 45  # Default 45 minutes
+   Line 351: avg_time = result[0] if result and result[0] else 45  # Default 45 minutes
+   Line 408: avg_bid = row[0] or 0
+   Line 409: avg_ratio = (row[1] or 0) * 100
+   Line 943: scenarios_used = row[0] or 0
+   Line 944: competitors_added = row[1] or 0
+
+📄 _pages\company_profile_management.py
+   Line 222: if license_item[6]:
+   Line 223: days_left = (license_item[6] - datetime.now().date()).days
+   Line 412: st.session_state.edit_personnel = p[0]
+   Line 672: if doc[8]:
+   Line 674: if doc[8] < datetime.now().date():
+
+📄 _pages\dashboard.py
+   Line 162: if analyses_df is not None and len(analyses_df) > 0:
+
+📄 _pages\enhanced_company_dashboard.py
+   Line 41: with tabs[0]:
+   Line 44: with tabs[1]:
+   Line 47: with tabs[2]:
+   Line 50: with tabs[3]:
+   Line 53: with tabs[4]:
+   Line 56: with tabs[5]:
+   Line 59: with tabs[6]:
+   Line 62: with tabs[7]:
+
+📄 _pages\enhanced_company_dashboard_bak.py
+   Line 43: with tabs[0]:
+   Line 46: with tabs[1]:
+   Line 49: with tabs[2]:
+   Line 52: with tabs[3]:
+   Line 55: with tabs[4]:
+   Line 58: with tabs[5]:
+   Line 61: with tabs[6]:
+   Line 64: with tabs[7]:
+   Line 67: with tabs[8]:
+
+📄 _pages\extension_admin.py
+   Line 296: company_ids = [row[0] for row in cursor.fetchall()]
+   Line 349: if table_exists('companies') and len(logs) > 0:
+   Line 351: if len(company_ids) > 0:
+
+📄 _pages\extension_download.py
+   Line 181: if result and result[0]:
+   Line 182: api_url = result[0]
+
+📄 _pages\history.py
+   Line 72: win_rate = (won / len(filtered_df) * 100) if len(filtered_df) > 0 else 0
+
+📄 _pages\profile.py
+   Line 29: full_name = st.text_input("Full Name", value=user[5] if len(user) > 5 else "")
+   Line 30: email = st.text_input("Email", value=user[4] if len(user) > 4 else "")
+   Line 31: phone = st.text_input("Phone", value=user[6] if len(user) > 6 else "")
+   Line 39: st.info(f"**Username:** {user[2] if len(user) > 2 else 'N/A'}")
+   Line 40: st.info(f"**Role:** {user[6] if len(user) > 6 else 'N/A'}")
+   Line 41: st.info(f"**Company:** {user[14] if len(user) > 14 else 'N/A'}")
+   Line 42: st.info(f"**Member Since:** {user[10] if len(user) > 10 else 'N/A'}")
+
+📄 _pages\registration_page.py
+   Line 509: if len(local) > 2:

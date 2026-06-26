@@ -1,0 +1,337 @@
+test_name,function_name,role_tested,status,execution_time_ms,error_message,debug_lines,timestamp
+calculate_optimal_bid_ppr2025_public,calculate_optimal_bid_ppr2025,public,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:21.608216
+calculate_optimal_bid_ppr2025_admin,calculate_optimal_bid_ppr2025,admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:21.755849
+calculate_optimal_bid_ppr2025_company_admin,calculate_optimal_bid_ppr2025,company_admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:21.863952
+parse_competitor_bids_public,parse_competitor_bids,public,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:21.962613
+parse_competitor_bids_admin,parse_competitor_bids,admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.047486
+parse_competitor_bids_company_admin,parse_competitor_bids,company_admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.144346
+calculate_basic_bid_public,calculate_basic_bid,public,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.249077
+calculate_basic_bid_admin,calculate_basic_bid,admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.342604
+calculate_basic_bid_company_admin,calculate_basic_bid,company_admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.428763
+calculate_ppr_compliance_public,calculate_ppr_compliance,public,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.543262
+calculate_ppr_compliance_admin,calculate_ppr_compliance,admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.663222
+calculate_ppr_compliance_company_admin,calculate_ppr_compliance,company_admin,ERROR,0.0,"Test execution error: maximum recursion depth exceeded
+Traceback (most recent call last):
+  File ""D:\iTender\tests\test_automation.py"", line 624, in run_all_tests
+    result = self.run_single_test(func_name, func, role)
+  File ""D:\iTender\tests\test_automation.py"", line 537, in run_single_test
+    RoleSimulator.apply_role(role, reset_first=True)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 265, in apply_role
+    cls.reset_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\tests\test_automation.py"", line 293, in reset_session_state
+    initialize_session_state()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""D:\iTender\main.py"", line 176, in initialize_session_state
+    if key not in st.session_state:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  File ""D:\iTender\tests\test_automation.py"", line 39, in __contains__
+    def __contains__(self, key): return key in self
+                                        ^^^^^^^^^^^
+  [Previous line repeated 990 more times]
+RecursionError: maximum recursion depth exceeded
+",0,2026-04-30T05:03:22.768922

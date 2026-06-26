@@ -1,0 +1,102 @@
+{
+  "app_name": "TenderAI",
+  "app_desc": "Enterprise Tender Management & Bid Optimization Platform",
+  
+  "navigation": {
+    "dashboard": "Dashboard",
+    "tenders": "Tenders",
+    "boq_generator": "BOQ Generator",
+    "bid_optimizer": "Bid Optimizer",
+    "rate_management": "Rate Management",
+    "subscription": "Subscription",
+    "reports": "Reports",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome",
+    "total_analyses": "Total Analyses",
+    "win_rate": "Win Rate",
+    "team_members": "Team Members",
+    "analyses_left": "Analyses Left",
+    "quick_actions": "Quick Actions",
+    "recent_analyses": "Recent Analyses",
+    "no_analyses": "No analyses yet. Start your first analysis!"
+  },
+  
+  "tender": {
+    "title": "Tender Management",
+    "create_new": "Create New Tender",
+    "tender_id": "Tender ID",
+    "tender_title": "Tender Title",
+    "procuring_entity": "Procuring Entity",
+    "official_estimate": "Official Estimate",
+    "submission_deadline": "Submission Deadline",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  
+  "boq": {
+    "title": "BOQ Generator",
+    "select_rate_source": "Select Rate Source",
+    "select_zone": "Select Zone",
+    "select_tender": "Select Tender",
+    "select_items": "Select Items",
+    "quantity": "Quantity",
+    "unit_rate": "Unit Rate",
+    "total": "Total",
+    "generate": "Generate BOQ",
+    "download": "Download BOQ",
+    "custom_item": "Add Custom Item",
+    "item_code": "Item Code",
+    "description": "Description",
+    "unit": "Unit"
+  },
+  
+  "bid": {
+    "title": "Bid Optimization",
+    "three_tier_analysis": "Three-Tier Analysis",
+    "basic": "Basic",
+    "advanced": "Advanced (PPR 2025)",
+    "enhanced": "Enhanced (ML)",
+    "recommended_bid": "Recommended Bid",
+    "win_probability": "Win Probability",
+    "risk_level": "Risk Level",
+    "confidence_score": "Confidence Score",
+    "competitor_bids": "Competitor Bids"
+  },
+  
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import",
+    "loading": "Loading...",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Information",
+    "yes": "Yes",
+    "no": "No",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit"
+  },
+  
+  "errors": {
+    "no_data": "No data found",
+    "unauthorized": "Unauthorized access",
+    "session_expired": "Session expired. Please login again",
+    "network_error": "Network error. Please try again",
+    "validation_error": "Validation error",
+    "server_error": "Server error. Please contact support"
+  }
+}

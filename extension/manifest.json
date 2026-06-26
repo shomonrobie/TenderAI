@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "TenderAI Auto-Fill Assistant",
+  "version": "1.0.0",
+  "description": "AI-powered auto-fill for tender forms using company knowledge base",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "webNavigation",
+    "cookies",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://localhost:8501/*",
+    "https://*.eptenders.gov.bd/*",
+    "https://*.eprocure.gov.bd/*",
+    "https://*.dpp.gov.bd/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TenderAI Assistant",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:8501/*",
+        "https://*.eptenders.gov.bd/*",
+        "https://*.eprocure.gov.bd/*",
+        "https://*.dpp.gov.bd/*",
+        "<all_urls>"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "styles.css", "inject.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

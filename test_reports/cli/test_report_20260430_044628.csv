@@ -1,0 +1,16 @@
+test_name,function_name,role_tested,status,execution_time_ms,error_message,debug_lines,timestamp
+calculate_optimal_bid_ppr2025_public,calculate_optimal_bid_ppr2025,public,PASSED,1.38,,0,2026-04-30T04:46:26.209759
+calculate_optimal_bid_ppr2025_admin,calculate_optimal_bid_ppr2025,admin,PASSED,1.55,,0,2026-04-30T04:46:26.351794
+calculate_optimal_bid_ppr2025_company_admin,calculate_optimal_bid_ppr2025,company_admin,PASSED,2.64,,0,2026-04-30T04:46:26.486240
+display_analysis_results_with_report_public,display_analysis_results_with_report,public,PASSED,44.97,,0,2026-04-30T04:46:26.683130
+display_analysis_results_with_report_admin,display_analysis_results_with_report,admin,PASSED,69.87,,0,2026-04-30T04:46:26.870382
+display_analysis_results_with_report_company_admin,display_analysis_results_with_report,company_admin,PASSED,40.06,,0,2026-04-30T04:46:27.062937
+parse_competitor_bids_public,parse_competitor_bids,public,PASSED,0.31,,0,2026-04-30T04:46:27.180535
+parse_competitor_bids_admin,parse_competitor_bids,admin,PASSED,0.3,,0,2026-04-30T04:46:27.370592
+parse_competitor_bids_company_admin,parse_competitor_bids,company_admin,PASSED,4.67,,0,2026-04-30T04:46:27.558183
+calculate_basic_bid_public,calculate_basic_bid,public,PASSED,1.13,,0,2026-04-30T04:46:27.692682
+calculate_basic_bid_admin,calculate_basic_bid,admin,PASSED,1.45,,0,2026-04-30T04:46:27.823267
+calculate_basic_bid_company_admin,calculate_basic_bid,company_admin,PASSED,1.25,,0,2026-04-30T04:46:27.951590
+calculate_ppr_compliance_public,calculate_ppr_compliance,public,PASSED,0.17,,0,2026-04-30T04:46:28.066395
+calculate_ppr_compliance_admin,calculate_ppr_compliance,admin,PASSED,0.22,,0,2026-04-30T04:46:28.182531
+calculate_ppr_compliance_company_admin,calculate_ppr_compliance,company_admin,PASSED,0.19,,0,2026-04-30T04:46:28.329707

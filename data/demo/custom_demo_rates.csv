@@ -1,0 +1,31 @@
+item_code,description,unit,base_rate
+CUST001,Specialized Equipment Rental,day,2500
+CUST002,Skilled Labor (Supervisor),day,1200
+CUST003,Skilled Labor (Technician),day,800
+CUST004,Unskilled Labor,day,500
+CUST005,Transportation Services,trip,3000
+CUST006,Quality Testing Services,test,1500
+CUST007,Safety Equipment and PPE,set,2000
+CUST008,Temporary Utilities Setup,job,5000
+CUST009,Design and Engineering Services,hour,2000
+CUST010,Project Management Services,month,25000
+CUST011,Environmental Compliance,job,8000
+CUST012,Public Liability Insurance,year,15000
+CUST013,Performance Bond,percent,5000
+CUST014,Contingency Fund,percent,10000
+CUST015,Tax and VAT,percent,7500
+CUST016,Concrete Testing,Laboratory Test,2500
+CUST017,Soil Testing,Laboratory Test,3500
+CUST018,Asphalt Testing,Laboratory Test,3000
+CUST019,Steel Testing,Laboratory Test,2000
+CUST020,Water Quality Testing,Laboratory Test,1500
+CUST021,Survey Equipment Rental,day,1500
+CUST022,Heavy Machinery Rental,day,5000
+CUST023,Light Machinery Rental,day,2000
+CUST024,Office Equipment Rental,month,2000
+CUST025,Communication Equipment Rental,month,1000
+CUST026,First Aid Services,job,2000
+CUST027,Fire Safety Equipment,set,3000
+CUST028,Security Services,month,15000
+CUST029,Catering Services,day,5000
+CUST030,Accommodation Services,day,800

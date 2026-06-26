@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "total_tests": 0,
+    "passed": 0,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pass_rate": 0.0,
+    "avg_execution_time_ms": 0.0,
+    "role_breakdown": {},
+    "generated_at": "2026-04-30T03:55:49.260420"
+  },
+  "results": [],
+  "config": {
+    "roles_tested": [
+      "basic_user"
+    ],
+    "functions_tested": 0
+  }
+}

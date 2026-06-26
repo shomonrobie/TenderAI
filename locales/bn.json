@@ -1,0 +1,102 @@
+{
+  "app_name": "টেন্ডারএআই",
+  "app_desc": "এন্টারপ্রাইজ টেন্ডার ম্যানেজমেন্ট ও বিড অপটিমাইজেশন প্ল্যাটফর্ম",
+  
+  "navigation": {
+    "dashboard": "ড্যাশবোর্ড",
+    "tenders": "টেন্ডার",
+    "boq_generator": "বিওকিউ জেনারেটর",
+    "bid_optimizer": "বিড অপটিমাইজার",
+    "rate_management": "রেট ম্যানেজমেন্ট",
+    "subscription": "সাবস্ক্রিপশন",
+    "reports": "রিপোর্ট",
+    "settings": "সেটিংস",
+    "logout": "লগআউট"
+  },
+  
+  "dashboard": {
+    "title": "ড্যাশবোর্ড",
+    "welcome": "স্বাগতম",
+    "total_analyses": "মোট বিশ্লেষণ",
+    "win_rate": "জয়ের হার",
+    "team_members": "টিম সদস্য",
+    "analyses_left": "অবশিষ্ট বিশ্লেষণ",
+    "quick_actions": "দ্রুত কর্ম",
+    "recent_analyses": "সাম্প্রতিক বিশ্লেষণ",
+    "no_analyses": "এখনো কোনো বিশ্লেষণ নেই। আপনার প্রথম বিশ্লেষণ শুরু করুন!"
+  },
+  
+  "tender": {
+    "title": "টেন্ডার ম্যানেজমেন্ট",
+    "create_new": "নতুন টেন্ডার তৈরি করুন",
+    "tender_id": "টেন্ডার আইডি",
+    "tender_title": "টেন্ডারের শিরোনাম",
+    "procuring_entity": "ক্রয়কারী সংস্থা",
+    "official_estimate": "সরকারি প্রাক্কলন",
+    "submission_deadline": "জমা দেওয়ার শেষ তারিখ",
+    "status": "অবস্থা",
+    "actions": "কর্ম"
+  },
+  
+  "boq": {
+    "title": "বিওকিউ জেনারেটর",
+    "select_rate_source": "রেট সোর্স নির্বাচন করুন",
+    "select_zone": "জোন নির্বাচন করুন",
+    "select_tender": "টেন্ডার নির্বাচন করুন",
+    "select_items": "আইটেম নির্বাচন করুন",
+    "quantity": "পরিমাণ",
+    "unit_rate": "ইউনিট রেট",
+    "total": "মোট",
+    "generate": "বিওকিউ জেনারেট করুন",
+    "download": "বিওকিউ ডাউনলোড করুন",
+    "custom_item": "কাস্টম আইটেম যোগ করুন",
+    "item_code": "আইটেম কোড",
+    "description": "বিবরণ",
+    "unit": "একক"
+  },
+  
+  "bid": {
+    "title": "বিড অপটিমাইজেশন",
+    "three_tier_analysis": "তিন-স্তরের বিশ্লেষণ",
+    "basic": "মৌলিক",
+    "advanced": "উন্নত (পিপিআর ২০২৫)",
+    "enhanced": "এনহ্যান্সড (এমএল)",
+    "recommended_bid": "প্রস্তাবিত বিড",
+    "win_probability": "জয়ের সম্ভাবনা",
+    "risk_level": "ঝুঁকির মাত্রা",
+    "confidence_score": "আত্মবিশ্বাস স্কোর",
+    "competitor_bids": "প্রতিযোগীদের বিড"
+  },
+  
+  "common": {
+    "save": "সংরক্ষণ করুন",
+    "cancel": "বাতিল করুন",
+    "delete": "মুছুন",
+    "edit": "সম্পাদনা করুন",
+    "view": "দেখুন",
+    "search": "অনুসন্ধান করুন",
+    "filter": "ফিল্টার করুন",
+    "export": "এক্সপোর্ট করুন",
+    "import": "ইমপোর্ট করুন",
+    "loading": "লোড হচ্ছে...",
+    "success": "সফল",
+    "error": "ত্রুটি",
+    "warning": "সতর্কতা",
+    "info": "তথ্য",
+    "yes": "হ্যাঁ",
+    "no": "না",
+    "confirm": "নিশ্চিত করুন",
+    "back": "পেছনে",
+    "next": "পরবর্তী",
+    "submit": "জমা দিন"
+  },
+  
+  "errors": {
+    "no_data": "কোনো তথ্য পাওয়া যায়নি",
+    "unauthorized": "অননুমোদিত প্রবেশ",
+    "session_expired": "সেশন শেষ হয়ে গেছে। আবার লগইন করুন",
+    "network_error": "নেটওয়ার্ক ত্রুটি। আবার চেষ্টা করুন",
+    "validation_error": "ভ্যালিডেশন ত্রুটি",
+    "server_error": "সার্ভার ত্রুটি। সাপোর্টে যোগাযোগ করুন"
+  }
+}

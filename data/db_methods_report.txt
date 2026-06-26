@@ -1,0 +1,94 @@
+======================================================================
+DATABASE METHOD USAGE REPORT
+======================================================================
+
+Total methods used in project: 109
+Methods found in crud_operations.py: 176
+
+❌ MISSING METHODS (Need to be added):
+  - add
+      Used in: py scripts\generate_batch10.py:618
+  - add_lged_chapter
+      Used in: modules\manual_rate_entry.py:423
+      Used in: modules\manual_rate_entry.py:423
+  - add_milestone
+      Used in: modules\tender_management.py:770
+  - add_pwd_chapter
+      Used in: modules\manual_rate_entry.py:421
+      Used in: modules\manual_rate_entry.py:421
+  - assign_team_member
+      Used in: modules\tender_management.py:739
+      Used in: modules\tender_management.py:2093
+  - clear_lged_version_data
+      Used in: modules\lged_import_wizard.py:2689
+      Used in: modules\lged_import_wizard.py:2689
+  - clear_pwd_version_data
+      Used in: modules\pwd_import_wizard_bak.py:745
+      Used in: modules\pwd_import_wizard_bak.py:855
+  - close
+      Used in: py scripts\generate_batch10.py:621
+  - commit
+      Used in: py scripts\generate_batch10.py:340
+      Used in: py scripts\generate_batch10.py:379
+  - create_tender
+      Used in: modules\tender_management.py:1510
+      Used in: modules\tender_management.py:2087
+  - execute_query
+      Used in: modules\lged_import_wizard.py:1778
+      Used in: modules\lged_import_wizard.py:1778
+  - get_company_tenders
+      Used in: modules\basic_bid_optimizer.py:185
+      Used in: modules\tender_management.py:828
+  - get_knowledge_analytics
+      Used in: _pages\enhanced_company_dashboard_bak.py:695
+  - get_tender_milestones
+      Used in: modules\tender_management.py:746
+  - get_tender_team
+      Used in: modules\tender_management.py:719
+      Used in: modules\tender_management.py:944
+  - get_version_history
+      Used in: modules\lged_import_wizard.py:1016
+      Used in: modules\lged_import_wizard.py:1016
+  - init_chapters_tables
+      Used in: modules\manual_rate_entry.py:397
+      Used in: modules\manual_rate_entry.py:1085
+  - init_lged_tables
+      Used in: modules\manual_rate_entry.py:316
+      Used in: modules\manual_rate_entry.py:479
+  - init_pwd_hierarchical_tables
+      Used in: modules\manual_rate_entry.py:314
+      Used in: modules\manual_rate_entry.py:479
+  - save_hierarchy
+      Used in: modules\parse_lged_pdf.py:743
+      Used in: modules\parse_lged_pdf.py:743
+  - save_lged_hierarchy
+      Used in: modules\lged_import_wizard.py:1815
+      Used in: modules\lged_import_wizard.py:2658
+  - save_lged_hierarchy_enhanced
+      Used in: modules\lged_import_wizard.py:1239
+      Used in: modules\lged_import_wizard.py:1239
+  - save_pwd_hierarchy_enhanced
+      Used in: modules\pwd_import_wizard.py:978
+      Used in: modules\pwd_import_wizard.py:978
+  - submit_bid
+      Used in: modules\tender_management.py:692
+      Used in: modules\tender_management.py:1069
+  - update_lged_chapter_section
+      Used in: modules\lged_import_wizard.py:1230
+      Used in: modules\lged_import_wizard.py:1230
+  - update_role_permissions_for_rates
+      Used in: main.py:1471
+      Used in: main_bak_new.py:4437
+  - update_tender
+      Used in: modules\tender_management.py:1496
+  - update_tender_bid
+      Used in: modules\tender_management.py:682
+      Used in: modules\tender_management.py:1064
+
+🔧 METHODS THAT NEED ATTENTION:
+
+  📌 get_user_subscription() - 2 tuple indexing usage(s)
+      api\extension_api.py:90
+      Code: subscription = db.get_user_subscription(user[0])
+      api\flask_api.py:98
+      Code: subscription = _db.get_user_subscription(user[0])

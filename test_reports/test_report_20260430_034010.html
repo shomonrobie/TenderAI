@@ -1,0 +1,157 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>TenderAI - Automated Test Report</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 2rem; background: #f5f7fa; }
+                .container { max-width: 1400px; margin: 0 auto; }
+                .header { background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; padding: 2rem; border-radius: 12px; margin-bottom: 2rem; }
+                .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+                .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+                .card h3 { margin: 0 0 0.5rem 0; color: #666; font-size: 0.9rem; }
+                .card .value { font-size: 2rem; font-weight: bold; color: #1e3c72; }
+                .card.passed .value { color: #22c55e; }
+                .card.failed .value { color: #ef4444; }
+                .card.errors .value { color: #f97316; }
+                table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
+                th { background: #f8fafc; font-weight: 600; color: #334155; }
+                tr:hover { background: #f8fafc; }
+                .status { padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.85rem; font-weight: 500; }
+                .status.PASSED { background: #dcfce7; color: #166534; }
+                .status.FAILED { background: #fee2e2; color: #991b1b; }
+                .status.ERROR { background: #ffedd5; color: #9a3412; }
+                .status.SKIPPED { background: #f1f5f9; color: #475569; }
+                .chart-container { background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .debug-toggle { cursor: pointer; color: #667eea; font-size: 0.9rem; }
+                .debug-content { display: none; background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 200px; overflow-y: auto; margin-top: 0.5rem; }
+                .filter-section { background: white; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+                .filter-section select, .filter-section input { margin: 0 0.5rem; padding: 0.4rem 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🧪 TenderAI Automated Test Report</h1>
+                    <p>Generated: 2026-04-30T03:40:10.747733</p>
+                </div>
+                
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>Total Tests</h3>
+                        <div class="value">0</div>
+                    </div>
+                    <div class="card passed">
+                        <h3>✅ Passed</h3>
+                        <div class="value">0</div>
+                    </div>
+                    <div class="card failed">
+                        <h3>❌ Failed</h3>
+                        <div class="value">0</div>
+                    </div>
+                    <div class="card errors">
+                        <h3>💥 Errors</h3>
+                        <div class="value">0</div>
+                    </div>
+                    <div class="card">
+                        <h3>Pass Rate</h3>
+                        <div class="value">0%</div>
+                    </div>
+                    <div class="card">
+                        <h3>Avg Time</h3>
+                        <div class="value">0ms</div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <h3>📊 Results by Role</h3>
+                    <canvas id="roleChart" height="100"></canvas>
+                </div>
+                
+                <div class="filter-section">
+                    <strong>Filter:</strong>
+                    <select id="roleFilter" onchange="filterTable()">
+                        <option value="">All Roles</option>
+                        <option value="public">public</option><option value="free_user">free_user</option><option value="basic_user">basic_user</option><option value="professional_user">professional_user</option><option value="enterprise_user">enterprise_user</option><option value="company_admin">company_admin</option><option value="admin">admin</option>
+                    </select>
+                    <select id="statusFilter" onchange="filterTable()">
+                        <option value="">All Statuses</option>
+                        <option value="PASSED">✅ Passed</option>
+                        <option value="FAILED">❌ Failed</option>
+                        <option value="ERROR">💥 Error</option>
+                        <option value="SKIPPED">⏭️ Skipped</option>
+                    </select>
+                    <input type="text" id="searchFilter" placeholder="Search function..." onkeyup="filterTable()">
+                </div>
+                
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Test Name</th>
+                            <th>Function</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Time (ms)</th>
+                            <th>Error</th>
+                            <th>Debug</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                    </tbody>
+                </table>
+            </div>
+            
+            <script>
+                // Role breakdown chart
+                const roleData = {};
+                new Chart(document.getElementById('roleChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(roleData),
+                        datasets: [{
+                            label: 'Pass Rate (%)',
+                            data: Object.values(roleData).map(r => r.pass_rate),
+                            backgroundColor: Object.values(roleData).map(r => r.pass_rate >= 90 ? '#22c55e' : r.pass_rate >= 70 ? '#eab308' : '#ef4444'),
+                        }]
+                    },
+                    options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+                });
+                
+                // Table filtering
+                function filterTable() {
+                    const roleFilter = document.getElementById('roleFilter').value.toLowerCase();
+                    const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
+                    const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+                    const rows = document.querySelectorAll('#resultsTable tbody tr');
+                    
+                    rows.forEach(row => {
+                        const role = row.cells[2].textContent.toLowerCase();
+                        const status = row.cells[3].textContent.toLowerCase();
+                        const func = row.cells[1].textContent.toLowerCase();
+                        const testName = row.cells[0].textContent.toLowerCase();
+                        
+                        const matchRole = !roleFilter || role.includes(roleFilter);
+                        const matchStatus = !statusFilter || status.includes(statusFilter);
+                        const matchSearch = !searchFilter || func.includes(searchFilter) || testName.includes(searchFilter);
+                        
+                        row.style.display = (matchRole && matchStatus && matchSearch) ? '' : 'none';
+                    });
+                }
+                
+                // Debug toggle
+                document.querySelectorAll('.debug-toggle').forEach(toggle => {
+                    toggle.addEventListener('click', function() {
+                        const content = this.nextElementSibling;
+                        content.style.display = content.style.display === 'block' ? 'none' : 'block';
+                        this.textContent = content.style.display === 'block' ? '🔽 Hide Debug' : '🔍 Show Debug';
+                    });
+                });
+            </script>
+        </body>
+        </html>
+        

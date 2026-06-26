@@ -1,0 +1,44 @@
+
+============================================================
+📋 TEST USERS SUMMARY
+============================================================
+
+👑 SYSTEM ADMIN:
+   Username: system_admin
+   Password: Admin@123
+   Role: system_admin
+
+💰 FREE PLAN COMPANY (ABC Free Construction):
+   Company_Admin: free_admin / Free@123
+   Manager: free_manager / Free@123
+   Analyst: free_analyst / Free@123
+   Viewer: free_viewer / Free@123
+
+📊 BASIC PLAN COMPANY (XYZ Basic Construction):
+   Company_Admin: basic_admin / Basic@123
+   Manager: basic_manager / Basic@123
+   Analyst: basic_analyst / Basic@123
+
+🚀 PROFESSIONAL PLAN COMPANY (Professional Construction Ltd):
+   Company_Admin: pro_admin / Pro@123
+   Manager: pro_manager / Pro@123
+   Analyst: pro_analyst / Pro@123
+   Data_Entry: pro_data_entry / Pro@123
+
+🏢 ENTERPRISE PLAN COMPANY (Enterprise Mega Construction):
+   Company_Admin: enterprise_admin / Enterprise@123
+   Manager: enterprise_manager / Enterprise@123
+   Analyst: enterprise_analyst / Enterprise@123
+
+👤 INDIVIDUAL USER:
+   rahim_khan / Individual@123
+
+============================================================
+✅ All test users created!
+============================================================
+
+💡 Test these users by logging into the application:
+   1. Open the app and logout if already logged in
+   2. Login with any username/password above
+   3. Navigate through pages to verify permissions
+   4. Check BOQ generation limits and rate editing permissions

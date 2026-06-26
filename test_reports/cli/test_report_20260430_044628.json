@@ -1,0 +1,189 @@
+{
+  "summary": {
+    "total_tests": 15,
+    "passed": 15,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pass_rate": 100.0,
+    "avg_execution_time_ms": 11.35,
+    "role_breakdown": {
+      "public": {
+        "total": 5,
+        "passed": 5,
+        "pass_rate": 100.0
+      },
+      "company_admin": {
+        "total": 5,
+        "passed": 5,
+        "pass_rate": 100.0
+      },
+      "admin": {
+        "total": 5,
+        "passed": 5,
+        "pass_rate": 100.0
+      }
+    },
+    "generated_at": "2026-04-30T04:46:28.360814"
+  },
+  "results": [
+    {
+      "test_name": "calculate_optimal_bid_ppr2025_public",
+      "function_name": "calculate_optimal_bid_ppr2025",
+      "role_tested": "public",
+      "status": "PASSED",
+      "execution_time_ms": 1.38,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:26.209759"
+    },
+    {
+      "test_name": "calculate_optimal_bid_ppr2025_admin",
+      "function_name": "calculate_optimal_bid_ppr2025",
+      "role_tested": "admin",
+      "status": "PASSED",
+      "execution_time_ms": 1.55,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:26.351794"
+    },
+    {
+      "test_name": "calculate_optimal_bid_ppr2025_company_admin",
+      "function_name": "calculate_optimal_bid_ppr2025",
+      "role_tested": "company_admin",
+      "status": "PASSED",
+      "execution_time_ms": 2.64,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:26.486240"
+    },
+    {
+      "test_name": "display_analysis_results_with_report_public",
+      "function_name": "display_analysis_results_with_report",
+      "role_tested": "public",
+      "status": "PASSED",
+      "execution_time_ms": 44.97,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:26.683130"
+    },
+    {
+      "test_name": "display_analysis_results_with_report_admin",
+      "function_name": "display_analysis_results_with_report",
+      "role_tested": "admin",
+      "status": "PASSED",
+      "execution_time_ms": 69.87,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:26.870382"
+    },
+    {
+      "test_name": "display_analysis_results_with_report_company_admin",
+      "function_name": "display_analysis_results_with_report",
+      "role_tested": "company_admin",
+      "status": "PASSED",
+      "execution_time_ms": 40.06,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.062937"
+    },
+    {
+      "test_name": "parse_competitor_bids_public",
+      "function_name": "parse_competitor_bids",
+      "role_tested": "public",
+      "status": "PASSED",
+      "execution_time_ms": 0.31,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.180535"
+    },
+    {
+      "test_name": "parse_competitor_bids_admin",
+      "function_name": "parse_competitor_bids",
+      "role_tested": "admin",
+      "status": "PASSED",
+      "execution_time_ms": 0.3,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.370592"
+    },
+    {
+      "test_name": "parse_competitor_bids_company_admin",
+      "function_name": "parse_competitor_bids",
+      "role_tested": "company_admin",
+      "status": "PASSED",
+      "execution_time_ms": 4.67,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.558183"
+    },
+    {
+      "test_name": "calculate_basic_bid_public",
+      "function_name": "calculate_basic_bid",
+      "role_tested": "public",
+      "status": "PASSED",
+      "execution_time_ms": 1.13,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.692682"
+    },
+    {
+      "test_name": "calculate_basic_bid_admin",
+      "function_name": "calculate_basic_bid",
+      "role_tested": "admin",
+      "status": "PASSED",
+      "execution_time_ms": 1.45,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.823267"
+    },
+    {
+      "test_name": "calculate_basic_bid_company_admin",
+      "function_name": "calculate_basic_bid",
+      "role_tested": "company_admin",
+      "status": "PASSED",
+      "execution_time_ms": 1.25,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:27.951590"
+    },
+    {
+      "test_name": "calculate_ppr_compliance_public",
+      "function_name": "calculate_ppr_compliance",
+      "role_tested": "public",
+      "status": "PASSED",
+      "execution_time_ms": 0.17,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:28.066395"
+    },
+    {
+      "test_name": "calculate_ppr_compliance_admin",
+      "function_name": "calculate_ppr_compliance",
+      "role_tested": "admin",
+      "status": "PASSED",
+      "execution_time_ms": 0.22,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:28.182531"
+    },
+    {
+      "test_name": "calculate_ppr_compliance_company_admin",
+      "function_name": "calculate_ppr_compliance",
+      "role_tested": "company_admin",
+      "status": "PASSED",
+      "execution_time_ms": 0.19,
+      "error_message": null,
+      "debug_lines": 0,
+      "timestamp": "2026-04-30T04:46:28.329707"
+    }
+  ],
+  "config": {
+    "roles_tested": [
+      "public",
+      "admin",
+      "company_admin"
+    ],
+    "functions_tested": 5
+  }
+}

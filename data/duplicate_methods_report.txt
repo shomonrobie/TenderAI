@@ -1,0 +1,88 @@
+======================================================================
+DUPLICATE METHODS REPORT
+======================================================================
+
+❌ add_equipment() - 2 occurrences
+   Occurrence 1: Position 50
+   Occurrence 2: Position 162
+
+❌ add_experience() - 2 occurrences
+   Occurrence 1: Position 52
+   Occurrence 2: Position 156
+
+❌ add_financial_capacity() - 2 occurrences
+   Occurrence 1: Position 54
+   Occurrence 2: Position 165
+
+❌ add_personnel() - 2 occurrences
+   Occurrence 1: Position 47
+   Occurrence 2: Position 159
+
+❌ delete_competitor() - 2 occurrences
+   Occurrence 1: Position 130
+   Occurrence 2: Position 207
+
+❌ delete_user() - 2 occurrences
+   Occurrence 1: Position 25
+   Occurrence 2: Position 121
+
+❌ execute() - 2 occurrences
+   Occurrence 1: Position 4
+   Occurrence 2: Position 30
+
+❌ get_auto_fill_data() - 2 occurrences
+   Occurrence 1: Position 60
+   Occurrence 2: Position 170
+
+❌ get_company_by_id() - 2 occurrences
+   Occurrence 1: Position 75
+   Occurrence 2: Position 115
+
+❌ get_equipment() - 2 occurrences
+   Occurrence 1: Position 51
+   Occurrence 2: Position 163
+
+❌ get_experiences() - 2 occurrences
+   Occurrence 1: Position 53
+   Occurrence 2: Position 157
+
+❌ get_extension_fill_usage() - 2 occurrences
+   Occurrence 1: Position 62
+   Occurrence 2: Position 172
+
+❌ get_financial_records() - 2 occurrences
+   Occurrence 1: Position 55
+   Occurrence 2: Position 166
+
+❌ get_personnel() - 2 occurrences
+   Occurrence 1: Position 48
+   Occurrence 2: Position 160
+
+❌ keyword_search() - 2 occurrences
+   Occurrence 1: Position 59
+   Occurrence 2: Position 167
+
+❌ log_extension_fill() - 2 occurrences
+   Occurrence 1: Position 63
+   Occurrence 2: Position 174
+
+❌ query() - 2 occurrences
+   Occurrence 1: Position 5
+   Occurrence 2: Position 28
+
+❌ query_one() - 2 occurrences
+   Occurrence 1: Position 6
+   Occurrence 2: Position 29
+
+❌ search_knowledge_base() - 2 occurrences
+   Occurrence 1: Position 61
+   Occurrence 2: Position 171
+
+❌ update_competitor_stats_from_bid() - 2 occurrences
+   Occurrence 1: Position 131
+   Occurrence 2: Position 208
+
+❌ update_tender_lock_status() - 2 occurrences
+   Occurrence 1: Position 146
+   Occurrence 2: Position 216
+

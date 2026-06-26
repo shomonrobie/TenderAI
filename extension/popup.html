@@ -1,0 +1,572 @@
+<!-- extension/popup.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TenderAI Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            width: 380px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header-icon {
+            width: 32px;
+            height: 32px;
+        }
+        
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            flex: 1;
+        }
+        
+        .status-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .status-badge.connected {
+            background: #4CAF50;
+        }
+        
+        .status-badge.disconnected {
+            background: #f44336;
+        }
+        
+        .content {
+            padding: 16px 20px;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .section-title i {
+            font-style: normal;
+            font-size: 16px;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .user-avatar {
+            width: 48px;
+            height: 48px;
+            background: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 18px;
+        }
+        
+        .user-details {
+            flex: 1;
+        }
+        
+        .user-name {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .user-email {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .logout-btn {
+            background: none;
+            border: none;
+            color: #f44336;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 4px 8px;
+        }
+        
+        .setting-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .setting-item:last-child {
+            border-bottom: none;
+        }
+        
+        .setting-label {
+            font-size: 13px;
+            color: #555;
+        }
+        
+        .setting-description {
+            font-size: 11px;
+            color: #999;
+            margin-top: 2px;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #4CAF50;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+        
+        .range-slider {
+            width: 100%;
+            margin-top: 8px;
+        }
+        
+        .confidence-value {
+            font-size: 12px;
+            color: #4CAF50;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .search-results {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .search-result-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .search-result-item:hover {
+            background: #f0f0f0;
+        }
+        
+        .result-title {
+            font-weight: 500;
+            font-size: 13px;
+            color: #333;
+        }
+        
+        .result-subtitle {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+        
+        .result-badge {
+            display: inline-block;
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            margin-top: 6px;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        
+        .btn-outline {
+            background: white;
+            border: 1px solid #667eea;
+            color: #667eea;
+        }
+        
+        .btn-outline:hover {
+            background: #f0f0ff;
+        }
+        
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .login-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        
+        .success-message {
+            background: #e8f5e9;
+            color: #2e7d32;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        
+        .footer {
+            padding: 12px 20px;
+            background: white;
+            border-top: 1px solid #eee;
+            font-size: 11px;
+            color: #999;
+            text-align: center;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 16px;
+            justify-content: space-around;
+            margin-top: 12px;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            font-size: 10px;
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+        
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 10px;
+        }
+        /* Add to popup.html style section */
+
+        .usage-bar-container {
+            margin-top: 12px;
+        }
+
+        .usage-bar {
+            background: #e0e0e0;
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+        }
+
+        .usage-bar-fill {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .usage-stats {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+            text-align: center;
+        }
+
+        .upgrade-message {
+            background: #fff3e0;
+            border: 1px solid #ffb74d;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 12px;
+            font-size: 12px;
+            color: #e65100;
+        }
+
+        .upgrade-message a {
+            color: #ff6d00;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <svg class="header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <h1>TenderAI Assistant</h1>
+        <span class="status-badge disconnected" id="statusBadge">Offline</span>
+    </div>
+    
+    <div class="content" id="app">
+        <!-- Login View -->
+        <div id="loginView" style="display: none;">
+            <div class="section">
+                <div class="section-title">
+                    <i>🔐</i> Sign In
+                </div>
+                <form id="loginForm" class="login-form">
+                    <div id="loginError" class="error-message" style="display: none;"></div>
+                    <input type="text" id="username" class="login-input" placeholder="Username or Email" required>
+                    <input type="password" id="password" class="login-input" placeholder="Password" required>
+                    <button type="submit" class="btn btn-primary">Sign In</button>
+                </form>
+                <button id="testApiBtn" style="background: #666; margin-top: 5px;">Test API Connection</button>
+
+            </div>
+            <div class="footer">
+                Don't have an account? Contact your company admin
+            </div>
+        </div>
+        
+        <!-- Main View -->
+        <div id="mainView" style="display: none;">
+            <!-- User Info -->
+            <div class="section">
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">U</div>
+                    <div class="user-details">
+                        <div class="user-name" id="userName">User Name</div>
+                        <div class="user-email" id="userEmail">user@example.com</div>
+                    </div>
+                    <button class="logout-btn" id="logoutBtn">Logout</button>
+                </div>
+                <div class="stats" id="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="fillCount">0</div>
+                        <div class="stat-label">Fields Filled</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="confidenceAvg">0%</div>
+                        <div class="stat-label">Avg Confidence</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="timeSaved">0</div>
+                        <div class="stat-label">Time Saved (min)</div>
+                    </div>
+                </div>
+                <!-- Extension Usage -->
+                <div class="section">
+                    <div class="section-title">
+                        <i>📊</i> Extension Usage
+                    </div>
+                    <div class="usage-bar-container" id="usageContainer">
+                        <div class="usage-bar">
+                            <div class="usage-bar-fill" id="usageFill" style="width: 0%"></div>
+                        </div>
+                        <div class="usage-stats">
+                            <span id="usageUsed">0</span> / <span id="usageLimit">5</span> auto-fills used
+                        </div>
+                        <div id="upgradeMessage" class="upgrade-message" style="display: none;">
+                            ⚠️ You've reached your limit. <a href="#" id="upgradeLink">Upgrade to continue</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Settings -->
+            <div class="section">
+                <div class="section-title">
+                    <i>⚙️</i> Settings
+                </div>
+                <div class="setting-item">
+                    <div>
+                        <div class="setting-label">Auto-Fill Forms</div>
+                        <div class="setting-description">Automatically fill recognized fields</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoFillToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <div>
+                        <div class="setting-label">Show Suggestions</div>
+                        <div class="setting-description">Show suggestions for uncertain fields</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="suggestionsToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <div>
+                        <div class="setting-label">Highlight Fields</div>
+                        <div class="setting-description">Highlight auto-filled fields</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="highlightToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <div>
+                        <div class="setting-label">Confidence Threshold</div>
+                        <div class="setting-description">Minimum confidence for auto-fill</div>
+                    </div>
+                    <div>
+                        <input type="range" id="confidenceThreshold" min="0" max="100" step="5" class="range-slider">
+                        <span id="confidenceValue" class="confidence-value">70%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Search -->
+            <div class="section">
+                <div class="section-title">
+                    <i>🔍</i> Quick Search
+                </div>
+                <input type="text" id="searchInput" class="search-box" placeholder="Search company data...">
+                <div id="searchResults" class="search-results">
+                    <div class="loading" id="searchLoading" style="display: none;">
+                        <div class="spinner"></div>
+                        Searching...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="section">
+                <div class="section-title">
+                    <i>📋</i> Actions
+                </div>
+                <button class="btn btn-outline" id="analyzePageBtn" style="margin-bottom: 8px;">
+                    🔄 Analyze Current Page
+                </button>
+                <button class="btn btn-outline" id="refreshDataBtn">
+                    🔄 Refresh Company Data
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer" id="footer">
+        TenderAI v1.0 | AI-Powered Form Assistant
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>

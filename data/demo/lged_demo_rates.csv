@@ -1,0 +1,40 @@
+chapter,section,item_code,description,unit,base_rate
+1,1.01,1.01.01,Site Clearance,sqm,150
+1,1.01,1.01.02,Survey and Setting Out,job,3000
+1,1.01,1.01.03,Construction of Site Facilities,job,5000
+1,1.02,1.02.01,Earth Excavation,cum,500
+1,1.02,1.02.02,Earth Filling and Compaction,cum,350
+1,1.02,1.02.03,Sand Cushion,cum,850
+2,2.01,2.01.01,Sub-Base with Granular Material,cum,1200
+2,2.01,2.01.02,Sub-Base with Brick Aggregate,cum,1500
+2,2.01,2.01.03,Sub-Base with Stone Aggregate,cum,1800
+2,2.02,2.02.01,Base Course with Stone Aggregate,cum,2200
+2,2.02,2.02.02,Base Course with Brick Aggregate,cum,1800
+2,2.02,2.02.03,Base Course with Bituminous Material,cum,2800
+3,3.01,3.01.01,Bituminous Pavement (Single Coat),sqm,600
+3,3.01,3.01.02,Bituminous Pavement (Double Coat),sqm,850
+3,3.01,3.01.03,Bituminous Pavement (Thick Coat),sqm,1100
+3,3.01,3.01.04,RCC Pavement,sqm,1500
+3,3.02,3.02.01,RCC Drainage Works,meter,800
+3,3.02,3.02.02,Brick Drainage Works,meter,400
+3,3.02,3.02.03,Culvert Construction (Small),job,15000
+3,3.02,3.02.04,Culvert Construction (Medium),job,35000
+3,3.02,3.02.05,Culvert Construction (Large),job,65000
+4,4.01,4.01.01,Bridge Construction (Short Span),meter,45000
+4,4.01,4.01.02,Bridge Construction (Medium Span),meter,75000
+4,4.01,4.01.03,Bridge Construction (Long Span),meter,120000
+4,4.01,4.01.04,Bridge Approach Works,job,25000
+5,5.01,5.01.01,Protection Works (Gabion),cum,1200
+5,5.01,5.01.02,Protection Works (CC Blocks),cum,1500
+5,5.02,5.02.01,Rip-Rap Works,cum,1000
+5,5.02,5.02.02,Grouting Works,sqm,350
+6,6.01,6.01.01,Precast Concrete Works,cum,2500
+6,6.01,6.01.02,Pre-stressed Concrete Works,cum,3500
+6,6.02,6.02.01,Pile Foundation (Cast-in-situ),meter,8000
+6,6.02,6.02.02,Pile Foundation (Precast),meter,6500
+7,7.01,7.01.01,Road Signage,each,2500
+7,7.01,7.01.02,Road Marking,meter,200
+7,7.01,7.01.03,Guard Rails,meter,1500
+8,8.01,8.01.01,Landscaping Works,sqm,300
+8,8.01,8.01.02,Tree Planting,each,500
+8,8.01,8.01.03,Irrigation Works,meter,400
