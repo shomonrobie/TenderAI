@@ -86,7 +86,7 @@ def show():
     """, unsafe_allow_html=True)
     
     
-    """Main registration page with Google Sign-Up"""
+
     
     print("=" * 60)
     print("📄 REGISTRATION PAGE LOADED")

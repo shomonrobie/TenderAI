@@ -13,6 +13,70 @@ db = UnifiedDatabaseManager()
 
 def show():
     """Login page with Google Sign-In"""
+    # ========== FORCE ALL TEXT TO BE VISIBLE ==========
+    st.markdown("""
+    <style>
+        /* Force ALL labels to be white */
+        label, .stRadio label, .stCheckbox label, 
+        .stTextInput label, .stSelectbox label,
+        .stRadio label span, .stCheckbox label span,
+        div[role="radiogroup"] label, div[role="radiogroup"] label span {
+            color: #ffffff !important;
+            font-weight: 500 !important;
+        }
+        
+        /* Radio button container */
+        .stRadio > div {
+            gap: 1rem !important;
+        }
+        
+        /* Radio button labels */
+        .stRadio label {
+            color: #ffffff !important;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem 1.5rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .stRadio label:hover {
+            background: rgba(102, 126, 234, 0.15);
+            border-color: rgba(102, 126, 234, 0.3);
+        }
+        
+        /* Checkbox labels */
+        .stCheckbox label {
+            color: #ffffff !important;
+        }
+        
+        .stCheckbox label span {
+            color: #ffffff !important;
+        }
+        
+        /* All text inputs labels */
+        .stTextInput label, .stSelectbox label {
+            color: #ffffff !important;
+        }
+        
+        /* All markdown text */
+        .stMarkdown p, .stMarkdown li, .stMarkdown span {
+            color: #e0e0e0 !important;
+        }
+        
+        /* Headings */
+        h3, h4 {
+            color: #e0e0e0 !important;
+        }
+        
+        /* Captions */
+        .stCaption {
+            color: #94a3b8 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     
     print("=" * 60)
     print("📄 LOGIN PAGE LOADED")
