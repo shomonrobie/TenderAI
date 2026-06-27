@@ -1,4 +1,4 @@
-# modules/google_auth.py - Updated with debug logging
+# modules/google_auth.py - Updated with registration flow support
 
 import streamlit as st
 import requests
@@ -89,12 +89,11 @@ def get_redirect_uri():
         pass
     
     # Priority 3: Detect environment automatically
-    # Streamlit Cloud sets these environment variables
     is_cloud = (
         os.getenv("STREAMLIT_SHARING_MODE") or
         os.getenv("DEPLOYMENT") == "streamlit" or
         "streamlit.app" in os.getenv("HOSTNAME", "") or
-        os.path.exists("/home/appuser")  # Streamlit Cloud home directory
+        os.path.exists("/home/appuser")
     )
     
     if is_cloud:
@@ -106,7 +105,7 @@ def get_redirect_uri():
         print(f"✅ Local development, using: {uri}")
         return uri
     
-def get_google_auth_url():
+def get_google_auth_url(registration_mode=False):
     """Generate Google OAuth URL"""
     client_id, _ = get_google_credentials()
     
@@ -117,9 +116,12 @@ def get_google_auth_url():
     
     # 🔍 DEBUG: Print the exact redirect URI
     print(f"🔍 DEBUG: redirect_uri = '{redirect_uri}'")
-    print(f"🔍 DEBUG: Length = {len(redirect_uri)}")
-    print(f"🔍 DEBUG: Ends with /? {redirect_uri.endswith('/')}")
-    print(f"🔍 DEBUG: Repr = {repr(redirect_uri)}")
+    print(f"🔍 DEBUG: registration_mode = {registration_mode}")
+    
+    # Store registration mode in session for callback handling
+    if registration_mode:
+        st.session_state.google_registration_mode = True
+        print("🔍 DEBUG: Set google_registration_mode = True")
     
     params = {
         'client_id': client_id,
@@ -133,7 +135,6 @@ def get_google_auth_url():
     auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
     print(f"🔗 Full Auth URL: {auth_url}")
     return auth_url
-
 
 def exchange_code_for_token(code):
     """Exchange authorization code for access token"""
@@ -177,7 +178,6 @@ def exchange_code_for_token(code):
         st.error(f"Error exchanging code: {str(e)}")
         return None
 
-
 def get_user_info(access_token):
     """Get user information from Google"""
     headers = {'Authorization': f'Bearer {access_token}'}
@@ -202,8 +202,6 @@ def get_user_info(access_token):
         st.error(f"Error getting user info: {str(e)}")
         return None
 
-# modules/google_auth.py - In handle_google_callback
-
 def handle_google_callback():
     """Handle Google OAuth callback from URL parameters"""
     
@@ -217,7 +215,6 @@ def handle_google_callback():
     print(f"🔑 Code received: {code[:10]}...")
     
     # ✅ CRITICAL: Clear the code from URL immediately
-    # This prevents re-processing on page refresh
     st.query_params.clear()
     
     with st.spinner("Authenticating with Google..."):
@@ -236,34 +233,91 @@ def handle_google_callback():
         email = user_info.get('email')
         name = user_info.get('name', email.split('@')[0])
         
+        print(f"🔍 DEBUG: Google user info: {user_info}")
+        print(f"🔍 DEBUG: google_registration_mode = {st.session_state.get('google_registration_mode', False)}")
+        
+        # Check if this is a registration flow or login flow
+        is_registration_mode = st.session_state.get('google_registration_mode', False)
+        
         # Check if user exists
         existing_user = db.get_user_by_email(email)
         
-        if existing_user:
+        if existing_user and not is_registration_mode:
+            # Login flow - user exists
             from modules.auth import login_user
             login_user(existing_user, None, remember_me=True)
             st.success(f"Welcome back, {existing_user.get('full_name', name)}! 🎉")
             
-            # ✅ Save session to URL (with remember_me)
             from modules.auth import save_session_to_url
             save_session_to_url(True)
             
+            # Clear registration mode
+            st.session_state.google_registration_mode = False
+            
             return {'logged_in': True, 'user_id': existing_user['id']}
+        
+        elif existing_user and is_registration_mode:
+            # Registration flow but user already exists
+            print("🔍 DEBUG: User exists but trying to register")
+            st.warning(f"An account with {email} already exists. Please login instead.")
+            st.session_state.google_registration_mode = False
+            
+            # Redirect to login
+            st.session_state.page = 'login'
+            st.rerun()
+            return None
+        
         else:
-            st.session_state.pending_google_signup = {
-                'email': email,
-                'name': name,
-                'google_id': user_info.get('id')
-            }
-            st.session_state.show_google_registration = True
-            return {'show_registration': True}
+            # New user - either registration or auto-login
+            if is_registration_mode:
+                # Registration flow - store data for registration
+                print("🔍 DEBUG: Registration flow - storing Google data")
+                st.session_state.pending_google_signup = {
+                    'email': email,
+                    'name': name,
+                    'google_id': user_info.get('id'),
+                    'picture': user_info.get('picture', '')
+                }
+                st.session_state.show_google_registration = True
+                st.session_state.google_registration_mode = False
+                return {'show_registration': True, 'user_data': st.session_state.pending_google_signup}
+            else:
+                # Login flow - auto-register new user
+                print("🔍 DEBUG: Auto-registering new user from login")
+                
+                try:
+                    from modules.auth import create_user_from_google
+                    user_id = create_user_from_google(user_info)
+                    
+                    if user_id:
+                        # Login the new user
+                        user_data = db.get_user_by_id(user_id)
+                        if user_data:
+                            from modules.auth import login_user
+                            login_user(user_data, None, remember_me=True)
+                            st.success(f"Welcome, {name}! Your account has been created. 🎉")
+                            
+                            from modules.auth import save_session_to_url
+                            save_session_to_url(True)
+                            
+                            # Clear registration mode
+                            st.session_state.google_registration_mode = False
+                            
+                            return {'logged_in': True, 'user_id': user_id}
+                    else:
+                        st.error("❌ Failed to create account. Please try again.")
+                        return None
+                        
+                except Exception as e:
+                    print(f"❌ Auto-registration error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    st.error(f"Failed to create account: {str(e)}")
+                    return None
     
     return None
-
-
-
-
-def render_google_login_button():
+        
+def render_google_login_button(registration_mode=False):
     """Render Google Sign-In button"""
     
     client_id, _ = get_google_credentials()
@@ -272,11 +326,13 @@ def render_google_login_button():
         st.warning("⚠️ Google Sign-In is not configured. Please contact administrator.")
         return
     
-    auth_url = get_google_auth_url()
+    auth_url = get_google_auth_url(registration_mode=registration_mode)
     
     if not auth_url:
         st.error("❌ Failed to generate login URL")
         return
+    
+    button_text = "Sign up with Google" if registration_mode else "Sign in with Google"
     
     st.markdown("""
     <style>
@@ -320,86 +376,95 @@ def render_google_login_button():
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
-            Sign in with Google
+            {button_text}
         </div>
     </a>
     """, unsafe_allow_html=True)
-
-
-def render_google_registration_form():
-    """Render registration completion form for Google users"""
     
-    user_info = st.session_state.get('pending_google_signup', {})
-    
-    if not user_info:
-        st.error("Session expired. Please try again.")
-        st.session_state.show_google_registration = False
-        return
-    
-    st.markdown("### Complete Your Registration")
-    st.info(f"Welcome {user_info.get('name', '')}! Please complete your registration.")
-    
-    with st.form("google_registration_form"):
-        st.text_input("Email", value=user_info.get('email', ''), disabled=True)
-        full_name = st.text_input("Full Name", value=user_info.get('name', ''))
-        username = st.text_input("Username", value=user_info.get('email', '').split('@')[0])
-        phone = st.text_input("Phone (Optional)")
-        specialization = st.selectbox(
-            "Specialization",
-            ["Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
-             "Project Manager", "Civil Engineer", "Architect", "Other"]
-        )
-        years_experience = st.slider("Years of Experience", 0, 40, 5)
-        terms = st.checkbox("I agree to the Terms of Service and Privacy Policy *")
+    def render_google_registration_form():
+        """Render registration completion form for Google users"""
         
-        submitted = st.form_submit_button("Complete Registration", type="primary")
+        user_info = st.session_state.get('pending_google_signup', {})
         
-        if submitted:
-            if not all([full_name, username, specialization]):
-                st.error("Please fill all required fields")
-            elif not terms:
-                st.error("Please accept the terms to continue")
-            else:
-                import bcrypt
+        if not user_info:
+            st.error("Session expired. Please try again.")
+            st.session_state.show_google_registration = False
+            return
+        
+        st.markdown("### ✅ Complete Your Registration with Google")
+        st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
+        
+        with st.form("google_registration_form"):
+            # Pre-filled fields from Google
+            st.text_input("Email", value=user_info.get('email', ''), disabled=True)
+            full_name = st.text_input("Full Name *", value=user_info.get('name', ''))
+            username = st.text_input("Username *", value=user_info.get('email', '').split('@')[0])
+            
+            st.markdown("---")
+            st.markdown("#### Additional Information (Optional)")
+            
+            # Make mobile optional for Google users with clear indication
+            mobile = st.text_input("Mobile Number (Optional)", placeholder="01XXXXXXXXX - You can add this later")
+            phone = st.text_input("Phone (Alternative)", placeholder="Your phone number")
+            
+            st.caption("💡 You can add your mobile number later from your profile settings.")
+            
+            specialization = st.selectbox(
+                "Specialization",
+                ["", "Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
+                "Project Manager", "Civil Engineer", "Architect", "Other"]
+            )
+            years_experience = st.slider("Years of Experience", 0, 40, 5)
+            
+            terms = st.checkbox("I agree to the Terms of Service and Privacy Policy *")
+            
+            submitted = st.form_submit_button("✅ Complete Registration with Google", type="primary", use_container_width=True)
+            
+            if submitted:
+                errors = []
+                if not full_name:
+                    errors.append("Full name is required")
+                if not username:
+                    errors.append("Username is required")
+                if not terms:
+                    errors.append("You must agree to the Terms of Service")
                 
-                company_data = {
-                    'company_name': f"{full_name} - Individual Consultant",
-                    'email': user_info['email'],
-                    'phone': phone,
-                    'division': specialization,
-                    'is_individual': True
-                }
+                # Validate mobile only if provided
+                if mobile:
+                    from utils.validators import normalize_mobile, validate_bangladesh_mobile
+                    normalized_mobile = normalize_mobile(mobile)
+                    if not validate_bangladesh_mobile(normalized_mobile):
+                        errors.append("Invalid Bangladeshi mobile number")
+                    else:
+                        mobile = normalized_mobile
                 
-                success, company_id = db.create_company(company_data)
-                
-                if success and company_id:
-                    temp_password = secrets.token_urlsafe(12)
-                    hashed_password = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    
-                    user_data = {
-                        'username': username,
-                        'password': hashed_password,
-                        'email': user_info['email'],
-                        'full_name': full_name,
-                        'phone': phone,
-                        'role': 'individual',
+                if errors:
+                    for err in errors:
+                        st.error(f"❌ {err}")
+                else:
+                    # Store pending registration
+                    st.session_state.pending_registration = {
                         'account_type': 'individual',
+                        'full_name': full_name.strip(),
+                        'username': username.strip(),
+                        'email': user_info['email'],
+                        'mobile': mobile if mobile else '',  # Empty if not provided
+                        'phone': phone,
                         'specialization': specialization,
                         'years_experience': years_experience,
-                        'is_approved': True,
-                        'auth_provider': 'google',
-                        'google_id': user_info.get('google_id')
+                        'is_google_user': True,
+                        'google_id': user_info.get('google_id'),
+                        'password': None  # No password needed for Google users
                     }
                     
-                    user_success, user_result = db.create_user(company_id, user_data, 'individual')
+                    # Skip OTP for Google users since they're already verified by Google
+                    st.session_state.verification_step = 'email_otp'
+                    st.session_state.verification_contact = user_info['email']
+                    st.session_state.verification_purpose = 'google_registration'
+                    st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
                     
-                    if user_success:
-                        st.balloons()
-                        st.success("Registration successful! You can now login with Google.")
-                        st.session_state.show_google_registration = False
-                        st.session_state.pending_google_signup = None
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to create user: {user_result}")
-                else:
-                    st.error(f"Failed to create account")
+                    st.success("✅ Google account verified! Completing registration...")
+                    complete_registration()
+                    st.rerun()
+                    
+        

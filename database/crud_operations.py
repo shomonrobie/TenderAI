@@ -298,8 +298,152 @@ class DatabaseCRUD:
             
             user_id = cursor.lastrowid
             return True, user_id
-        
 
+    def create_google_user(self, user_data: Dict) -> tuple:
+        """
+        Create a new user from Google OAuth (mobile number optional)
+        
+        Args:
+            user_data: Dict with keys: username, email, full_name, google_id, phone (optional)
+        
+        Returns:
+            (success: bool, message: str or user_id: int)
+        """
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            # Validate required fields
+            if not user_data.get('username'):
+                return False, "Username is required"
+            if not user_data.get('email'):
+                return False, "Email is required"
+            if not user_data.get('full_name'):
+                return False, "Full name is required"
+            
+            # Generate a random password for Google users
+            import secrets
+            import bcrypt
+            temp_password = secrets.token_urlsafe(16)
+            hashed = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            # Check if email already exists
+            cursor.execute("SELECT id, auth_provider FROM users WHERE email = ?", (user_data['email'],))
+            existing = cursor.fetchone()
+            if existing:
+                # If user exists, update with Google info if it's a Google user
+                user_id = existing[0]
+                google_id = user_data.get('google_id')
+                if google_id:
+                    cursor.execute("""
+                        UPDATE users 
+                        SET google_id = ?, auth_provider = 'google', email_verified = 1, 
+                            auth_provider_user_id = ?
+                        WHERE id = ?
+                    """, (google_id, google_id, user_id))
+                    conn.commit()
+                    return True, user_id
+                return False, f"Email {user_data['email']} is already registered"
+            
+            # Check if username already exists
+            cursor.execute("SELECT id FROM users WHERE username = ?", (user_data['username'],))
+            if cursor.fetchone():
+                return False, f"Username {user_data['username']} is already taken"
+            
+            # Mobile is optional for Google users
+            mobile = user_data.get('mobile_number', '')
+            if mobile:
+                mobile = self.normalize_mobile(mobile)
+                if self.validate_bangladesh_mobile(mobile):
+                    cursor.execute("SELECT id FROM users WHERE mobile_number = ?", (mobile,))
+                    if cursor.fetchone():
+                        return False, f"Mobile number {mobile} is already registered"
+                else:
+                    mobile = ''
+            
+            google_id = user_data.get('google_id', '')
+            
+            # Insert user with OAuth columns
+            cursor.execute("""
+                INSERT INTO users (
+                    username, password, email, full_name, phone, mobile_number,
+                    role, is_active, is_approved, created_at, account_type,
+                    auth_provider, google_id, google_email, email_verified,
+                    auth_provider_user_id, google_picture
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?,
+                    'individual', 1, 1, CURRENT_TIMESTAMP, 'individual',
+                    'google', ?, ?, 1,
+                    ?, ?
+                )
+            """, (
+                user_data['username'],
+                hashed,
+                user_data['email'],
+                user_data['full_name'],
+                user_data.get('phone', ''),
+                mobile,
+                google_id,
+                user_data['email'],
+                google_id,  # auth_provider_user_id
+                user_data.get('picture', '')  # google_picture
+            ))
+            
+            user_id = cursor.lastrowid
+            
+            # Also insert into user_oauth table for extensibility
+            if google_id:
+                cursor.execute("""
+                    INSERT INTO user_oauth (user_id, provider_name, provider_user_id, provider_email)
+                    VALUES (?, 'google', ?, ?)
+                """, (user_id, google_id, user_data['email']))
+            
+            conn.commit()
+            return True, user_id
+
+    def create_facebook_user(self, user_data: Dict) -> tuple:
+        """
+        Create a new user from Facebook OAuth (disabled for now)
+        
+        Args:
+            user_data: Dict with keys: username, email, full_name, facebook_id, phone (optional)
+        
+        Returns:
+            (success: bool, message: str or user_id: int)
+        """
+        # TODO: Implement Facebook OAuth
+        logger.warning("Facebook OAuth is not yet implemented")
+        return False, "Facebook OAuth is not yet implemented. Please use Google or traditional registration."
+
+    def get_user_by_oauth_provider(self, provider_name: str, provider_user_id: str):
+        """Get user by OAuth provider and provider user ID"""
+        try:
+            # First check user_oauth table
+            result = self.query_one("""
+                SELECT u.* FROM users u
+                JOIN user_oauth o ON u.id = o.user_id
+                WHERE o.provider_name = ? AND o.provider_user_id = ?
+            """, (provider_name, provider_user_id))
+            
+            if result:
+                return result
+            
+            # Fallback to direct column check for Google
+            if provider_name == 'google':
+                result = self.query_one("""
+                    SELECT * FROM users WHERE google_id = ?
+                """, (provider_user_id,))
+                return result
+            
+            if provider_name == 'facebook':
+                result = self.query_one("""
+                    SELECT * FROM users WHERE facebook_id = ?
+                """, (provider_user_id,))
+                return result
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user by OAuth provider: {e}")
+            return None           
     def authenticate_user(self, username_or_email: str, password: str) -> Optional[Dict]:
         """Authenticate user - supports both SHA256 and bcrypt hashes"""
         with self.get_connection() as conn:

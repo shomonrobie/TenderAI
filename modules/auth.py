@@ -11,6 +11,8 @@ import json
 import traceback
 import logging
 from typing import Optional, Dict
+import secrets
+import bcrypt
 
 logger = logging.getLogger(__name__)
 db = UnifiedDatabaseManager()
@@ -322,3 +324,55 @@ def navigate_to(page: str, success_msg: str = None):
 def is_oauth_callback() -> bool:
     """Check if current request is an OAuth callback"""
     return 'code' in st.query_params
+
+def create_user_from_google(user_info):
+    """Create a new user from Google OAuth data"""
+    
+    print(f"🔍 DEBUG: create_user_from_google called with {user_info.get('email')}")
+    
+    try:
+        email = user_info.get('email')
+        name = user_info.get('name', email.split('@')[0])
+        google_id = user_info.get('id')
+        picture = user_info.get('picture', '')
+        
+        # Generate a random username from email
+        username = email.split('@')[0]
+        # Make sure username is unique
+        counter = 1
+        original_username = username
+        while True:
+            existing_user = db.query_one("SELECT id FROM users WHERE username = ?", (username,))
+            if not existing_user:
+                break
+            username = f"{original_username}{counter}"
+            counter += 1
+        
+        # Create user data
+        user_data = {
+            'username': username,
+            'email': email,
+            'full_name': name,
+            'phone': '',
+            'mobile_number': '',  # Empty for Google users
+            'google_id': google_id,
+            'picture': picture,
+        }
+        
+        print(f"🔍 DEBUG: Creating Google user with data: {user_data}")
+        
+        # Use the new create_google_user method with OAuth support
+        success, user_id = db.create_google_user(user_data)
+        
+        if success:
+            print(f"✅ Google user created with ID: {user_id}")
+            return user_id
+        else:
+            print(f"❌ Failed to create Google user: {user_id}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error creating Google user: {e}")
+        import traceback
+        traceback.print_exc()
+        return None

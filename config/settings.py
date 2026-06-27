@@ -121,6 +121,8 @@ class Config:
     OTP_LENGTH = OTP_CONFIG['length']
     OTP_EXPIRY_MINUTES = OTP_CONFIG['expiry_minutes']
     OTP_MAX_ATTEMPTS = OTP_CONFIG['max_attempts']
+    DEBUG_OTP_PRINT = True  # ← Add this line
+
     
     # Email Settings
     EMAIL_ENABLED = EMAIL_CONFIG['enabled']

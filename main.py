@@ -1223,6 +1223,7 @@ def _render_public_pages() -> None:
         debug_print(f"❌ Public page render error: {e}")
         st.error("⚠️ Unable to load this page. Please try again.")
 
+
 def is_onboarding_complete():
     """Check if onboarding is complete"""
     company_id = st.session_state.get('company_id')
@@ -1477,6 +1478,8 @@ def main() -> None:
     ensure_database_schema()
     # Call this at the start of main()
     ensure_password_hashes()
+    from migrations.v024_add_oauth_support import run_migration as run_oauth_migration
+    run_oauth_migration()
 
 
     # =========================================================================
