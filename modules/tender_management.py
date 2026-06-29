@@ -2403,8 +2403,365 @@ def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
     
     return display_data
 
+def render_competitor_list():
+    """Display the main competitor dashboard with the UI shown"""
+    
+    company_id = st.session_state.get('company_id')
+    
+    # ============================================================================
+    # HEADER SECTION WITH 4 KPI CARDS
+    # ============================================================================
+    st.markdown("### 📊 Competitor Intelligence Dashboard")
+    
+    # Get summary stats
+    competitors = db.get_competitor_master_list(company_id, active_only=True)
+    
+    if not competitors:
+        st.info("No competitors found. Add your first competitor using the form above.")
+        return
+    
+    comp_df = pd.DataFrame(competitors)
+    
+    # Calculate KPIs
+    total_competitors = len(comp_df)
+    active_competitors = len([c for c in competitors if c.get('is_active', True)])
+    
+    total_bids = comp_df['total_bids'].sum()
+    total_wins = comp_df['total_wins'].sum()
+    win_rate = (total_wins / total_bids * 100) if total_bids > 0 else 0
+    
+    avg_ratio = comp_df['avg_bid_ratio'].mean()
+    if pd.isna(avg_ratio):
+        avg_ratio = 0.0
+    
+    # Display 4 KPIs
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Competitors", total_competitors)
+    with col2:
+        st.metric("Active Competitors", active_competitors)
+    with col3:
+        st.metric("Win Rate (All)", f"{win_rate:.1f}%")
+    with col4:
+        st.metric("Avg Bid Ratio", f"{avg_ratio:.3f}")
+    
+    st.divider()
+    
+    # ============================================================================
+    # CHARTS SECTION
+    # ============================================================================
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Bid Distribution Histogram
+        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
+            st.markdown("#### Bid Distribution")
+            fig = px.histogram(
+                comp_df,
+                x='total_bids',
+                title='Competitor Bid Distribution',
+                labels={'total_bids': 'Number of Bids'},
+                nbins=20,
+                color_discrete_sequence=['blue']
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No bid data available for chart")
+    
+    with col2:
+        # Win Rate by Competitor Bar Chart
+        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
+            st.markdown("#### Win Rate by Competitor")
+            comp_df['Win Rate'] = comp_df.apply(
+                lambda x: (x['total_wins'] / x['total_bids'] * 100) if x['total_bids'] > 0 else 0, 
+                axis=1
+            )
+            top_competitors = comp_df.nlargest(10, 'total_bids')
+            fig = px.bar(
+                top_competitors,
+                x='competitor_name',
+                y='Win Rate',
+                title='Top 10 Competitors by Win Rate',
+                labels={'competitor_name': 'Competitor', 'Win Rate': 'Win Rate (%)'},
+                color='Win Rate',
+                color_continuous_scale='Blues'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No win rate data available for chart")
+    
+    st.divider()
+    
+    # ============================================================================
+    # COMPETITOR LIST TABLE WITH [🔍] DETAILS BUTTON
+    # ============================================================================
+    st.markdown("### 📋 Competitor List")
+    
+    # ========================================================================
+    # SEARCH BAR (like the tender search)
+    # ========================================================================
+    search = st.text_input(
+        "🔍 Search Competitor",
+        placeholder="Enter competitor name, type, or strategy...",
+        key="competitor_search_input"
+    )
+    
+    # Apply search filter
+    filtered_competitors = competitors.copy()
+    if search:
+        search_lower = search.lower()
+        filtered_competitors = [
+            c for c in competitors
+            if (search_lower in str(c.get('competitor_name', '')).lower() or
+                search_lower in str(c.get('business_type', '')).lower() or
+                search_lower in str(c.get('preferred_strategy', '')).lower() or
+                search_lower in str(c.get('contact_person', '')).lower())
+        ]
+    
+    # Sort and paginate
+    # Sorting
+    if 'competitor_sort' not in st.session_state:
+        st.session_state.competitor_sort = "Name"
+    
+    sort_options = {
+        "Name": "competitor_name",
+        "Total Bids": "total_bids",
+        "Win Rate": "win_percentage",
+        "Last Seen": "last_seen"
+    }
+    
+    sort_by = st.selectbox(
+        "Sort by", 
+        list(sort_options.keys()),
+        key="competitor_sort_selector"
+    )
+    
+    sort_key = sort_options.get(sort_by, "competitor_name")
+    if sort_key == "win_percentage":
+        # Calculate win rate for sorting
+        for c in filtered_competitors:
+            c['win_percentage'] = (c.get('total_wins', 0) / c.get('total_bids', 1) * 100) if c.get('total_bids', 0) > 0 else 0
+        filtered_competitors.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+    elif sort_key == "last_seen":
+        filtered_competitors.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
+    elif sort_key == "total_bids":
+        filtered_competitors.sort(key=lambda x: x.get('total_bids', 0), reverse=True)
+    else:
+        filtered_competitors.sort(key=lambda x: x.get('competitor_name', ''))
+    
+    # Show result count
+    st.caption(f"Showing {len(filtered_competitors)} competitors")
+    
+    # Pagination
+    page_size = 10
+    total_pages = (len(filtered_competitors) - 1) // page_size + 1 if filtered_competitors else 1
+    
+    # Get current page from session state
+    if 'competitor_page' not in st.session_state:
+        st.session_state.competitor_page = 1
+    
+    # Ensure current page is valid
+    if st.session_state.competitor_page < 1:
+        st.session_state.competitor_page = 1
+    elif st.session_state.competitor_page > total_pages:
+        st.session_state.competitor_page = total_pages
+    
+    page = st.session_state.competitor_page
+    start_idx = (page - 1) * page_size
+    end_idx = min(start_idx + page_size, len(filtered_competitors))
+    page_competitors = filtered_competitors[start_idx:end_idx]
+    
+    # Display table with [🔍] button
+    if page_competitors:
+        # Header
+        cols = st.columns([3, 2, 2, 2, 1])
+        cols[0].write("**Competitor Name**")
+        cols[1].write("**Type**")
+        cols[2].write("**First Seen**")
+        cols[3].write("**Last Seen**")
+        cols[4].write("**Details**")
+        
+        st.divider()
+        
+        # Rows
+        for idx, comp in enumerate(page_competitors, start=start_idx + 1):
+            cols = st.columns([3, 2, 2, 2, 1])
+            
+            # Competitor Name
+            cols[0].write(f"**{comp.get('competitor_name', 'Unknown')}**")
+            
+            # Business Type
+            cols[1].write(comp.get('business_type', 'N/A'))
+            
+            # First Seen (fix date conversion)
+            first_seen = comp.get('first_seen')
+            if first_seen and isinstance(first_seen, str):
+                try:
+                    first_seen = datetime.strptime(first_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
+                except:
+                    first_seen = 'N/A'
+            elif first_seen:
+                first_seen = first_seen.strftime('%Y-%m-%d')
+            else:
+                first_seen = 'N/A'
+            cols[2].write(first_seen)
+            
+            # Last Seen (fix date conversion)
+            last_seen = comp.get('last_seen')
+            if last_seen and isinstance(last_seen, str):
+                try:
+                    last_seen = datetime.strptime(last_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
+                except:
+                    last_seen = 'N/A'
+            elif last_seen:
+                last_seen = last_seen.strftime('%Y-%m-%d')
+            else:
+                last_seen = 'N/A'
+            cols[3].write(last_seen)
+            
+            # [🔍] Details Button - using unique key with idx
+            comp_id = comp.get('id')
+            if cols[4].button(
+                "🔍",
+                key=f"view_comp_{comp_id}_{idx}",
+                help=f"View full intelligence profile for {comp.get('competitor_name')}"
+            ):
+                # Store competitor ID and navigate using session state
+                st.session_state.competitor_id = comp_id
+                st.session_state.page = "competitor_profile"
+                st.rerun()
+        
+        # Pagination controls
+        st.divider()
+        col1, col2, col3 = st.columns([1, 3, 1])
+        
+        with col1:
+            if page > 1:
+                if st.button("◀ Previous", key="comp_prev_page"):
+                    st.session_state.competitor_page = page - 1
+                    st.rerun()
+        
+        with col2:
+            st.caption(f"Page {page} of {total_pages} | Showing {len(page_competitors)} of {len(filtered_competitors)} competitors")
+        
+        with col3:
+            if page < total_pages:
+                if st.button("Next ▶", key="comp_next_page"):
+                    st.session_state.competitor_page = page + 1
+                    st.rerun()
+    else:
+        st.info("No competitors match your search criteria")
 
 def _render_tender_table_rows(display_data: List[Dict], company_id: int):
+    """Render table rows with pagination and search"""
+    
+    # ========================================================================
+    # SEARCH BAR (like the competitor search)
+    # ========================================================================
+    search = st.text_input(
+        "🔍 Search Tenders", 
+        placeholder="Search by tender ID, reference, title, or procuring entity...",
+        key="tender_search_input"
+    )
+    
+    # Apply search filter
+    filtered_data = display_data
+    if search:
+        search_lower = search.lower()
+        filtered_data = [
+            item for item in display_data
+            if (search_lower in str(item.get('tender_id', '')).lower() or
+                search_lower in str(item.get('tender_id', '')).lower() or
+                search_lower in str(item.get('title', '')).lower() or
+                search_lower in str(item.get('procuring_entity', '')).lower() or
+                search_lower in str(item.get('procurement_type', '')).lower())
+        ]
+    
+    # ========================================================================
+    # PAGINATION
+    # ========================================================================
+    # Initialize pagination
+    if 'tender_page' not in st.session_state:
+        st.session_state.tender_page = 1
+    
+    items_per_page = 10
+    total_items = len(filtered_data)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    
+    # Ensure current page is valid
+    if st.session_state.tender_page < 1:
+        st.session_state.tender_page = 1
+    elif st.session_state.tender_page > total_pages:
+        st.session_state.tender_page = total_pages
+    
+    # Calculate slice
+    start_idx = (st.session_state.tender_page - 1) * items_per_page
+    end_idx = min(start_idx + items_per_page, total_items)
+    page_items = filtered_data[start_idx:end_idx]
+    
+    # Show result count
+    st.caption(f"Showing {len(page_items)} of {total_items} tenders")
+    
+    # Table header
+    st.markdown("""
+    <div style="display:grid; grid-template-columns: 0.5fr 2.5fr 2.5fr 2fr 1.5fr 1.5fr 1fr; gap:0; padding:10px 12px; background:#1a1a3e; border-radius:8px 8px 0 0; border-bottom:2px solid rgba(102,126,234,0.2);">
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">S.No</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Tender/Proposal ID, Reference No., Status</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Procurement Nature, Title</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">PE</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Type, Method</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Publishing Date, Closing Date</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Dashboard</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Render rows
+    for idx, item in enumerate(page_items, start=start_idx + 1):
+        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
+        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
+        
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
+        
+        with col1:
+            st.write(f"{idx}")
+        with col2:
+            st.markdown(f"""
+            <div class="tender-id-cell">{item['tender_id']}</div>
+            <div class="ref-text">REF: {item['tender_id']}</div>
+            <span class="status-badge {item['status_class']}">{item['status_display']}</span>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="tender-title-cell">
+                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.caption(item['procuring_entity'][:50])
+        with col5:
+            st.write(item['procurement_type'])
+            st.caption("LTM")
+        with col6:
+            st.caption(pub_date_str)
+            st.caption(closing_date_str)
+        with col7:
+            # Use a unique key with the item ID and index
+            if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
+                tender_data = get_tender_by_id(item['tender_id'], company_id)
+                if tender_data:
+                    tender_data = _normalize_tender_data(tender_data)
+                    st.session_state.view_tender_detail = tender_data
+                    st.rerun()
+                else:
+                    st.error("Failed to load tender details")
+        
+        st.divider()
+    
+    # Pagination
+    if total_pages > 1:
+        _render_pagination(total_pages)
+                
+def _render_tender_table_rows_bak(display_data: List[Dict], company_id: int):
     """Render table rows with pagination"""
     
     # Initialize pagination
@@ -2469,7 +2826,7 @@ def _render_tender_table_rows(display_data: List[Dict], company_id: int):
             st.caption(pub_date_str)
             st.caption(closing_date_str)
         with col7:
-            if st.button("📊", key=f"dash_{item['id']}_{idx}", use_container_width=True):
+            if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
                 tender_data = get_tender_by_id(item['tender_id'], company_id)
                 if tender_data:
                     tender_data = _normalize_tender_data(tender_data)

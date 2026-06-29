@@ -4719,6 +4719,109 @@ class DatabaseCRUD:
             return True
 
     def update_tender(self, tender_id: int, tender_data: Dict, user_id: int) -> bool:
+        """Update an existing tender with full e-GP fields"""
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+
+            cursor.execute("""
+                UPDATE company_tenders SET
+                    tender_id = ?,
+                    tender_title = ?,
+                    procuring_entity = ?,
+                    division = ?,
+                    district = ?,
+                    thana = ?,
+                    country = ?,
+                    procurement_type = ?,
+                    official_estimate = ?,
+                    submission_deadline = ?,
+                    tender_security = ?,
+                    document_fee = ?,
+                    evaluation_type = ?,
+                    mode_of_payment = ?,
+                    eligibility_criteria = ?,
+                    invitation_ref_no = ?,
+                    package_no = ?,
+                    project_code = ?,
+                    project_name = ?,
+                    inviting_official_name = ?,
+                    inviting_official_designation = ?,
+                    inviting_official_phone = ?,
+                    inviting_official_email = ?,
+                    inviting_official_address = ?,
+                    inviting_official_city = ?,
+                    inviting_official_thana = ?,
+                    inviting_official_district = ?,
+                    notes = ?,
+                    app_id = ?,
+                    procuring_entity_code = ?,
+                    procurement_nature = ?,
+                    event_type = ?,
+                    budget_type = ?,
+                    source_of_funds = ?,
+                    category = ?,
+                    tender_publication_date = ?,
+                    document_selling_end_date = ?,
+                    pre_bid_meeting_start = ?,
+                    pre_bid_meeting_end = ?,
+                    bid_opening_date = ?,
+                    security_submission_deadline = ?,
+                    security_valid_upto = ?,
+                    tender_valid_upto = ?,
+                    updated_at = CURRENT_TIMESTAMP,
+                    created_by = ?
+                WHERE id = ?
+            """, (
+                tender_data.get('tender_id'),           # 1
+                tender_data.get('tender_title'),        # 2
+                tender_data.get('procuring_entity'),    # 3
+                tender_data.get('division'),            # 4
+                tender_data.get('district'),            # 5
+                tender_data.get('thana'),               # 6
+                tender_data.get('country', 'Bangladesh'), # 7
+                tender_data.get('procurement_type'),    # 8
+                tender_data.get('official_estimate'),   # 9
+                tender_data.get('submission_deadline'), # 10
+                tender_data.get('tender_security'),     # 11
+                tender_data.get('document_fee'),        # 12
+                tender_data.get('evaluation_type'),     # 13
+                tender_data.get('mode_of_payment'),     # 14
+                tender_data.get('eligibility_criteria'), # 15
+                tender_data.get('invitation_ref_no'),   # 16
+                tender_data.get('package_no'),          # 17
+                tender_data.get('project_code'),        # 18
+                tender_data.get('project_name'),        # 19
+                tender_data.get('inviting_official_name'), # 20
+                tender_data.get('inviting_official_designation'), # 21
+                tender_data.get('inviting_official_phone'), # 22
+                tender_data.get('inviting_official_email'), # 23
+                tender_data.get('inviting_official_address'), # 24
+                tender_data.get('inviting_official_city'), # 25
+                tender_data.get('inviting_official_thana'), # 26
+                tender_data.get('inviting_official_district'), # 27
+                tender_data.get('notes'),               # 28
+                tender_data.get('app_id'),              # 29
+                tender_data.get('procuring_entity_code'), # 30
+                tender_data.get('procurement_nature'),  # 31
+                tender_data.get('event_type'),          # 32
+                tender_data.get('budget_type'),         # 33
+                tender_data.get('source_of_funds'),     # 34
+                tender_data.get('category'),            # 35
+                tender_data.get('tender_publication_date'), # 36
+                tender_data.get('document_selling_end_date'), # 37
+                tender_data.get('pre_bid_meeting_start'), # 38
+                tender_data.get('pre_bid_meeting_end'), # 39
+                tender_data.get('bid_opening_date'),    # 40
+                tender_data.get('security_submission_deadline'), # 41
+                tender_data.get('security_valid_upto'), # 42
+                tender_data.get('tender_valid_upto'),   # 43
+                user_id,                                # 44 (created_by)
+                tender_id                               # 45 (WHERE clause)
+            ))
+
+            return cursor.rowcount > 0
+
+    def update_tender_bak(self, tender_id: int, tender_data: Dict, user_id: int) -> bool:
         """
         Update an existing tender
         
@@ -4785,6 +4888,7 @@ class DatabaseCRUD:
             import traceback
             traceback.print_exc()
             return False
+  
     def update_tender_lock_status(self, tender_id: int, locked: bool) -> bool:
         """Update the lock status of a tender"""
         import streamlit as st
@@ -7773,8 +7877,98 @@ class DatabaseCRUD:
             traceback.print_exc()
             return pd.DataFrame()
 
+    def create_tender(self, company_id: int, tender_data: Dict, created_by: int) -> Optional[int]:
+        """Create a new tender with full e-GP fields"""
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
 
-    def create_tender(self, company_id: int, tender_data: Dict) -> Optional[int]:
+            cursor.execute("""
+                INSERT INTO company_tenders (
+                    company_id, tender_id, tender_title, procuring_entity,
+                    division, district, thana, country, procurement_type,
+                    official_estimate, submission_deadline, tender_security,
+                    document_fee, evaluation_type, mode_of_payment,
+                    eligibility_criteria, invitation_ref_no, package_no,
+                    project_code, project_name, inviting_official_name,
+                    inviting_official_designation, inviting_official_phone,
+                    inviting_official_email, inviting_official_address,
+                    inviting_official_city, inviting_official_thana,
+                    inviting_official_district, notes, app_id,
+                    procuring_entity_code, procurement_nature, event_type,
+                    budget_type, source_of_funds, category,
+                    tender_publication_date, document_selling_end_date,
+                    pre_bid_meeting_start, pre_bid_meeting_end,
+                    bid_opening_date, security_submission_deadline,
+                    security_valid_upto, tender_valid_upto,
+                    created_by, created_at
+                ) VALUES (
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,                    
+                    ?, CURRENT_TIMESTAMP
+                )
+            """, (
+                company_id,
+                tender_data.get('tender_id'),
+                tender_data.get('tender_title'),
+                tender_data.get('procuring_entity'),
+                tender_data.get('division'),
+                tender_data.get('district'),
+                tender_data.get('thana'),
+                tender_data.get('country', 'Bangladesh'),
+                tender_data.get('procurement_type'),
+                tender_data.get('official_estimate'),
+                tender_data.get('submission_deadline'),
+                tender_data.get('tender_security'),
+                tender_data.get('document_fee'),
+                tender_data.get('evaluation_type'),
+                tender_data.get('mode_of_payment'),
+                tender_data.get('eligibility_criteria'),
+                tender_data.get('invitation_ref_no'),
+                tender_data.get('package_no'),
+                tender_data.get('project_code'),
+                tender_data.get('project_name'),
+                tender_data.get('inviting_official_name'),
+                tender_data.get('inviting_official_designation'),
+                tender_data.get('inviting_official_phone'),
+                tender_data.get('inviting_official_email'),
+                tender_data.get('inviting_official_address'),
+                tender_data.get('inviting_official_city'),
+                tender_data.get('inviting_official_thana'),
+                tender_data.get('inviting_official_district'),
+                tender_data.get('notes'),
+                tender_data.get('app_id'),
+                tender_data.get('procuring_entity_code'),
+                tender_data.get('procurement_nature'),
+                tender_data.get('event_type'),
+                tender_data.get('budget_type'),
+                tender_data.get('source_of_funds'),
+                tender_data.get('category'),
+                tender_data.get('tender_publication_date'),
+                tender_data.get('document_selling_end_date'),
+                tender_data.get('pre_bid_meeting_start'),
+                tender_data.get('pre_bid_meeting_end'),
+                tender_data.get('bid_opening_date'),
+                tender_data.get('security_submission_deadline'),
+                tender_data.get('security_valid_upto'),
+                tender_data.get('tender_valid_upto'),
+                created_by,
+            ))
+
+            return cursor.lastrowid
+
+    def create_tender_bak(self, company_id: int, tender_data: Dict) -> Optional[int]:
         """Create a new tender"""
         with self.get_connection() as conn:
             cursor = self.db_conn.get_cursor(conn)
@@ -7941,6 +8135,449 @@ class DatabaseCRUD:
         except Exception as e:
             logger.error(f"Error getting all company configs for {company_id}: {e}")
             return {}
+    
+    
     # database/crud_operations.py - Add this method    
         
-    
+    # =========================================================
+    # COMPETITOR INTELLIGENCE METHODS - ADD THESE
+    # =========================================================
+
+    def get_competitor_with_stats(self, competitor_id: int, company_id: int) -> Optional[Dict]:
+        """
+        Get competitor details with calculated statistics
+        
+        Args:
+            competitor_id: The competitor's ID
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            Competitor record with stats or None
+        """
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            cursor.execute("""
+                SELECT 
+                    cm.*,
+                    ROUND(
+                        CASE 
+                            WHEN cm.total_bids > 0 
+                            THEN (cm.total_wins * 100.0 / cm.total_bids) 
+                            ELSE 0 
+                        END, 
+                        2
+                    ) as win_percentage,
+                    (
+                        SELECT COUNT(*) 
+                        FROM competitor_bid_history cbh
+                        WHERE cbh.competitor_name = cm.competitor_name 
+                        AND cbh.company_id = cm.company_id
+                    ) as actual_total_bids
+                FROM competitor_master cm
+                WHERE cm.id = ? AND cm.company_id = ?
+            """, (competitor_id, company_id))
+            
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_competitor_bid_history_with_details(self, competitor_name: str, company_id: int) -> List[Dict]:
+        """
+        Get complete bid history with tender details and calculated fields
+        
+        Args:
+            competitor_name: Name of the competitor
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            List of bid records with calculated fields
+        """
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            cursor.execute("""
+                SELECT 
+                    cbh.tender_id,
+                    ct.tender_title,
+                    ct.procuring_entity,
+                    ct.submission_deadline as closing_date,
+                    ct.official_estimate as oce,
+                    cbh.bid_amount,
+                    cbh.bid_ratio,
+                    cbh.was_winner,
+                    cbh.bid_date,
+                    -- Calculate discount from OCE
+                    ROUND(
+                        ((ct.official_estimate - cbh.bid_amount) / NULLIF(ct.official_estimate, 0)) * 100, 
+                        2
+                    ) as discount_from_oce,
+                    -- Calculate rank (lower bid = better rank)
+                    (
+                        SELECT COUNT(*) + 1 
+                        FROM competitor_bid_history cbh2 
+                        WHERE cbh2.tender_id = cbh.tender_id 
+                        AND cbh2.bid_amount < cbh.bid_amount
+                        AND cbh2.company_id = cbh.company_id
+                    ) as rank,
+                    -- Get winning bid amount
+                    (
+                        SELECT MIN(cbh2.bid_amount) 
+                        FROM competitor_bid_history cbh2 
+                        WHERE cbh2.tender_id = cbh.tender_id 
+                        AND cbh2.was_winner = 1
+                        AND cbh2.company_id = cbh.company_id
+                    ) as winning_bid,
+                    -- Calculate NPPI (Normalized Price Performance Index)
+                    ROUND(cbh.bid_amount / NULLIF(ct.official_estimate, 0), 4) as nppi,
+                    -- Difference from winning bid
+                    ROUND(
+                        cbh.bid_amount - (
+                            SELECT MIN(cbh2.bid_amount) 
+                            FROM competitor_bid_history cbh2 
+                            WHERE cbh2.tender_id = cbh.tender_id 
+                            AND cbh2.was_winner = 1
+                            AND cbh2.company_id = cbh.company_id
+                        ), 
+                        2
+                    ) as diff_from_winning_bid
+                FROM competitor_bid_history cbh
+                JOIN company_tenders ct ON cbh.tender_id = ct.tender_id
+                WHERE cbh.competitor_name = ? 
+                AND cbh.company_id = ?
+                AND ct.official_estimate > 0
+                ORDER BY cbh.bid_date DESC
+            """, (competitor_name, company_id))
+            
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    def get_competitor_analytics(self, competitor_name: str, company_id: int) -> Dict:
+        """
+        Get comprehensive analytics for a competitor
+        
+        Args:
+            competitor_name: Name of the competitor
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            Dictionary with analytics metrics
+        """
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_bids,
+                    SUM(CASE WHEN was_winner = 1 THEN 1 ELSE 0 END) as total_wins,
+                    MIN(bid_date) as first_active,
+                    MAX(bid_date) as last_active,
+                    ROUND(AVG(bid_amount), 2) as avg_bid,
+                    ROUND(AVG(bid_ratio), 4) as avg_bid_ratio,
+                    ROUND(AVG(official_estimate), 2) as avg_oce,
+                    ROUND(AVG(bid_amount / NULLIF(official_estimate, 0)), 4) as avg_nppi,
+                    ROUND(
+                        AVG(
+                            ((official_estimate - bid_amount) / NULLIF(official_estimate, 0)) * 100
+                        ), 
+                        2
+                    ) as avg_discount,
+                    -- Additional analytics
+                    ROUND(
+                        AVG(
+                            ((official_estimate - bid_amount) / NULLIF(official_estimate, 0)) * 100
+                        ), 
+                        2
+                    ) as avg_discount,
+                    ROUND(
+                        STDEV(
+                            ((official_estimate - bid_amount) / NULLIF(official_estimate, 0)) * 100
+                        ), 
+                        2
+                    ) as std_discount,
+                    ROUND(
+                        MIN(
+                            ((official_estimate - bid_amount) / NULLIF(official_estimate, 0)) * 100
+                        ), 
+                        2
+                    ) as min_discount,
+                    ROUND(
+                        MAX(
+                            ((official_estimate - bid_amount) / NULLIF(official_estimate, 0)) * 100
+                        ), 
+                        2
+                    ) as max_discount,
+                    (
+                        SELECT COUNT(DISTINCT tender_id) 
+                        FROM competitor_bid_history cbh2
+                        WHERE cbh2.competitor_name = cbh.competitor_name 
+                        AND cbh2.company_id = cbh.company_id
+                    ) as total_tenders
+                FROM competitor_bid_history cbh
+                JOIN company_tenders ct ON cbh.tender_id = ct.tender_id
+                WHERE cbh.competitor_name = ? 
+                AND cbh.company_id = ?
+                AND ct.official_estimate > 0
+                GROUP BY cbh.competitor_name, cbh.company_id
+            """, (competitor_name, company_id))
+            
+            row = cursor.fetchone()
+            
+            if not row:
+                return {
+                    'total_bids': 0,
+                    'total_wins': 0,
+                    'first_active': None,
+                    'last_active': None,
+                    'avg_bid': 0.0,
+                    'avg_bid_ratio': 0.0,
+                    'avg_oce': 0.0,
+                    'avg_nppi': 0.0,
+                    'avg_discount': 0.0,
+                    'std_discount': 0.0,
+                    'min_discount': 0.0,
+                    'max_discount': 0.0,
+                    'total_tenders': 0
+                }
+            
+            result = dict(row)
+            
+            # Calculate derived metrics
+            total_bids = result.get('total_bids', 0)
+            total_wins = result.get('total_wins', 0)
+            result['win_rate'] = round((total_wins / total_bids * 100), 2) if total_bids > 0 else 0.0
+            
+            # Calculate competition level
+            if result.get('total_tenders', 0) > 0:
+                result['avg_competition_level'] = round(
+                    total_bids / result['total_tenders'], 2
+                )
+            else:
+                result['avg_competition_level'] = 0.0
+            
+            # Calculate active months
+            if result.get('first_active') and result.get('last_active'):
+                first_date = pd.to_datetime(result['first_active'])
+                last_date = pd.to_datetime(result['last_active'])
+                result['active_months'] = round(((last_date - first_date).days / 30.44), 1)
+            else:
+                result['active_months'] = 0
+            
+            return result
+
+    def get_competitor_activity_insights(self, competitor_name: str, company_id: int) -> List[str]:
+        """
+        Generate activity-based insights for a competitor
+        
+        Args:
+            competitor_name: Name of the competitor
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            List of insight strings
+        """
+        insights = []
+        
+        # Get analytics
+        analytics = self.get_competitor_analytics(competitor_name, company_id)
+        
+        if analytics.get('total_bids', 0) == 0:
+            insights.append("No historical data available for this competitor")
+            return insights
+        
+        # 1. Activity status based on first appearance
+        active_months = analytics.get('active_months', 0)
+        if active_months < 3:
+            insights.append("🆕 New entrant: First appeared recently (less than 3 months ago)")
+        elif active_months < 12:
+            insights.append("📈 Active competitor: Participating regularly for under 1 year")
+        elif active_months < 24:
+            insights.append("🏛️ Established competitor: Active for 1-2 years")
+        else:
+            insights.append("🏗️ Veteran competitor: Active for over 2 years")
+        
+        # 2. Recent activity status
+        last_active = analytics.get('last_active')
+        if last_active:
+            days_since_last = (datetime.now().date() - last_active).days
+            if days_since_last > 365:
+                insights.append(f"⚠️ Inactive: No bids recorded for over 1 year")
+            elif days_since_last > 180:
+                insights.append(f"⏸️ Less active: Last bid was {days_since_last} days ago")
+            elif days_since_last > 90:
+                insights.append(f"📉 Decreasing activity: Last bid was {days_since_last} days ago")
+            elif days_since_last > 30:
+                insights.append(f"📊 Moderately active: Last bid was {days_since_last} days ago")
+            else:
+                insights.append(f"⚡ Highly active: Recently bid {days_since_last} days ago")
+        
+        # 3. Bidding frequency
+        total_bids = analytics.get('total_bids', 0)
+        if active_months > 0:
+            bids_per_month = total_bids / active_months
+            if bids_per_month > 3:
+                insights.append(f"🔥 High frequency: ~{bids_per_month:.1f} bids per month")
+            elif bids_per_month > 1:
+                insights.append(f"📊 Moderate frequency: ~{bids_per_month:.1f} bids per month")
+            else:
+                insights.append(f"🐢 Low frequency: ~{bids_per_month:.1f} bids per month")
+        
+        return insights
+
+    def get_competitor_behavioral_insights(self, competitor_name: str, company_id: int) -> List[str]:
+        """
+        Generate behavioral insights based on bidding patterns
+        
+        Args:
+            competitor_name: Name of the competitor
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            List of insight strings
+        """
+        insights = []
+        
+        analytics = self.get_competitor_analytics(competitor_name, company_id)
+        
+        if analytics.get('total_bids', 0) == 0:
+            return insights
+        
+        # 1. Bidding consistency based on discount volatility
+        volatility = analytics.get('std_discount', 0)
+        if volatility < 3:
+            insights.append("🎯 Highly consistent bidder (very low variance in discounts)")
+        elif volatility < 8:
+            insights.append("📊 Consistent bidder (moderate variance in discounts)")
+        elif volatility < 15:
+            insights.append("🔄 Variable bidder (significant variance in discounts)")
+        else:
+            insights.append("🎲 Aggressive bidder (highly variable discount patterns)")
+        
+        # 2. Win rate analysis
+        win_rate = analytics.get('win_rate', 0)
+        if win_rate > 40:
+            insights.append("🏆 Strong performer: Win rate exceeds 40%")
+        elif win_rate > 25:
+            insights.append("📈 Competitive performer: Win rate between 25-40%")
+        elif win_rate > 10:
+            insights.append("📊 Developing performer: Win rate between 10-25%")
+        else:
+            insights.append("📉 Needs improvement: Win rate below 10%")
+        
+        # 3. Discount strategy
+        avg_discount = analytics.get('avg_discount', 0)
+        if avg_discount > 20:
+            insights.append("💪 Aggressive pricing: Average discount above 20%")
+        elif avg_discount > 10:
+            insights.append("📊 Balanced pricing: Average discount between 10-20%")
+        elif avg_discount > 5:
+            insights.append("💰 Conservative pricing: Average discount between 5-10%")
+        else:
+            insights.append("🛡️ Premium positioning: Average discount below 5%")
+        
+        return insights
+
+    def get_competitor_chart_data(self, competitor_name: str, company_id: int) -> Dict:
+        """
+        Get data for charts in a format ready for Plotly
+        
+        Args:
+            competitor_name: Name of the competitor
+            company_id: Company ID for tenant isolation
+        
+        Returns:
+            Dictionary with chart data
+        """
+        history = self.get_competitor_bid_history_with_details(competitor_name, company_id)
+        
+        if not history:
+            return {}
+        
+        df = pd.DataFrame(history)
+        df['bid_date'] = pd.to_datetime(df['bid_date'])
+        
+        return {
+            'discount_vs_time': df[['bid_date', 'discount_from_oce']].dropna().sort_values('bid_date'),
+            'bid_vs_oce': df[['oce', 'bid_amount']].dropna(),
+            'win_rate_trend': df.sort_values('bid_date')['was_winner'].rolling(5, min_periods=1).mean() * 100,
+            'participation_timeline': df.groupby('bid_date').size().reset_index(name='count'),
+            'bid_distribution': df['bid_amount'].dropna(),
+            'rank_distribution': df['rank'].dropna()
+        }
+
+    def get_paginated_competitors(self, company_id: int, limit: int = 20, offset: int = 0, 
+                                  search: str = None, sort_by: str = 'competitor_name') -> Dict:
+        """
+        Get paginated list of competitors with stats
+        
+        Args:
+            company_id: Company ID for tenant isolation
+            limit: Number of records to return
+            offset: Offset for pagination
+            search: Search term for competitor name
+            sort_by: Column to sort by
+        
+        Returns:
+            Dictionary with 'competitors' list and 'total' count
+        """
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            # Build query with calculated win percentage
+            base_sql = """
+                SELECT 
+                    cm.*,
+                    ROUND(
+                        CASE 
+                            WHEN cm.total_bids > 0 
+                            THEN (cm.total_wins * 100.0 / cm.total_bids) 
+                            ELSE 0 
+                        END, 
+                        2
+                    ) as win_percentage
+                FROM competitor_master cm
+                WHERE cm.company_id = ?
+                AND cm.is_active = 1
+            """
+            
+            count_sql = """
+                SELECT COUNT(*) as total
+                FROM competitor_master cm
+                WHERE cm.company_id = ?
+                AND cm.is_active = 1
+            """
+            
+            params = [company_id]
+            count_params = [company_id]
+            
+            # Add search filter
+            if search:
+                base_sql += " AND cm.competitor_name LIKE ?"
+                count_sql += " AND cm.competitor_name LIKE ?"
+                search_param = f"%{search}%"
+                params.append(search_param)
+                count_params.append(search_param)
+            
+            # Add sorting
+            valid_sort_columns = ['competitor_name', 'first_seen', 'last_seen', 'total_bids', 'win_percentage']
+            if sort_by in valid_sort_columns:
+                base_sql += f" ORDER BY cm.{sort_by} ASC"
+            else:
+                base_sql += " ORDER BY cm.competitor_name ASC"
+            
+            # Add pagination
+            base_sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            # Execute queries
+            cursor.execute(base_sql, params)
+            rows = cursor.fetchall()
+            competitors = [dict(row) for row in rows]
+            
+            cursor.execute(count_sql, count_params)
+            total_row = cursor.fetchone()
+            total = total_row['total'] if total_row else 0
+            
+            return {
+                'competitors': competitors,
+                'total': total
+            }

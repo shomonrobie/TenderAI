@@ -138,6 +138,8 @@ from modules.bid_analysis.quick_bid_check import render_quick_bid_check
 from modules.bid_analysis.advanced_bid_analysis import render_advanced_bid_analysis
 from modules.bid_analysis.ai_bid_advisor import render_ai_bid_advisor
 from modules.bid_analysis.competitive_intelligence import render_competitive_intelligence    
+from modules.competitor_profile import render_competitor_profile_page
+
 #from modules.data_management import render_data_management
 
 # =============================================================================
@@ -615,6 +617,7 @@ class PageRoutes:
     EGP_BOQ_WORKSPACE = 'egp_boq_workspace'
     TUTORIAL = 'tutorial'        
     COMPANY_RATE_MANAGEMENT ='company_rate_management'
+    COMPETITOR_PROFILE = "competitor_profile"
     # ─── Premium Intelligence Pages ──────────────────────────────────────────
     HISTORICAL_DATA = 'historical_data'
     ANALYSIS_HISTORY = 'analysis_history'
@@ -1301,6 +1304,8 @@ def _render_authenticated_pages() -> None:
         PageRoutes.COMPETITIVE_INTEL: lambda: render_competitive_intelligence(db, SubscriptionManager),
         PageRoutes.AI_ADVISOR: lambda: render_ai_bid_advisor(db, SubscriptionManager),
         PageRoutes.COMPANY_CONFIG: lambda: render_company_config(db),
+        PageRoutes.COMPETITOR_PROFILE : lambda: render_competitor_profile_page(db, SubscriptionManager),
+
 
     }
     
