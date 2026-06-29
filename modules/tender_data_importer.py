@@ -563,6 +563,7 @@ class TenderDataImporter:
         parsed_data['competitors'] = competitors
         parsed_data['winner_info'] = winner_info
     
+    
     def import_tender_data(self, company_id: int, tender_id: str, 
                       parsed_data: Dict, tender_data: Dict = None,
                       replace_existing: bool = False) -> Tuple[bool, Dict]:
@@ -1938,33 +1939,44 @@ class TenderDataImporter:
             return 'Private Limited'
         else:
             return 'Other'
-        
+
     def parse_opening_report_with_header(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Parse opening report Excel with header row.
-        Expects columns: S. No, Name of Tenderer, Quoted Amount (in BDT) Without Discount,
+        Columns: S. No, Name of Tenderer, Quoted Amount (in BDT) Without Discount,
         Discount in Percentage (%), Discount in Amount, Quoted Amount (in BDT) with Discount, Winner
-        
-        Args:
-            df: DataFrame from Excel with header row
-            
-        Returns:
-            Dict with competitors and winner info
         """
         try:
             competitors = []
             winner_info = None
             
-            # Find the relevant columns
+            # Get columns
             columns = df.columns.tolist()
             
-            # Map column names (flexible matching)
-            name_col = next((col for col in columns if 'tenderer' in str(col).lower() or 'name' in str(col).lower()), None)
-            quoted_col = next((col for col in columns if 'quoted amount' in str(col).lower() and 'without' in str(col).lower()), None)
-            final_col = next((col for col in columns if 'quoted amount' in str(col).lower() and 'with' in str(col).lower()), None)
-            discount_col = next((col for col in columns if 'discount' in str(col).lower() and 'amount' in str(col).lower()), None)
-            discount_pct_col = next((col for col in columns if 'discount' in str(col).lower() and 'percentage' in str(col).lower()), None)
-            winner_col = next((col for col in columns if 'winner' in str(col).lower()), None)
+            # Map columns by position (0-indexed)
+            # Index 0: S. No
+            # Index 1: Name of Tenderer
+            # Index 2: Quoted Amount (without discount)
+            # Index 3: Discount in Percentage (%)
+            # Index 4: Discount in Amount
+            # Index 5: Quoted Amount (with discount)
+            # Index 6: Winner
+            
+            if len(columns) >= 7:
+                name_col = columns[1]          # Name of Tenderer
+                quoted_col = columns[2]        # Quoted Amount Without Discount
+                discount_pct_col = columns[3]  # Discount in Percentage
+                discount_amt_col = columns[4]  # Discount in Amount
+                final_col = columns[5]         # Quoted Amount With Discount
+                winner_col = columns[6]        # Winner
+            else:
+                # Fallback: try to find by name
+                name_col = next((col for col in columns if 'tenderer' in str(col).lower() or 'name' in str(col).lower()), None)
+                quoted_col = next((col for col in columns if 'quoted amount' in str(col).lower() and 'without' in str(col).lower()), None)
+                discount_pct_col = next((col for col in columns if 'discount' in str(col).lower() and 'percentage' in str(col).lower()), None)
+                discount_amt_col = next((col for col in columns if 'discount' in str(col).lower() and 'amount' in str(col).lower() and 'percentage' not in str(col).lower()), None)
+                final_col = next((col for col in columns if 'quoted amount' in str(col).lower() and 'with' in str(col).lower()), None)
+                winner_col = next((col for col in columns if 'winner' in str(col).lower()), None)
             
             if not name_col or not quoted_col:
                 raise ValueError("Could not find required columns: Name and Quoted Amount")
@@ -1975,15 +1987,30 @@ class TenderDataImporter:
                 if pd.isna(row.get(name_col)):
                     continue
                 
-                # Get values
+                # Get competitor name
                 name = str(row.get(name_col, '')).strip()
                 if not name or name == 'nan':
                     continue
                 
-                quoted_amount = self._safe_float(row.get(quoted_col, 0))
-                final_amount = self._safe_float(row.get(final_col, quoted_amount)) if final_col else quoted_amount
-                discount_amount = self._safe_float(row.get(discount_col, 0)) if discount_col else 0
-                discount_pct = self._safe_float(row.get(discount_pct_col, 0)) if discount_pct_col else 0
+                # Get values from correct columns - KEEP EXACT PRECISION
+                quoted_amount = self._safe_float_precise(row.get(quoted_col, 0))
+                discount_pct = self._safe_float_precise(row.get(discount_pct_col, 0)) if discount_pct_col else 0
+                discount_amount = self._safe_float_precise(row.get(discount_amt_col, 0)) if discount_amt_col else 0
+                final_from_excel = self._safe_float_precise(row.get(final_col, 0)) if final_col else 0
+                
+                # Calculate final amount - KEEP EXACT PRECISION (don't round prematurely)
+                if final_from_excel > 0:
+                    # Use the value from Excel
+                    final_amount = final_from_excel
+                elif discount_amount > 0:
+                    # Calculate using discount amount - KEEP FULL PRECISION
+                    final_amount = quoted_amount - discount_amount
+                elif discount_pct > 0:
+                    # Calculate using discount percentage - KEEP FULL PRECISION
+                    final_amount = quoted_amount * (1 - discount_pct / 100)
+                else:
+                    # No discount
+                    final_amount = quoted_amount
                 
                 # Check if winner
                 is_winner = False
@@ -1993,9 +2020,9 @@ class TenderDataImporter:
                 
                 competitor = {
                     'name': name,
-                    'quoted_amount': quoted_amount,
-                    'final_amount': final_amount if final_amount > 0 else quoted_amount,
-                    'discount_amount': discount_amount,
+                    'quoted_amount': quoted_amount,      # Keep full precision
+                    'final_amount': final_amount,        # Keep full precision
+                    'discount_amount': discount_amount,  # Keep full precision
                     'discount_percentage': discount_pct,
                     'is_winner': is_winner
                 }
@@ -2005,20 +2032,6 @@ class TenderDataImporter:
                 
                 competitors.append(competitor)
             
-            # If no winner marked, use lowest final amount as default (but keep was_winner = 0)
-            if not winner_info and competitors:
-                # Find lowest bidder but don't mark as winner (was_winner = 0)
-                lowest = min(competitors, key=lambda x: x.get('final_amount', 0))
-                # We'll NOT set is_winner = True here to keep was_winner = 0
-                # The user can select the winner in the UI if needed
-                
-                # Just store the lowest bidder info for reference
-                winner_info = {
-                    'name': lowest['name'],
-                    'final_amount': lowest['final_amount'],
-                    'is_winner': False  # Explicitly False
-                }
-            
             return {
                 'competitors': competitors,
                 'winner_info': winner_info,
@@ -2026,20 +2039,63 @@ class TenderDataImporter:
             }
             
         except Exception as e:
-            print(f"Error parsing opening report: {e}")
+            st.error(f"Error parsing opening report: {e}")
             import traceback
-            traceback.print_exc()
+            st.code(traceback.format_exc())
             return {'competitors': [], 'winner_info': None, 'error': str(e)}
 
-    def _safe_float(self, value):
-        """Safely convert value to float"""
-        if value is None:
-            return 0.0
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value.replace(',', '').strip())
-            except:
+    def _safe_float_precise(self, value) -> float:
+        """Safely convert value to float with full precision"""
+        try:
+            if pd.isna(value):
                 return 0.0
-        return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                # Remove commas, BDT, and other characters
+                cleaned = value.replace(',', '').replace('BDT', '').replace('₹', '').replace('$', '').strip()
+                if cleaned:
+                    return float(cleaned)
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0
+    def _calculate_final_amount(self, quoted_amount: float, discount_amount: float, discount_pct: float) -> float:
+        """
+        Calculate final amount using discount information.
+        
+        Args:
+            quoted_amount: Original quoted amount (without discount)
+            discount_amount: Discount amount in BDT
+            discount_pct: Discount percentage
+        
+        Returns:
+            Calculated final amount with discount applied
+        """
+        # If discount amount is provided, use it
+        if discount_amount > 0:
+            final = quoted_amount - discount_amount
+        # If discount percentage is provided, calculate discount amount
+        elif discount_pct > 0:
+            discount = quoted_amount * (discount_pct / 100)
+            final = quoted_amount - discount
+        # No discount applied
+        else:
+            final = quoted_amount
+        
+        # Round to 2 decimal places and ensure not negative
+        return max(0, round(final, 2))
+
+    def _safe_float(self, value) -> float:
+        """Safely convert value to float"""
+        try:
+            if pd.isna(value):
+                return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                # Remove commas and BDT if present
+                cleaned = value.replace(',', '').replace('BDT', '').strip()
+                return float(cleaned) if cleaned else 0.0
+            return float(value)
+        except (ValueError, TypeError):
+            return 0.0

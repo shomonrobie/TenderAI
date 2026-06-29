@@ -3113,7 +3113,7 @@ def _render_tender_result_crud() -> None:
             "bid_amount": st.column_config.NumberColumn(
                 "Bid Amount (BDT)", 
                 min_value=0.0, 
-                format="%.2f",
+                format="%.3f",
                 step=1000.0
             ),
             "was_winner": st.column_config.CheckboxColumn(

@@ -1627,12 +1627,14 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
 
     st.success(f"✅ Selected: **{tender_data.get('tender_title')}** | OCE: BDT {official_estimate:,.2f}")
 
-    # Load current bids
+    # Load current bids with FULL PRECISION
     try:
         with db.get_connection() as conn:
             cursor = db.db_conn.get_cursor(conn)
             cursor.execute("""
-                SELECT competitor_name, bid_amount, was_winner 
+                SELECT competitor_name, 
+                       CAST(bid_amount AS REAL) as bid_amount,  -- Ensure full precision
+                       was_winner 
                 FROM competitor_bid_history 
                 WHERE tender_id = ? AND company_id = ?
                 ORDER BY bid_amount ASC
@@ -1647,14 +1649,21 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
         st.warning("No bid history found for this tender. Import bid data first.")
         return
 
+    # Convert to DataFrame with proper types
     df = pd.DataFrame(bids_data)
     if 'was_winner' not in df.columns:
         df['was_winner'] = False
+    
+    # Ensure bid_amount is float with full precision
+    df['bid_amount'] = df['bid_amount'].astype(float)
+    
+    # CRITICAL: Format the bid_amount column to show 3 decimal places
+    df['bid_amount'] = df['bid_amount'].apply(lambda x: float(f"{x:.3f}"))
 
     st.markdown("#### 📋 Edit Bid Amounts")
     st.caption("**Note:** Selecting a winner is optional. You can save without any winner.")
 
-    # Editable Table
+    # Editable Table with proper formatting
     edited_df = st.data_editor(
         df,
         column_config={
@@ -1662,8 +1671,8 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
             "bid_amount": st.column_config.NumberColumn(
                 "Bid Amount (BDT)", 
                 min_value=0.0, 
-                format="%.2f",
-                step=1000.0
+                format="%.3f",  # Force 3 decimal places
+                step=1.0  # Smaller step for precision
             ),
             "was_winner": st.column_config.CheckboxColumn(
                 "Mark as Winner", 
@@ -1685,7 +1694,7 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
         w = winners.iloc[0]
         if official_estimate > 0:
             nppi = (float(w['bid_amount']) / official_estimate) * 100
-            st.success(f"🏆 Winner: **{w['competitor_name']}** | Bid: BDT {w['bid_amount']:,.2f} | NPPI: **{nppi:.3f}%**")
+            st.success(f"🏆 Winner: **{w['competitor_name']}** | Bid: BDT {w['bid_amount']:,.3f} | NPPI: **{nppi:.3f}%**")
 
     # Save Button
     col1, col2 = st.columns(2)
@@ -1694,11 +1703,15 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
             success_count = 0
             
             for _, row in edited_df.iterrows():
+                # Store with full precision (3 decimal places)
+                bid_amount = float(row['bid_amount'])
+                was_winner = bool(row['was_winner'])
+                
                 success = db.update_competitor_bid(
                     tender_id=tender_id,
                     competitor_name=row['competitor_name'],
-                    bid_amount=float(row['bid_amount']),
-                    was_winner=bool(row['was_winner'])
+                    bid_amount=bid_amount,  # Keep full precision
+                    was_winner=was_winner
                 )
                 if success:
                     success_count += 1
@@ -1708,7 +1721,7 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
                 w = winners.iloc[0]
                 db.update_tender_result(
                     tender_id=tender_id,
-                    winning_bid_amount=float(w['bid_amount']),
+                    winning_bid_amount=float(w['bid_amount']),  # Keep full precision
                     winning_competitor=w['competitor_name'],
                     our_rank=1,
                     total_bidders=len(edited_df),
@@ -1725,7 +1738,10 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
     
     with col2:
         if st.button("📥 Export Current Bids to CSV", use_container_width=True, key=f"export_{tender_id}"):
-            csv = edited_df.to_csv(index=False)
+            # Export with full precision
+            export_df = edited_df.copy()
+            export_df['bid_amount'] = export_df['bid_amount'].apply(lambda x: f"{x:.3f}")
+            csv = export_df.to_csv(index=False)
             st.download_button(
                 label="Download CSV",
                 data=csv,
@@ -1733,444 +1749,6 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
                 mime="text/csv",
                 key=f"download_csv_{tender_id}"
             )
-
-
-# =============================================================================
-# TAB 6: IMPORT TENDER DATA
-# =============================================================================
-
-def _render_tender_importer_for_tender_bak2(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
-    """Render tender data importer for a specific tender with replace option"""
-    
-    st.markdown("""
-    <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                padding: 20px; border-radius: 10px; color: white; margin-bottom: 20px;">
-        <h3>📥 Import Tender Opening Report</h3>
-        <p style="margin: 0;">Upload Excel file to import competitor bid data</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-    
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}**")
-    st.caption(f"Tender ID: `{tender_id}` | OCE: BDT {official_estimate:,.2f}")
-    
-    # Check if data already exists
-    existing_data_count = 0
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT COUNT(*) FROM competitor_bid_history 
-                WHERE tender_id = ? AND company_id = ?
-            """, (tender_id, company_id))
-            existing_data_count = cursor.fetchone()[0]
-    except Exception as e:
-        st.warning(f"Could not check existing data: {e}")
-    
-    # Show warning if data exists
-    if existing_data_count > 0:
-        st.warning(f"⚠️ **{existing_data_count} bid records** already exist for this tender.")
-        
-        # Replace option
-        replace_data = st.checkbox(
-            "🔄 Replace existing data (delete current bids and import new)",
-            value=False,
-            key=f"replace_checkbox_{tender_id}",
-            help="If checked, all existing bid data for this tender will be deleted before importing new data."
-        )
-        
-        if replace_data:
-            st.error("⚠️ **Warning:** This will delete all existing bid records for this tender. This action cannot be undone!")
-    else:
-        replace_data = False
-        st.info("ℹ️ No existing bid data found for this tender. Import will add new records.")
-    
-    st.divider()
-    st.subheader("Upload Opening Report")
-    
-    importer = TenderDataImporter(db)
-    
-    uploaded_file = st.file_uploader(
-        "Upload Opening Report (Excel)",
-        type=['xlsx', 'xls'],
-        key=f"opening_report_uploader_{tender_id}"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Read Excel with header row
-            df = pd.read_excel(uploaded_file, header=0)
-            
-            # Show preview
-            st.caption("Preview of parsed data:")
-            st.dataframe(df.head(5), use_container_width=True)
-            
-            with st.spinner("Parsing tender opening report..."):
-                parsed_data = importer.parse_opening_report_with_header(df)
-            
-            if not parsed_data.get('competitors'):
-                st.warning("No competitor data found.")
-                return
-            
-            st.success(f"✅ Parsed {len(parsed_data['competitors'])} competitors")
-            
-            # Preview table
-            display_data = []
-            for comp in parsed_data['competitors']:
-                display_data.append({
-                    'Competitor': comp['name'],
-                    'Quoted Amount': f"BDT {comp.get('quoted_amount', 0):,.2f}",
-                    'Final Amount': f"BDT {comp.get('final_amount', 0):,.2f}",
-                    'Winner': "🏆" if comp.get('is_winner') else ""
-                })
-            
-            st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-            
-            # Check if winner is marked in the data
-            has_winner = any(comp.get('is_winner') for comp in parsed_data['competitors'])
-            
-            if not has_winner:
-                st.info("ℹ️ No winner marked in Excel. The lowest bidder will be used as the winner (optional).")
-            
-            # Winner selection (optional)
-            st.markdown("#### 🏆 Winner Selection")
-            st.caption("Select the winner (or leave as lowest bidder). Click 'Skip Winner' if no winner should be declared.")
-            
-            # Get competitor names
-            competitor_names = [comp['name'] for comp in parsed_data['competitors']]
-            
-            # Find lowest bidder
-            lowest_bidder = min(parsed_data['competitors'], key=lambda x: x.get('final_amount', 0))
-            default_winner = lowest_bidder['name']
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                selected_winner = st.selectbox(
-                    "Select Winner (or leave as lowest bidder)",
-                    ["-- Skip Winner (No winner declared) --"] + competitor_names,
-                    key=f"winner_select_{tender_id}"
-                )
-            
-            with col2:
-                if st.button("🏆 Set as Winner", key=f"set_winner_{tender_id}", use_container_width=True):
-                    if selected_winner and selected_winner != "-- Skip Winner (No winner declared) --":
-                        for comp in parsed_data['competitors']:
-                            comp['is_winner'] = (comp['name'] == selected_winner)
-                        st.success(f"✅ {selected_winner} marked as winner!")
-                        st.rerun()
-                    else:
-                        st.info("ℹ️ No winner selected. You can import without declaring a winner.")
-            
-            # NPPI Preview
-            if official_estimate > 0:
-                nppi_data = []
-                for comp in parsed_data['competitors']:
-                    final_amount = comp.get('final_amount', 0)
-                    if final_amount > 0 and official_estimate > 0:
-                        nppi_pct = (final_amount / official_estimate) * 100
-                        is_winner = "🏆" if comp.get('is_winner') else ""
-                        nppi_data.append({
-                            'Competitor': comp['name'],
-                            'Final Amount': f"BDT {final_amount:,.2f}",
-                            'NPPI %': f"{nppi_pct:.2f}%",
-                            'Winner': is_winner
-                        })
-                
-                if nppi_data:
-                    st.markdown("#### 📊 NPPI Analysis")
-                    st.dataframe(pd.DataFrame(nppi_data), use_container_width=True, hide_index=True)
-            
-            # Import Button with replace option
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                import_label = "🔄 Replace & Import" if replace_data and existing_data_count > 0 else "📥 Import Competitors & Bid Data"
-                import_help = "This will delete existing data and import new data" if replace_data else "This will add new bid records"
-                
-                if st.button(import_label, type="primary", use_container_width=True, key=f"import_{tender_id}", help=import_help):
-                    with st.spinner("Importing data into database..."):
-                        # Pass replace parameter to importer
-                        success, summary = importer.import_tender_data(
-                            company_id=company_id,
-                            tender_id=tender_id,
-                            parsed_data=parsed_data,
-                            tender_data=tender_data,
-                            replace_existing=replace_data  # Pass replace flag
-                        )
-                    
-                    if success:
-                        st.success("✅ Import completed successfully!")
-                        st.balloons()
-                        tender_selector_manager.clear_selection()
-                        if st.button("🔄 Refresh to see imported data", use_container_width=True):
-                            st.rerun()
-                    else:
-                        st.error("❌ Import failed.")
-                        if summary.get('errors'):
-                            for err in summary['errors']:
-                                st.error(err)
-            
-            with col2:
-                if st.button("🔄 Reset Selection", use_container_width=True, key=f"reset_winner_{tender_id}"):
-                    for comp in parsed_data['competitors']:
-                        comp['is_winner'] = False
-                    st.rerun()
-        
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.exception(e)
-    
-    # Help section
-    with st.expander("ℹ️ How to use the tender importer"):
-        st.markdown("""
-        ### 📄 Process Overview
-        
-        1. **Upload Opening Report**: Upload the Excel file from e-GP
-        2. **Review Data**: Check the parsed competitor data
-        3. **Select Winner**: Choose the winner (optional)
-        4. **Import**: Import competitors and bid history
-        
-        ### 🔄 Replace Mode
-        
-        If data already exists for this tender:
-        - **Without Replace**: New bid records are added (may create duplicates)
-        - **With Replace**: All existing bid data is deleted and replaced with new data
-        
-        ### 📊 What Gets Imported
-        
-        - **Competitors**: New competitors added, existing ones updated
-        - **Bid History**: All competitor bids recorded
-        - **Winner**: Manually selected or skipped
-        - **NPPI Factor**: Calculated from winner vs OCE
-        
-        ### 💡 Tips
-        
-        - Use **Replace** mode when correcting errors or re-importing corrected data
-        - Without Replace, you may create duplicate records
-        - Competitor names should be consistent for proper matching
-        """)
-
-
-def _render_tender_detail_page_bak(tender_data: Dict[str, Any]):
-    """Render e-GP style tender detail page with Analysis, Results CRUD, and Import tabs"""
-    
-    st.markdown("""
-    <style>
-    .detail-header {
-        background: linear-gradient(135deg, #1a1a3e 0%, #2d1b69 100%);
-        padding: 20px 30px;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 20px;
-        border: 1px solid rgba(102, 126, 234, 0.2);
-    }
-    .detail-header h1 {
-        color: white;
-        margin: 0;
-        font-size: 22px;
-        font-weight: 600;
-    }
-    .detail-header .subtitle {
-        color: #94a3b8;
-        font-size: 14px;
-        margin-top: 4px;
-    }
-    .detail-header .meta-row {
-        display: flex;
-        gap: 30px;
-        flex-wrap: wrap;
-        margin-top: 12px;
-    }
-    .detail-header .meta-item {
-        background: rgba(255,255,255,0.05);
-        padding: 6px 16px;
-        border-radius: 8px;
-        font-size: 13px;
-        color: #94a3b8;
-    }
-    .detail-header .meta-item strong {
-        color: white;
-    }
-    .detail-tabs {
-        background: #1a1a2e;
-        padding: 12px 20px;
-        border-radius: 10px;
-        margin: 15px 0;
-        display: flex;
-        gap: 20px;
-        flex-wrap: wrap;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link {
-        color: #94a3b8;
-        text-decoration: none;
-        font-size: 14px;
-        padding: 6px 12px;
-        border-radius: 6px;
-        transition: all 0.3s;
-        cursor: pointer;
-    }
-    .detail-tabs .tab-link:hover {
-        color: white;
-        background: rgba(102, 126, 234, 0.1);
-    }
-    .detail-tabs .tab-link.active {
-        color: white;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-    }
-    .back-btn {
-        background: rgba(102, 126, 234, 0.1) !important;
-        color: #94a3b8 !important;
-        border: 1px solid rgba(102, 126, 234, 0.2) !important;
-        padding: 6px 20px !important;
-        border-radius: 8px !important;
-        transition: all 0.3s !important;
-    }
-    .back-btn:hover {
-        background: rgba(102, 126, 234, 0.2) !important;
-        color: white !important;
-    }
-    .action-buttons {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 15px 0;
-    }
-    .action-buttons .stButton button {
-        padding: 8px 20px !important;
-        font-size: 14px !important;
-        border-radius: 8px !important;
-    }
-    .action-buttons .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Header
-    tender_id = tender_data.get('tender_id', 'N/A')
-    title = tender_data.get('tender_title', 'Untitled')
-    procuring_entity = tender_data.get('procuring_entity', 'N/A')
-    closing_date = tender_data.get('submission_deadline', 'N/A')
-    status = tender_data.get('bid_status', 'draft')
-    status_display = {
-        'won': 'Contract Awarded',
-        'submitted': 'Being processed',
-        'draft': 'Draft',
-        'lost': 'Lost',
-        'awarded': 'Contract Awarded'
-    }.get(status, status.title())
-    
-    # Format closing date
-    if closing_date and closing_date != 'N/A':
-        try:
-            closing_date = pd.to_datetime(closing_date).strftime('%d-%b-%Y %H:%M')
-        except:
-            pass
-    
-    st.markdown(f"""
-    <div class="detail-header">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap;">
-            <div>
-                <h1>📄 Tender/Proposal Detail</h1>
-                <div class="subtitle">{title}</div>
-            </div>
-            <div>
-                <span class="status-badge status-{status}">{status_display}</span>
-            </div>
-        </div>
-        <div class="meta-row">
-            <span class="meta-item"><strong>Tender/Proposal ID:</strong> {tender_id}</span>
-            <span class="meta-item"><strong>Closing Date:</strong> {closing_date}</span>
-            <span class="meta-item"><strong>Procuring Entity:</strong> {procuring_entity[:60]}</span>
-            <span class="meta-item"><strong>Status:</strong> {status_display}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Back button
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("← Back to Dashboard", key=f"back_to_dashboard_{tender_db_id}", use_container_width=True):
-            st.session_state.view_tender_detail = None
-            st.rerun()
-
-    
-    # ===== TENDER/PROPOSAL DASHBOARD =====
-    st.markdown("---")
-    st.markdown("### TENDER/PROPOSAL DASHBOARD")
-    
-    # Get safe values
-    official_estimate = float(tender_data.get('official_estimate', 0) or 0)
-    our_bid = tender_data.get('our_bid_amount')
-    if our_bid is None:
-        our_bid = 0
-    else:
-        try:
-            our_bid = float(our_bid)
-        except (ValueError, TypeError):
-            our_bid = 0
-    
-    total_bidders = tender_data.get('total_bidders')
-    if total_bidders is None:
-        total_bidders = 'N/A'
-    
-    our_rank = tender_data.get('our_rank')
-    if our_rank is None:
-        our_rank = 'N/A'
-    
-    # Summary cards
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Official Estimate",
-            f"BDT {official_estimate:,.2f}",
-            help="Official Cost Estimate"
-        )
-    with col2:
-        if our_bid > 0:
-            st.metric(
-                "Our Bid",
-                f"BDT {our_bid:,.2f}",
-                help="Our submitted bid amount"
-            )
-        else:
-            st.metric(
-                "Our Bid",
-                "Not Set",
-                help="Our submitted bid amount"
-            )
-    with col3:
-        st.metric(
-            "Total Bidders",
-            total_bidders,
-            help="Total number of bidders"
-        )
-    with col4:
-        st.metric(
-            "Our Rank",
-            our_rank,
-            help="Our rank among bidders"
-        )
-    
-    # ===== THREE TABS =====
-    tab1, tab2, tab3 = st.tabs(["📊 Analysis", "🏆 Tender Results CRUD", "📥 Import Tender Data"])
-    
-    with tab1:
-        _render_tender_analysis_for_tender(tender_data, tender_id, official_estimate)
-    
-    with tab2:
-        _render_tender_result_crud_for_tender(tender_data, tender_id, official_estimate)
-    
-    with tab3:
-        _render_tender_importer_for_tender(tender_data, tender_id, official_estimate)
-    
-    # Footer
-    #render_footer()
 
 # =============================================================================
 # FIX: Update _render_tenders_table function to use Streamlit buttons properly
@@ -3364,7 +2942,16 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
             st.session_state[f"parsed_data_{tender_id}"] = parsed_data
             
             st.success(f"✅ Parsed {len(parsed_data['competitors'])} competitors")
-            
+            st.write("### Debug Information")
+            st.write("Parsed Data Structure:")
+            for i, comp in enumerate(parsed_data['competitors']):
+                st.write(f"Competitor {i+1}: {comp['name']}")
+                st.write(f"  Quoted Amount: {comp.get('quoted_amount', 0)}")
+                st.write(f"  Discount %: {comp.get('discount_percentage', 0)}")
+                st.write(f"  Discount Amount: {comp.get('discount_amount', 0)}")
+                st.write(f"  Final Amount: {comp.get('final_amount', 0)}")
+                st.write("---")
+
             # Preview table
             display_data = []
             for comp in parsed_data['competitors']:
@@ -3534,316 +3121,7 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
         - Competitor names should be consistent for proper matching
         """)
         
-def _render_tender_importer_for_tender_bak3(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
-    """Render tender data importer for a specific tender"""
-    
-    st.markdown("""
-    <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                padding: 20px; border-radius: 10px; color: white; margin-bottom: 20px;">
-        <h3>📥 Import Tender Opening Report</h3>
-        <p style="margin: 0;">Upload Excel file to import competitor bid data</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-    
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}**")
-    st.caption(f"Tender ID: `{tender_id}` | OCE: BDT {official_estimate:,.2f}")
-    
-    st.divider()
-    st.subheader("Upload Opening Report")
-    
-    importer = TenderDataImporter(db)
-    
-    uploaded_file = st.file_uploader(
-        "Upload Opening Report (Excel)",
-        type=['xlsx', 'xls'],
-        key=f"opening_report_uploader_{tender_id}"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Read Excel with header row (skip first row)
-            df = pd.read_excel(uploaded_file, header=0)  # Use first row as header
-            
-            # Debug: Show first few rows
-            st.caption("Preview of parsed data:")
-            st.dataframe(df.head(5), use_container_width=True)
-            
-            with st.spinner("Parsing tender opening report..."):
-                parsed_data = importer.parse_opening_report_with_header(df)
-            
-            if not parsed_data.get('competitors'):
-                st.warning("No competitor data found.")
-                return
-            
-            st.success(f"✅ Parsed {len(parsed_data['competitors'])} competitors")
-            
-            # Preview table
-            display_data = []
-            for comp in parsed_data['competitors']:
-                display_data.append({
-                    'Competitor': comp['name'],
-                    'Quoted Amount': f"BDT {comp.get('quoted_amount', 0):,.2f}",
-                    'Final Amount': f"BDT {comp.get('final_amount', 0):,.2f}",
-                    'Winner': "🏆" if comp.get('is_winner') else ""
-                })
-            
-            st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-            
-            # Check if winner is marked in the data
-            has_winner = any(comp.get('is_winner') for comp in parsed_data['competitors'])
-            
-            if not has_winner:
-                st.info("ℹ️ No winner marked in Excel. The lowest bidder will be used as the winner (optional).")
-            
-            # Winner selection (optional)
-            st.markdown("#### 🏆 Winner Selection")
-            st.caption("Select the winner (or leave as lowest bidder). Click 'Skip Winner' if no winner should be declared.")
-            
-            # Get competitor names
-            competitor_names = [comp['name'] for comp in parsed_data['competitors']]
-            
-            # Find lowest bidder
-            lowest_bidder = min(parsed_data['competitors'], key=lambda x: x.get('final_amount', 0))
-            default_winner = lowest_bidder['name']
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                selected_winner = st.selectbox(
-                    "Select Winner (or leave as lowest bidder)",
-                    ["-- Skip Winner (No winner declared) --"] + competitor_names,
-                    key=f"winner_select_{tender_id}"
-                )
-            
-            with col2:
-                if st.button("🏆 Set as Winner", key=f"set_winner_{tender_id}", use_container_width=True):
-                    if selected_winner and selected_winner != "-- Skip Winner (No winner declared) --":
-                        # Update the winner in parsed_data
-                        for comp in parsed_data['competitors']:
-                            comp['is_winner'] = (comp['name'] == selected_winner)
-                        st.success(f"✅ {selected_winner} marked as winner!")
-                        st.rerun()
-                    else:
-                        st.info("ℹ️ No winner selected. You can import without declaring a winner.")
-            
-            # NPPI Preview
-            if official_estimate > 0:
-                # Show NPPI for each competitor
-                nppi_data = []
-                for comp in parsed_data['competitors']:
-                    final_amount = comp.get('final_amount', 0)
-                    if final_amount > 0 and official_estimate > 0:
-                        nppi_pct = (final_amount / official_estimate) * 100
-                        is_winner = "🏆" if comp.get('is_winner') else ""
-                        nppi_data.append({
-                            'Competitor': comp['name'],
-                            'Final Amount': f"BDT {final_amount:,.2f}",
-                            'NPPI %': f"{nppi_pct:.2f}%",
-                            'Winner': is_winner
-                        })
-                
-                if nppi_data:
-                    st.markdown("#### 📊 NPPI Analysis")
-                    st.dataframe(pd.DataFrame(nppi_data), use_container_width=True, hide_index=True)
-            
-            # Import Button
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("📥 Import Competitors & Bid Data", type="primary", use_container_width=True, key=f"import_{tender_id}"):
-                    with st.spinner("Importing data into database..."):
-                        # Check if any winner is selected
-                        has_selected_winner = any(comp.get('is_winner') for comp in parsed_data['competitors'])
-                        
-                        # If no winner selected, ensure was_winner = 0 for all
-                        if not has_selected_winner:
-                            for comp in parsed_data['competitors']:
-                                comp['is_winner'] = False
-                            st.info("ℹ️ No winner will be marked. All competitors will have was_winner = 0.")
-                        
-                        success, summary = importer.import_tender_data(
-                            company_id=company_id,
-                            tender_id=tender_id,
-                            parsed_data=parsed_data,
-                            tender_data=tender_data
-                        )
-                    
-                    if success:
-                        st.success("✅ Import completed successfully!")
-                        st.balloons()
-                        # Clear shared selector cache
-                        tender_selector_manager.clear_selection()
-                        if st.button("🔄 Refresh to see imported data", use_container_width=True):
-                            st.rerun()
-                    else:
-                        st.error("❌ Import failed.")
-                        if summary.get('errors'):
-                            for err in summary['errors']:
-                                st.error(err)
-            
-            with col2:
-                if st.button("🔄 Reset Selection", use_container_width=True, key=f"reset_winner_{tender_id}"):
-                    # Reset all winners
-                    for comp in parsed_data['competitors']:
-                        comp['is_winner'] = False
-                    st.rerun()
-        
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.exception(e)    
-    
-    # Help section
-    with st.expander("ℹ️ How to use the tender importer"):
-        st.markdown("""
-        ### 📄 Process Overview
-        
-        1. **Upload Opening Report**: Upload the Excel file from e-GP
-        2. **Review Data**: Check the parsed competitor data
-        3. **Select Winner**: Choose the winner (optional)
-        4. **Import**: Import competitors and bid history
-        
-        ### 📊 What Gets Imported
-        
-        - **Competitors**: 
-          - New competitors are added to the master list
-          - Existing competitors are updated with new bid stats
-        - **Bid History**: All competitor bids are recorded in `competitor_bid_history`
-        - **Winner**: You can select the winner manually (or skip)
-        - **NPPI Factor**: Calculated using winner's bid vs OCE from tender
-        
-        ### 💡 Tips
-        
-        - Ensure tender has OCE set before importing for NPPI calculation
-        - Competitor names should be consistent for proper matching
-        - If no winner is selected, all competitors will have `was_winner = 0`
-        - You can import opening reports for multiple tenders over time
-        """)
 
-def _render_tender_importer_for_tender_bak(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
-    """Render tender data importer for a specific tender"""
-    
-    st.markdown("""
-    <div style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); 
-                padding: 20px; border-radius: 10px; color: white; margin-bottom: 20px;">
-        <h3>📥 Import Tender Opening Report</h3>
-        <p style="margin: 0;">Upload Excel file to import competitor bid data</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-    
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}**")
-    st.caption(f"Tender ID: `{tender_id}` | OCE: BDT {official_estimate:,.2f}")
-    
-    st.divider()
-    st.subheader("Upload Opening Report")
-    
-    importer = TenderDataImporter(db)
-    
-    uploaded_file = st.file_uploader(
-        "Upload Opening Report (Excel)",
-        type=['xlsx', 'xls'],
-        key=f"opening_report_uploader_{tender_id}"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            df = pd.read_excel(uploaded_file, header=None)
-            
-            with st.spinner("Parsing tender opening report..."):
-                parsed_data = importer.parse_opening_report(df)
-            
-            if not parsed_data.get('competitors'):
-                st.warning("No competitor data found.")
-                return
-            
-            st.success(f"✅ Parsed {len(parsed_data['competitors'])} competitors")
-            
-            # Preview table
-            display_data = []
-            for comp in parsed_data['competitors']:
-                display_data.append({
-                    'Competitor': comp['name'],
-                    'Quoted Amount': f"BDT {comp.get('quoted_amount', 0):,.2f}",
-                    'Final Amount': f"BDT {comp.get('final_amount', 0):,.2f}",
-                    'Winner': "🏆" if comp.get('is_winner') else ""
-                })
-            
-            st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-            
-            # NPPI Preview
-            if parsed_data.get('winner_info') and official_estimate > 0:
-                winner = parsed_data['winner_info']
-                nppi_pct = (winner['final_amount'] / official_estimate) * 100
-                st.metric("Calculated NPPI Factor", f"{nppi_pct:.2f}%")
-            
-            # Import Button
-            if st.button("📥 Import Competitors & Bid Data", type="primary", use_container_width=True, key=f"import_{tender_id}"):
-                with st.spinner("Importing data into database..."):
-                    success, summary = importer.import_tender_data(
-                        company_id=company_id,
-                        tender_id=tender_id,
-                        parsed_data=parsed_data,
-                        tender_data=tender_data
-                    )
-                
-                if success:
-                    st.success("✅ Import completed successfully!")
-                    st.balloons()
-                    # Clear shared selector cache
-                    tender_selector_manager.clear_selection()
-                    if st.button("🔄 Refresh to see imported data", use_container_width=True):
-                        st.rerun()
-                else:
-                    st.error("❌ Import failed.")
-                    if summary.get('errors'):
-                        for err in summary['errors']:
-                            st.error(err)
-        
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.exception(e)    
-    
-    # Help section
-    with st.expander("ℹ️ How to use the tender importer"):
-        st.markdown("""
-        ### 📄 Process Overview
-        
-        1. **Select Tender**: The current tender is pre-selected
-        2. **Upload Opening Report**: Upload the Excel file from e-GP
-        3. **Review Data**: Check the parsed competitor data
-        4. **Import**: Import competitors and bid history
-        
-        ### 📊 What Gets Imported
-        
-        - **Competitors**: 
-          - New competitors are added to the master list
-          - Existing competitors are updated with new bid stats
-        - **Bid History**: All competitor bids are recorded in `competitor_bid_history`
-        - **Winner**: Automatically detected (lowest final amount)
-        - **NPPI Factor**: Calculated using winner's bid vs OCE from tender
-        - **Company Tenders**: Updated with winner and total bidders
-        - **Historical Tenders**: Record created/updated for analysis
-        
-        ### 🔗 Data Linking
-        
-        - All bid history entries are linked to the selected tender via `tender_id`
-        - Competitor stats (total bids, wins, win rate) are automatically updated
-        - You can later analyze competitor behavior across multiple tenders
-        
-        ### 💡 Tips
-        
-        - Ensure tender has OCE set before importing for NPPI calculation
-        - Competitor names should be consistent for proper matching
-        - The importer handles both e-GP format and similar opening reports
-        - You can import opening reports for multiple tenders over time
-        """)
 # =============================================================================
 # 🏗️ FOOTER
 # =============================================================================
