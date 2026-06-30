@@ -1190,8 +1190,102 @@ def _render_sidebar_menu_bak():
 # =============================================================================
 # 🎬 MAIN APP ROUTER (Refactored + Optimized)
 # =============================================================================
-
 def _render_public_pages() -> None:
+    """Render pages for non-authenticated users"""
+    from modules.individual_registration import render_individual_registration, render_individual_login
+    from _pages.extension_features import show as extension_features_page
+    
+    # ========== CHECK FOR OIDC USER ON PUBLIC PAGE ==========
+    # If OIDC user exists but not logged in, process them
+    if hasattr(st, 'user') and st.user:
+        try:
+            user_dict = dict(st.user) if st.user else {}
+            email = user_dict.get('email')
+            if email:
+                print(f"🔄 OIDC user detected on public page: {email}")
+                from modules.google_auth import process_oidc_user
+                result = process_oidc_user()
+                if result:
+                    if result.get('logged_in'):
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        st.query_params.clear()
+                        if user_role in ['admin', 'system_admin']:
+                            st.session_state.page = "admin_dashboard"
+                        elif user_role == 'company_admin':
+                            st.session_state.page = "company_dashboard"
+                        else:
+                            st.session_state.page = "dashboard"
+                        st.rerun()
+                        return
+                    elif result.get('show_registration'):
+                        st.session_state.page = "register"
+                        st.query_params.clear()
+                        st.rerun()
+                        return
+        except Exception as e:
+            print(f"⚠️ OIDC check on public page error: {e}")
+    
+    # ========== CHECK FOR OIDC CALLBACK (code in URL) ==========
+    # Don't process code here - let main.py handle it
+    # Just check if we should show a loading message
+    if 'code' in st.query_params:
+        print("⏳ OIDC callback in progress on public page...")
+        # Don't show loading message here to prevent duplicate
+        # Let main.py handle the loading message
+    
+    # ========== CRITICAL: Check if user is already logged in ==========
+    # If user is logged in but somehow on a public page, redirect to dashboard
+    if st.session_state.get('logged_in', False):
+        print("⚠️ User is logged in but on public page - redirecting...")
+        user_role = st.session_state.get('user_role', 'viewer')
+        st.query_params.clear()
+        if user_role in ['admin', 'system_admin']:
+            st.session_state.page = "admin_dashboard"
+        elif user_role == 'company_admin':
+            st.session_state.page = "company_dashboard"
+        else:
+            st.session_state.page = "dashboard"
+        st.rerun()
+        return
+    
+    # ========== Check if showing Google registration ==========
+    if st.session_state.get('show_google_registration'):
+        print("🔍 Showing Google registration form on public page")
+        # This will be handled by the register page itself
+    
+    page_handlers = {
+        # Main pages
+        'home': landing_page,
+        'login': login_page,
+        'register': register_page,
+        'pricing': pricing_page,
+        'about': lambda: show_about_page(),
+        'contact': contact_page,
+        
+        # Individual user pages
+        'individual_register': render_individual_registration,
+        'individual_login': render_individual_login,
+        
+        # Extension pages (public)
+        'extension_features': extension_features_page,
+        
+        # Auth pages
+        'forgot_password': render_forgot_password,
+        'reset_password': lambda: render_reset_password(st.query_params.get("token", "")),
+    }
+    
+    handler = page_handlers.get(st.session_state.page, landing_page)
+    
+    try:
+        handler()
+    except Exception as e:
+        print(f"❌ Public page render error: {e}")
+        import traceback
+        traceback.print_exc()
+        st.error("⚠️ Unable to load this page. Please try again.")
+
+
+def _render_public_pages_bak() -> None:
     """Render pages for non-authenticated users"""
     from modules.individual_registration import render_individual_registration, render_individual_login
     from _pages.extension_features import show as extension_features_page
@@ -1462,7 +1556,6 @@ def render_header_nav() -> None:
                         st.session_state.page = page_key
                         st.rerun()
 
-
 def main() -> None:
     """
     Main application entry point with optimized routing.
@@ -1481,11 +1574,9 @@ def main() -> None:
     from migrations.add_is_active_to_tender_milestones import run_migration2
     run_migration2()
     ensure_database_schema()
-    # Call this at the start of main()
     ensure_password_hashes()
     from migrations.v024_add_oauth_support import run_migration as run_oauth_migration
     run_oauth_migration()
-
 
     # =========================================================================
     # FIRST: Check if user is already logged in - redirect immediately
@@ -1508,46 +1599,66 @@ def main() -> None:
                 st.session_state.page = "dashboard"
             st.rerun()
             return
-    
+
     # =========================================================================
-    # HANDLE GOOGLE OAUTH CALLBACK
+    # HANDLE STREAMLIT BUILT-IN OIDC CALLBACK
     # =========================================================================
-    query_params = st.query_params
+    # Check if we're on the OIDC callback page
+    # Streamlit's st.login() automatically handles the callback
     
-    if 'code' in query_params and not st.session_state.get('logged_in', False):
-        from modules.google_auth import handle_google_callback
+    # If there's a 'code' in the URL, it's the OIDC callback
+    if 'code' in st.query_params:
+        print("🔄 OIDC callback detected via 'code' parameter")
         
-        # ✅ Process the callback
-        user_data = handle_google_callback()
-        
-        # If login was successful, redirect to dashboard
-        if user_data and user_data.get('logged_in'):
-            user_role = st.session_state.get('user_role', 'viewer')
-            if user_role in ['admin', 'system_admin']:
-                st.session_state.page = "admin_dashboard"
-            elif user_role == 'company_admin':
-                st.session_state.page = "company_dashboard"
-            else:
-                st.session_state.page = "dashboard"
-            
-            st.query_params.clear()
-            st.rerun()
+        # Check if st.user is now populated
+        if hasattr(st, 'user') and st.user:
+            # Try to get email to verify authentication
+            try:
+                email = st.user.get('email')
+                if email:
+                    print(f"✅ OIDC callback completed successfully for: {email}")
+                    # Process the user
+                    from modules.google_auth import process_oidc_user
+                    result = process_oidc_user()
+                    
+                    if result and result.get('logged_in'):
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        st.query_params.clear()
+                        if user_role in ['admin', 'system_admin']:
+                            st.session_state.page = "admin_dashboard"
+                        elif user_role == 'company_admin':
+                            st.session_state.page = "company_dashboard"
+                        else:
+                            st.session_state.page = "dashboard"
+                        st.rerun()
+                        return
+                    elif result and result.get('show_registration'):
+                        st.session_state.page = "register"
+                        st.query_params.clear()
+                        st.rerun()
+                        return
+                else:
+                    # No email yet - still processing
+                    print("⏳ OIDC callback in progress, waiting for user data...")
+                    # Don't clear params - let Streamlit process
+                    st.info("⏳ Completing Google authentication...")
+                    # Stop here to prevent infinite loop
+                    return
+            except Exception as e:
+                print(f"❌ Error processing OIDC callback: {e}")
+                # Clear params on error to prevent loop
+                st.query_params.clear()
+                st.rerun()
+                return
+        else:
+            # st.user not available yet - still processing
+            print("⏳ OIDC callback in progress, waiting for st.user...")
+            # Don't clear params - let Streamlit process
+            st.info("⏳ Completing Google authentication...")
+            # Stop here to prevent infinite loop
             return
-        
-        # If registration needed, redirect to register
-        if user_data and user_data.get('show_registration'):
-            st.session_state.page = "register"
-            st.query_params.clear()
-            st.rerun()
-            return
-        
-        # If we get here, something went wrong
-        st.query_params.clear()
-        st.rerun()
-        return
 
     debug_print(f"🚀 App render | Page: {st.session_state.page} | Auth: {st.session_state.logged_in}")
-    
     
     # Hide Streamlit's default chrome elements
     st.markdown("""
@@ -1569,18 +1680,11 @@ def main() -> None:
     # CONDITIONAL HEADER & SIDEBAR RENDERING
     # =========================================================================
     
-    # # ONLY render app header for logged-in users
-    # if st.session_state.logged_in:
-    #     # Pass the dark mode toggle to be rendered inside the header
-    #     render_app_header(show_dark_mode_toggle=True)
-    
     render_app_header()
     if st.session_state.logged_in:
-        # For logged-in users, show sidebar (without dark mode toggle)
         with st.sidebar:
             render_sidebar()
     else:
-        # For non-authenticated users, show header navigation
         render_header_nav()
     
     # Handle checkout flow (modal-like experience)
@@ -1604,7 +1708,152 @@ def main() -> None:
     # Optional: Global debug panel (development only)
     if DEBUG_MODE and st.session_state.get('user_role') == 'admin':
         _render_global_debug_panel()
+
+def main_bak() -> None:
+    """
+    Main application entry point with optimized routing.
+    """
+    import base64
+    import json
+    
+    # Initialize theme
+    init_theme()
+    
+    # Apply theme CSS
+    apply_theme()
+    
+    from migrations.add_chapter_number_to_pwd_children import run_migration
+    run_migration()
+    from migrations.add_is_active_to_tender_milestones import run_migration2
+    run_migration2()
+    ensure_database_schema()
+    ensure_password_hashes()
+    from migrations.v024_add_oauth_support import run_migration as run_oauth_migration
+    run_oauth_migration()
+
+    # =========================================================================
+    # FIRST: Check if user is already logged in - redirect immediately
+    # =========================================================================
+    if st.session_state.get('logged_in', False):
+        # Ensure page is set correctly
+        user_role = st.session_state.get('user_role', 'viewer')
+        current_page = st.session_state.get('page', 'dashboard')
         
+        # If on login or oauth2callback page, redirect to proper dashboard
+        if current_page in ['login', 'oauth2callback']:
+            # Clear any lingering params
+            st.query_params.clear()
+            
+            if user_role in ['admin', 'system_admin']:
+                st.session_state.page = "admin_dashboard"
+            elif user_role == 'company_admin':
+                st.session_state.page = "company_dashboard"
+            else:
+                st.session_state.page = "dashboard"
+            st.rerun()
+            return
+
+    # =========================================================================
+    # HANDLE STREAMLIT BUILT-IN OIDC CALLBACK
+    # =========================================================================
+    # Check if we're on the OIDC callback page
+    # Streamlit's st.login() automatically handles the callback
+    # but we need to detect when it's complete
+    
+    # If there's a 'code' in the URL, it's the OIDC callback
+    if 'code' in st.query_params:
+        print("🔄 OIDC callback detected via 'code' parameter")
+        
+        # Check if st.user is now populated
+        if hasattr(st, 'user') and st.user:
+            # Try to get email to verify authentication
+            try:
+                email = st.user.get('email')
+                if email:
+                    print(f"✅ OIDC callback completed successfully for: {email}")
+                    # Process the user
+                    from modules.google_auth import process_oidc_user
+                    result = process_oidc_user()
+                    
+                    if result and result.get('logged_in'):
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        st.query_params.clear()
+                        if user_role in ['admin', 'system_admin']:
+                            st.session_state.page = "admin_dashboard"
+                        elif user_role == 'company_admin':
+                            st.session_state.page = "company_dashboard"
+                        else:
+                            st.session_state.page = "dashboard"
+                        st.rerun()
+                        return
+                    elif result and result.get('show_registration'):
+                        st.session_state.page = "register"
+                        st.query_params.clear()
+                        st.rerun()
+                        return
+            except Exception as e:
+                print(f"❌ Error processing OIDC callback: {e}")
+        
+        # If we're still here, the callback is still processing
+        # Show a loading message
+        st.info("⏳ Completing Google authentication...")
+        # Clear the code to prevent infinite loop
+        st.query_params.clear()
+        # Force a rerun to check again
+        st.rerun()
+        return
+
+    debug_print(f"🚀 App render | Page: {st.session_state.page} | Auth: {st.session_state.logged_in}")
+    
+    # Hide Streamlit's default chrome elements
+    st.markdown("""
+    <style>
+        div[data-testid="stSidebarNav"] { display: none; }
+        #MainMenu { visibility: hidden; }
+        footer { visibility: hidden; }
+        .stApp { max-width: 100%; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Ensure session state is initialized (safety net)
+    if 'page' not in st.session_state:
+        st.session_state.page = PageRoutes.HOME
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    
+    # =========================================================================
+    # CONDITIONAL HEADER & SIDEBAR RENDERING
+    # =========================================================================
+    
+    render_app_header()
+    if st.session_state.logged_in:
+        with st.sidebar:
+            render_sidebar()
+    else:
+        render_header_nav()
+    
+    # Handle checkout flow (modal-like experience)
+    if st.session_state.get('show_checkout'):
+        render_checkout()
+        return
+    
+    # Route to appropriate page handler
+    if not st.session_state.logged_in:
+        _render_public_pages()
+    else:
+        _render_authenticated_pages()
+    
+    # =========================================================================
+    # RENDER FOOTER (Only for logged-in users)
+    # =========================================================================
+    if st.session_state.logged_in:
+        from modules.ui_components import render_footer
+        render_footer()
+    
+    # Optional: Global debug panel (development only)
+    if DEBUG_MODE and st.session_state.get('user_role') == 'admin':
+        _render_global_debug_panel()
+
 def _render_global_debug_panel() -> None:
     """Render global debug information for admin users (development only)"""
     with st.expander("🐛 Global Debug Panel", expanded=False):

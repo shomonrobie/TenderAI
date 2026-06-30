@@ -1,4 +1,4 @@
-# _pages/registration_page.py - With Google Sign-Up and same theme as login page
+# _pages/registration_page.py - Remove manual handle_google_callback call
 
 import streamlit as st
 from utils.otp_service import OTPService
@@ -10,12 +10,13 @@ from utils.validators import (
     validate_bangladesh_mobile
 )
 from utils.helpers import navigate_to
-from modules.google_auth import render_google_login_button, handle_google_callback
+from modules.google_auth import render_google_login_button, get_oidc_component, process_oidc_user
 from modules.footer import render_footer
 import os
 
 from database.unified_db_manager import UnifiedDatabaseManager
 db = UnifiedDatabaseManager()
+
 
 
 def show():
@@ -85,29 +86,99 @@ def show():
     </style>
     """, unsafe_allow_html=True)
     
-    
-
-    
     print("=" * 60)
     print("📄 REGISTRATION PAGE LOADED")
     print("=" * 60)
+    print(f"🔍 logged_in: {st.session_state.get('logged_in', False)}")
+    print(f"🔍 page: {st.session_state.get('page', 'None')}")
     
-    # Handle Google OAuth callback
-    print("🔄 Handling Google OAuth callback...")
-    handle_google_callback()
+    # ========== CHECK IF USER IS ALREADY LOGGED IN ==========
+    if st.session_state.get('logged_in', False):
+        print("✅ User already logged in, redirecting to dashboard...")
+        user_role = st.session_state.get('user_role', 'viewer')
+        if user_role in ['admin', 'system_admin']:
+            navigate_to("admin_dashboard")
+        elif user_role == 'company_admin':
+            navigate_to("company_dashboard")
+        else:
+            navigate_to("dashboard")
+        return
     
-    # Check if showing Google registration
+    # ========== HANDLE OIDC AUTHENTICATION ==========
+    # Check if user is authenticated via Streamlit's OIDC
+    try:
+        if hasattr(st, 'user') and st.user:
+            # Try to get email from st.user
+            try:
+                user_dict = dict(st.user) if st.user else {}
+                email = user_dict.get('email')
+            except:
+                email = None
+            
+            # If we have email, process the OIDC user
+            if email:
+                print(f"✅ OIDC user detected on registration page: {email}")
+                
+                # Process the OIDC user using the shared function
+                result = process_oidc_user()
+                
+                if result:
+                    if result.get('logged_in'):
+                        print(f"✅ OIDC user logged in via registration page: {email}")
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        if user_role in ['admin', 'system_admin']:
+                            navigate_to("admin_dashboard")
+                        elif user_role == 'company_admin':
+                            navigate_to("company_dashboard")
+                        else:
+                            navigate_to("dashboard")
+                        return
+                    elif result.get('show_registration'):
+                        print(f"🔄 New OIDC user, showing registration form: {email}")
+                        st.session_state.show_google_registration = True
+            else:
+                print("ℹ️ No email in st.user yet - waiting for OIDC callback")
+    except Exception as e:
+        print(f"ℹ️ OIDC check on registration page: {e}")
+        pass
+    
+    # ========== CHECK FOR OIDC CALLBACK (code in URL) ==========
+    if 'code' in st.query_params:
+        print("🔄 OIDC callback detected on registration page")
+        # Let the process_oidc_user handle it
+        if hasattr(st, 'user') and st.user:
+            try:
+                user_dict = dict(st.user) if st.user else {}
+                email = user_dict.get('email')
+                if email:
+                    result = process_oidc_user()
+                    if result and result.get('logged_in'):
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        st.query_params.clear()
+                        if user_role in ['admin', 'system_admin']:
+                            navigate_to("admin_dashboard")
+                        elif user_role == 'company_admin':
+                            navigate_to("company_dashboard")
+                        else:
+                            navigate_to("dashboard")
+                        return
+            except Exception as e:
+                print(f"⚠️ OIDC callback processing error: {e}")
+    
+    # Check if showing Google registration (from OIDC)
     if st.session_state.get('show_google_registration'):
+        print("🔍 Showing Google registration form")
         from modules.google_auth import render_google_registration_form
         render_google_registration_form(db)
         return
     
     # Check if we're in OTP verification step
     if st.session_state.get('verification_step') == 'email_otp':
-        print("🔍 DEBUG: Rendering OTP verification")
+        print("🔍 Rendering OTP verification")
         render_otp_verification()
         return
     
+    # ========== PAGE STYLES ==========
     st.markdown("""     
         <style>    
         /* Page Background Gradient - Aggressive Override */
@@ -157,12 +228,10 @@ def show():
         }
         
         /* ========== FIX: Radio Button Labels ========== */
-        /* Target the radio button container */
         .stRadio > div {
             gap: 1rem !important;
         }
         
-        /* Target the radio button labels */
         .stRadio label {
             color: #e0e0e0 !important;
             background: rgba(255, 255, 255, 0.05);
@@ -179,23 +248,15 @@ def show():
             border-color: rgba(102, 126, 234, 0.3);
         }
         
-        /* Target the radio button text specifically */
         .stRadio label span {
             color: #e0e0e0 !important;
         }
         
-        /* Target radio button container div */
         .stRadio div[role="radiogroup"] label {
             color: #e0e0e0 !important;
         }
         
-        /* Target the radio button wrapper */
-        .stRadio .stRadio > div {
-            color: #e0e0e0 !important;
-        }
-        
         /* ========== FIX: Checkbox Labels ========== */
-        /* Target checkbox labels */
         .stCheckbox label {
             color: #c0c0c0 !important;
             font-weight: 500 !important;
@@ -205,27 +266,12 @@ def show():
             color: #c0c0c0 !important;
         }
         
-        .stCheckbox label .st-emotion-cache-1l7a8s9 {
-            color: #c0c0c0 !important;
-        }
-        
         /* ========== FIX: All Labels ========== */
         .stTextInput label,
         .stSelectbox label,
         .stTextArea label {
             color: #c0c0c0 !important;
             font-weight: 500 !important;
-        }
-        
-        /* ========== FIX: Headings and Text ========== */
-        .register-box h3, 
-        .register-box h4,
-        .stMarkdown h3,
-        .stMarkdown h4,
-        .stMarkdown p,
-        .stMarkdown li,
-        .stMarkdown span {
-            color: #c0c0c0 !important;
         }
         
         /* ========== FIX: Form Container ========== */
@@ -340,26 +386,6 @@ def show():
             transform: translateY(0px) !important;
         }
         
-        /* ========== FIX: Progress Bar ========== */
-        .stProgress > div > div {
-            background: linear-gradient(90deg, #667eea, #764ba2) !important;
-        }
-        
-        .stProgress label {
-            color: #c0c0c0 !important;
-        }
-        
-        /* ========== FIX: Alerts ========== */
-        .stAlert {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-radius: 8px !important;
-        }
-        
-        .stAlert div[data-testid="stMarkdown"] p {
-            color: #e0e0e0 !important;
-        }
-        
         /* ========== FIX: Divider ========== */
         .or-divider {
             text-align: center;
@@ -426,33 +452,6 @@ def show():
             margin: 10px 0 0 0 !important;
         }
         
-        /* ========== FIX: Google Button Text ========== */
-        .google-btn {
-            background-color: #ffffff !important;
-            color: #757575 !important;
-            border: 1px solid #ddd !important;
-            border-radius: 8px !important;
-            padding: 12px 20px !important;
-            font-size: 15px !important;
-            font-weight: 500 !important;
-            cursor: pointer !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            gap: 12px !important;
-            transition: all 0.2s ease !important;
-            width: 100% !important;
-            text-decoration: none !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-        }
-        
-        .google-btn:hover {
-            background-color: #f5f5f5 !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
-            transform: translateY(-2px) !important;
-            text-decoration: none !important;
-        }
-        
         /* ========== RESPONSIVE ========== */
         @media (max-width: 768px) {
             .register-main-container {
@@ -471,7 +470,6 @@ def show():
         }
         </style>
     """, unsafe_allow_html=True)
-
 
     # ========== MAIN CONTENT ==========
     st.markdown('<div class="register-main-container">', unsafe_allow_html=True)
@@ -523,7 +521,14 @@ def show():
             </div>
             """, unsafe_allow_html=True)
             
-            render_google_login_button(registration_mode=True)
+            # Check if OIDC is configured by checking secrets (instead of get_oidc_component)
+            try:
+                if "auth" in st.secrets and "client_id" in st.secrets["auth"]:
+                    render_google_login_button(registration_mode=True)
+                else:
+                    st.warning("⚠️ Google Sign-Up is not available. Please use the form below.")
+            except:
+                st.warning("⚠️ Google Sign-Up is not available. Please use the form below.")
             
             st.markdown('<div class="or-divider">OR</div>', unsafe_allow_html=True)
             
@@ -612,6 +617,7 @@ def show():
     # ========== FOOTER ==========
     st.markdown("---")
     render_footer()
+
 
 
 def render_individual_registration():

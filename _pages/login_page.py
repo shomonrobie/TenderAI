@@ -1,9 +1,10 @@
-# _pages/login_page.py - Simplified with Google button below form
+# _pages/login_page.py - Fixed OIDC check
 
 import streamlit as st
-from modules.auth import authenticate_user, login_user, restore_session_from_url
+from modules.auth import authenticate_user, login_user as auth_login_user, restore_session_from_url
+
 from utils.helpers import navigate_to
-from modules.google_auth import render_google_login_button, handle_google_callback
+from modules.google_auth import render_google_login_button, get_oidc_component
 from modules.footer import render_footer
 import os
 
@@ -12,7 +13,8 @@ db = UnifiedDatabaseManager()
 
 
 def show():
-    """Login page with Google Sign-In"""
+    """Login page with Google Sign-In using Streamlit's native OIDC"""
+    
     # ========== FORCE ALL TEXT TO BE VISIBLE ==========
     st.markdown("""
     <style>
@@ -77,7 +79,6 @@ def show():
         </style>
     """, unsafe_allow_html=True)
     
-    
     print("=" * 60)
     print("📄 LOGIN PAGE LOADED")
     print("=" * 60)
@@ -85,7 +86,7 @@ def show():
     print(f"🔍 page: {st.session_state.get('page', 'None')}")
     print(f"🔍 user_role: {st.session_state.get('user_role', 'None')}")
     
-    # ✅ If already logged in, redirect immediately
+        # ✅ If already logged in, redirect immediately
     if st.session_state.get('logged_in', False):
         user_role = st.session_state.get('user_role', 'viewer')
         print(f"✅ Already logged in as: {user_role}")
@@ -117,18 +118,143 @@ def show():
             print("🔀 Redirecting to: dashboard")
             navigate_to("dashboard")
         return
-    else:
-        print("❌ Session restore failed")
     
-    # Handle Google OAuth callback
-    print("🔄 Handling Google OAuth callback...")
-    handle_google_callback()
+    # Check if showing Google registration
+    if st.session_state.get('show_google_registration'):
+        print("🔍 Showing Google registration form")
+        from modules.google_auth import render_google_registration_form
+        render_google_registration_form(db)
+        return
+
+    try:
+        if hasattr(st, 'user') and st.user:
+            # Try to get email - this will be populated after OIDC callback
+            email = st.user.get('email')
+            
+            if email:
+                print(f"✅ OIDC user detected in login page: {email}")
+                
+                # Process the OIDC user
+                from modules.google_auth import process_oidc_user
+                result = process_oidc_user()
+                
+                if result:
+                    if result.get('logged_in'):
+                        user_role = st.session_state.get('user_role', 'viewer')
+                        if user_role in ['admin', 'system_admin']:
+                            navigate_to("admin_dashboard")
+                        elif user_role == 'company_admin':
+                            navigate_to("company_dashboard")
+                        else:
+                            navigate_to("dashboard")
+                        return
+                    elif result.get('show_registration'):
+                        st.session_state.show_google_registration = True
+            else:
+                print("ℹ️ No email in st.user yet - waiting for OIDC callback")
+    except Exception as e:
+        print(f"ℹ️ OIDC check: {e}")
+        pass
     
     # Check if showing Google registration
     if st.session_state.get('show_google_registration'):
         from modules.google_auth import render_google_registration_form
         render_google_registration_form(db)
         return
+    
+    # ========== HANDLE OIDC AUTHENTICATION ==========
+    # Check if user is authenticated via Streamlit's OIDC
+    # Use try/except to handle different Streamlit versions
+    # try:
+    #     # Debug: Check if st.user exists
+    #     print("🔍 DEBUG: Checking st.user...")
+    #     print(f"🔍 hasattr(st, 'user'): {hasattr(st, 'user')}")
+        
+    #     if hasattr(st, 'user'):
+    #         print(f"🔍 st.user value: {st.user}")
+    #         print(f"🔍 st.user type: {type(st.user)}")
+            
+    #         if st.user:
+    #             print("🔍 st.user is not empty")
+    #             print(f"🔍 st.user keys: {st.user.keys() if hasattr(st.user, 'keys') else 'No keys'}")
+                
+    #             # Get user info
+    #             email = st.user.get('email')
+    #             name = st.user.get('name', email.split('@')[0] if email else '')
+                
+    #             print(f"🔍 Email: {email}")
+    #             print(f"🔍 Name: {name}")
+    #             print(f"🔍 Sub: {st.user.get('sub')}")
+                
+    #             if email:
+    #                 print(f"✅ OIDC user detected: {email}")
+                    
+    #                 # Check if user exists in database
+    #                 print(f"🔍 Checking database for user with email: {email}")
+    #                 google_user = db.get_user_by_email(email)
+    #                 print(f"🔍 Database user found: {google_user is not None}")
+                    
+    #                 if google_user:
+    #                     print(f"✅ Existing user found: {google_user.get('username')}")
+    #                     print(f"🔍 User role: {google_user.get('role')}")
+    #                     print(f"🔍 User ID: {google_user.get('id')}")
+                        
+    #                     # Existing user - log them in
+    #                     print("🔍 Attempting to login user...")
+    #                     if auth_login_user(google_user, None, True):  # Remember me for OIDC users
+    #                         print("✅ Login successful!")
+    #                         st.success(f"Welcome back, {google_user.get('full_name', name)}! 🎉")
+    #                         user_role = google_user.get('role', 'viewer')
+    #                         print(f"🔍 User role after login: {user_role}")
+                            
+    #                         # Clear OIDC state after successful login
+    #                         if hasattr(st, 'user'):
+    #                             print("🔍 Clearing st.user state...")
+    #                             # Force session to recognize login
+    #                             st.session_state.logged_in = True
+    #                             st.session_state.user_id = google_user['id']
+    #                             st.session_state.user_role = user_role
+    #                             st.session_state.user_name = google_user.get('full_name', name)
+                            
+    #                         # Redirect to appropriate dashboard
+    #                         print(f"🔍 Redirecting to dashboard for role: {user_role}")
+    #                         if user_role in ['admin', 'system_admin']:
+    #                             print("🔀 Redirecting to: admin_dashboard")
+    #                             navigate_to("admin_dashboard")
+    #                         elif user_role == 'company_admin':
+    #                             print("🔀 Redirecting to: company_dashboard")
+    #                             navigate_to("company_dashboard")
+    #                         else:
+    #                             print("🔀 Redirecting to: dashboard")
+    #                             navigate_to("dashboard")
+    #                         return
+    #                     else:
+    #                         print("❌ Login failed!")
+    #                         st.error("Failed to login. Please try again.")
+    #                 else:
+    #                     # New user - show registration form
+    #                     print(f"🔄 New user detected, showing registration form")
+    #                     print(f"🔍 Setting google_user_info: {email}, {name}")
+    #                     st.session_state['google_user_info'] = {
+    #                         'email': email,
+    #                         'name': name,
+    #                         'sub': st.user.get('sub', ''),
+    #                         'picture': st.user.get('picture', '')
+    #                     }
+    #                     st.session_state['show_google_registration'] = True
+    #                     print("🔍 Google registration form will be shown")
+    #             else:
+    #                 print("❌ No email found in st.user")
+    #         else:
+    #             print("❌ st.user is empty")
+    #     else:
+    #         print("❌ st.user does not exist")
+            
+    # except Exception as e:
+    #     print(f"❌ OIDC check error: {e}")
+    #     import traceback
+    #     traceback.print_exc()
+    #     pass
     
     # ========== PAGE STYLES ==========
     st.markdown("""
@@ -396,7 +522,7 @@ def show():
     </div>
     """, unsafe_allow_html=True)
     
-        # ========== TWO COLUMN LAYOUT ==========
+    # ========== TWO COLUMN LAYOUT ==========
     col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
@@ -450,7 +576,7 @@ def show():
                         user = authenticate_user(username, password)
                         
                         if user:
-                            if login_user(user, password, remember_me):
+                            if auth_login_user(user, password, remember_me):
                                 st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
                                 user_role = user.get('role', 'viewer')
                                 if user_role in ['admin', 'system_admin']:
@@ -478,7 +604,8 @@ def show():
             
             col_google1, col_google2, col_google3 = st.columns([1, 2, 1])
             with col_google2:
-                render_google_login_button()
+                # Use the render function from google_auth module
+                render_google_login_button(registration_mode=False)
             
             st.markdown("""
             <div class="login-footer-text">
@@ -570,7 +697,26 @@ def show():
                 </span>
             </div>
             """, unsafe_allow_html=True)
-    
+    # If we have an OIDC user but somehow got here, redirect
+    if hasattr(st, 'user') and st.user:
+        try:
+            user_dict = dict(st.user) if st.user else {}
+            email = user_dict.get('email')
+            if email:
+                print(f"🔄 OIDC user detected on login page: {email}")
+                from modules.google_auth import process_oidc_user
+                result = process_oidc_user()
+                if result and result.get('logged_in'):
+                    user_role = st.session_state.get('user_role', 'viewer')
+                    if user_role in ['admin', 'system_admin']:
+                        navigate_to("admin_dashboard")
+                    elif user_role == 'company_admin':
+                        navigate_to("company_dashboard")
+                    else:
+                        navigate_to("dashboard")
+                    return
+        except:
+            pass
     # ========== FOOTER ==========
     st.markdown("---")
     render_footer()

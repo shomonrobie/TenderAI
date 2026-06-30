@@ -431,15 +431,71 @@ def render_app_header():
             st.session_state.page = "subscription"
             st.rerun()
     with col4:
+        # if st.button("Logout", key="logout_btn"):
+        #     st.session_state.dark_mode = False
+        #     for key in list(st.session_state.keys()):
+        #         if key not in ['dark_mode']:
+        #             st.session_state.pop(key, None)
+        #     st.session_state.logged_in = False
+        #     st.session_state.page = "home"
+        #     st.rerun()
         if st.button("Logout", key="logout_btn"):
+            print("=" * 60)
+            print("🚪 LOGOUT BUTTON CLICKED")
+            print("=" * 60)
+            
+            # Clear dark mode preference
             st.session_state.dark_mode = False
-            for key in list(st.session_state.keys()):
+            
+            # 1. Clear app session state
+            print("🔍 Clearing app session state...")
+            keys_to_pop = list(st.session_state.keys())
+            for key in keys_to_pop:
                 if key not in ['dark_mode']:
                     st.session_state.pop(key, None)
+                    print(f"   Removed: {key}")
+            
+            # 2. Clear OIDC session using Streamlit's logout
+            print("🔍 Clearing OIDC session...")
+            try:
+                if hasattr(st, 'logout'):
+                    print("   Calling st.logout()...")
+                    st.logout()
+                    print("   ✅ st.logout() called successfully")
+                else:
+                    print("   ⚠️ st.logout() not available")
+                    
+                # Also try to clear st.user if it exists
+                if hasattr(st, 'user'):
+                    print("   st.user exists, clearing...")
+                    # st.user is read-only, but we can clear session
+            except Exception as e:
+                print(f"   ❌ Error in st.logout(): {e}")
+            
+            # 3. Clear any OIDC-related session state
+            print("🔍 Clearing OIDC-related session state...")
+            oidc_keys = ['google_user_info', 'show_google_registration', 'google_registration_mode']
+            for key in oidc_keys:
+                if key in st.session_state:
+                    st.session_state.pop(key, None)
+                    print(f"   Removed: {key}")
+            
+            # 4. Clear query params
+            print("🔍 Clearing query params...")
+            st.query_params.clear()
+            print("   ✅ Query params cleared")
+            
+            # 5. Set logged_in to False and page to login
             st.session_state.logged_in = False
-            st.session_state.page = "home"
+            st.session_state.page = "login"
+            
+            print("✅ Logout complete")
+            print(f"   logged_in: {st.session_state.get('logged_in')}")
+            print(f"   page: {st.session_state.get('page')}")
+            print("=" * 60)
+            
+            # 6. Rerun the app
             st.rerun()
-    
     # 3. Render custom interactive header using components.html
     # This bypasses Streamlit's markdown sanitizer which strips onclick events
     components.html(f"""
@@ -503,151 +559,7 @@ def render_app_header():
     </body>
     </html>
     """, height=70)
-            
-def render_app_header_bak():
-    """Compact header with gradient background"""
-    init_theme()
-    is_dark = st.session_state.get('dark_mode', False)
-    
-    if not st.session_state.get('logged_in', False):
-        # Guest header
-        st.markdown("""
-        <div style="background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%); 
-                    border-radius: 16px; padding: 2rem 1.5rem; margin-bottom: 2rem; text-align: center;
-                    border: 1px solid rgba(102, 126, 234, 0.1); box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
-            <h1 style="font-size: 2.5rem; font-weight: 700; margin: 0; 
-                       background: linear-gradient(135deg, #667eea, #764ba2);
-                       -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-                🏗️ TenderAI
-            </h1>
-            <p style="color: #94a3b8; font-size: 1.1rem; margin: 0.5rem 0 0 0;">
-                Bangladesh's First AI-Powered Tender Intelligence Platform
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        return
-    
-    # Logged in header
-    full_name = st.session_state.get('full_name', 'User') or 'User'
-    user_role = st.session_state.get('user_role', 'viewer')
-    
-    role_display = {
-        'system_admin': '👑 System Admin',
-        'admin': '👑 Admin',
-        'company_admin': '🏢 Company Admin',
-        'manager': '📊 Manager',
-        'analyst': '📈 Analyst',
-        'viewer': '👁️ Viewer'
-    }.get(user_role, 'User')
-    
-    theme_icon = "🌙" if not is_dark else "☀️"
-    
-    # Wrap everything in a container with gradient background
-    with st.container():
-        # Apply gradient background to this container via CSS
-        st.markdown("""
-        <style>
-        /* Target the container that wraps the header columns */
-        div[data-testid="stVerticalBlock"] > div:has(> div > div > div > div > .header-gradient-container) {
-            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%) !important;
-            border-radius: 16px !important;
-            padding: 0.8rem 1.5rem !important;
-            margin-bottom: 1.5rem !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
-        }
-        
-        /* Style the buttons inside the header */
-        div[data-testid="stVerticalBlock"] > div:has(> div > div > div > div > .header-gradient-container) .stButton > button {
-            background: rgba(255, 255, 255, 0.08) !important;
-            color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 6px !important;
-            padding: 0.3rem 0.7rem !important;
-            font-size: 0.75rem !important;
-            transition: all 0.2s ease !important;
-            width: 100% !important;
-            min-width: 40px !important;
-        }
-        
-        div[data-testid="stVerticalBlock"] > div:has(> div > div > div > div > .header-gradient-container) .stButton > button:hover {
-            background: rgba(255, 255, 255, 0.18) !important;
-            transform: translateY(-1px) !important;
-        }
-        
-        /* Make the column containing the user card have proper alignment */
-        div[data-testid="stVerticalBlock"] > div:has(> div > div > div > div > .header-gradient-container) .stColumn {
-            display: flex;
-            align-items: center;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Add a marker div so CSS can target the container
-        st.markdown('<div class="header-gradient-container" style="display: none;"></div>', unsafe_allow_html=True)
-        
-        # Create the header layout
-        col1, col2, col3 = st.columns([2.2, 1.2, 1])
-        
-        with col1:
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 2rem;">🏗️</span>
-                <div>
-                    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: #ffffff !important;">
-                        Tender<span style="background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">AI</span>
-                    </h1>
-                    <p style="margin: 0; font-size: 0.75rem; color: #94a3b8 !important;">AI-Powered Tender Intelligence</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; gap: 8px; padding: 4px 12px; 
-                        background: rgba(255, 255, 255, 0.08); border-radius: 50px; 
-                        border: 1px solid rgba(255, 255, 255, 0.1);">
-                <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; 
-                            width: 30px; height: 30px; border-radius: 50%; display: flex; 
-                            align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem;">
-                    {full_name[0].upper()}
-                </div>
-                <div>
-                    <div style="color: #ffffff !important; font-weight: 600; font-size: 0.85rem;">{full_name}</div>
-                    <div style="color: #94a3b8 !important; font-size: 0.7rem;">{role_display}</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
-            
-            with btn_col1:
-                if st.button(theme_icon, key="theme_toggle", help="Toggle theme", use_container_width=True):
-                    toggle_dark_mode()
-            
-            with btn_col2:
-                if st.button("👤", key="profile_btn", help="Profile", use_container_width=True):
-                    st.session_state.page = "profile"
-                    st.rerun()
-            
-            with btn_col3:
-                if st.button("💳", key="subscription_btn", help="Subscription", use_container_width=True):
-                    st.session_state.page = "subscription"
-                    st.rerun()
-            
-            with btn_col4:
-                if st.button("🚪", key="logout_btn", help="Logout", use_container_width=True):
-                    st.session_state.dark_mode = False
-                    for key in list(st.session_state.keys()):
-                        if key not in ['dark_mode']:
-                            st.session_state.pop(key, None)
-                    st.session_state.logged_in = False
-                    st.session_state.page = "home"
-                    st.rerun()
-    
-    st.markdown("---")
-    
+
 def apply_theme():
     """Apply theme with page-aware JavaScript"""
     is_dark = st.session_state.get('dark_mode', False)

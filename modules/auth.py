@@ -184,7 +184,70 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         return False
 
 
+# modules/auth.py - Add this function
+
 def logout_user():
+    """Log out the current user and clear OIDC session"""
+    print("=" * 60)
+    print("🚪 LOGGING OUT USER")
+    print("=" * 60)
+    
+    try:
+        # Clear app session state
+        keys_to_clear = ['logged_in', 'user_id', 'user_role', 'user_name', 'user_email', 'page']
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        # Clear any OIDC-related session state
+        oidc_keys = ['google_user_info', 'show_google_registration', 'google_registration_mode']
+        for key in oidc_keys:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        # IMPORTANT: Clear Streamlit's OIDC session
+        # This is the key to actually logging out from Google
+        if hasattr(st, 'user'):
+            # Try to logout using Streamlit's OIDC
+            try:
+                # Some versions of Streamlit support this
+                if hasattr(st, 'logout'):
+                    st.logout()
+                    print("✅ Called st.logout()")
+            except Exception as e:
+                print(f"⚠️ st.logout() not available: {e}")
+            
+            # Clear the user object reference
+            # st.user is read-only, but we can clear the session
+            try:
+                # Force clear by redirecting to a logout URL
+                # This works by clearing the OIDC session cookie
+                import urllib.parse
+                redirect_uri = get_redirect_uri()
+                # Redirect to Google logout endpoint
+                logout_url = "https://accounts.google.com/logout"
+                st.markdown(f'<meta http-equiv="refresh" content="0;url={logout_url}">', unsafe_allow_html=True)
+                print("✅ Redirecting to Google logout...")
+            except Exception as e:
+                print(f"⚠️ Could not redirect to Google logout: {e}")
+        
+        # Clear query params
+        st.query_params.clear()
+        
+        # Set page to login
+        st.session_state.page = "login"
+        
+        print("✅ User logged out successfully")
+        print("=" * 60)
+        
+        return True
+    except Exception as e:
+        print(f"❌ Logout error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+def logout_user_bak():
     """Logout current user and clear URL params"""
     clear_session_url()
     
