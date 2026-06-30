@@ -1195,9 +1195,16 @@ def _render_public_pages() -> None:
     from modules.individual_registration import render_individual_registration, render_individual_login
     from _pages.extension_features import show as extension_features_page
     
+    # ========== CRITICAL: CHECK REGISTRATION FLAG FIRST ==========
+    # If registration flag is set, don't process OIDC again - let the page handle it
+    if st.session_state.get('show_google_registration', False):
+        print("🔍 Google registration flag detected - skipping OIDC processing")
+        # Just render the page normally - the page itself will show the registration form
+        # Don't process OIDC here
+    
     # ========== CHECK FOR OIDC USER ON PUBLIC PAGE ==========
-    # If OIDC user exists but not logged in, process them
-    if hasattr(st, 'user') and st.user:
+    # ONLY process OIDC if registration flag is NOT set AND user is NOT logged in
+    elif hasattr(st, 'user') and st.user and not st.session_state.get('logged_in', False):
         try:
             user_dict = dict(st.user) if st.user else {}
             email = user_dict.get('email')
@@ -1218,6 +1225,7 @@ def _render_public_pages() -> None:
                         st.rerun()
                         return
                     elif result.get('show_registration'):
+                        print(f"🔄 New user - redirecting to registration page")
                         st.session_state.page = "register"
                         st.query_params.clear()
                         st.rerun()
@@ -1226,15 +1234,10 @@ def _render_public_pages() -> None:
             print(f"⚠️ OIDC check on public page error: {e}")
     
     # ========== CHECK FOR OIDC CALLBACK (code in URL) ==========
-    # Don't process code here - let main.py handle it
-    # Just check if we should show a loading message
     if 'code' in st.query_params:
         print("⏳ OIDC callback in progress on public page...")
-        # Don't show loading message here to prevent duplicate
-        # Let main.py handle the loading message
     
-    # ========== CRITICAL: Check if user is already logged in ==========
-    # If user is logged in but somehow on a public page, redirect to dashboard
+    # ========== Check if user is already logged in ==========
     if st.session_state.get('logged_in', False):
         print("⚠️ User is logged in but on public page - redirecting...")
         user_role = st.session_state.get('user_role', 'viewer')
@@ -1248,28 +1251,16 @@ def _render_public_pages() -> None:
         st.rerun()
         return
     
-    # ========== Check if showing Google registration ==========
-    if st.session_state.get('show_google_registration'):
-        print("🔍 Showing Google registration form on public page")
-        # This will be handled by the register page itself
-    
     page_handlers = {
-        # Main pages
         'home': landing_page,
         'login': login_page,
         'register': register_page,
         'pricing': pricing_page,
         'about': lambda: show_about_page(),
         'contact': contact_page,
-        
-        # Individual user pages
         'individual_register': render_individual_registration,
         'individual_login': render_individual_login,
-        
-        # Extension pages (public)
         'extension_features': extension_features_page,
-        
-        # Auth pages
         'forgot_password': render_forgot_password,
         'reset_password': lambda: render_reset_password(st.query_params.get("token", "")),
     }
@@ -1283,8 +1274,7 @@ def _render_public_pages() -> None:
         import traceback
         traceback.print_exc()
         st.error("⚠️ Unable to load this page. Please try again.")
-
-
+        
 def _render_public_pages_bak() -> None:
     """Render pages for non-authenticated users"""
     from modules.individual_registration import render_individual_registration, render_individual_login

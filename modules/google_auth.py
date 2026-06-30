@@ -1,21 +1,11 @@
 # modules/google_auth.py - Using Streamlit's built-in OIDC
-
 import streamlit as st
 import os
 from datetime import datetime
 from database.unified_db_manager import UnifiedDatabaseManager
 import logging
 
-logger = logging.getLogger(__name__)
-db = UnifiedDatabaseManager()
-
-# modules/google_auth.py - Fixed credential checking
-
-import streamlit as st
-import os
-from datetime import datetime
-from database.unified_db_manager import UnifiedDatabaseManager
-import logging
+from utils.validators import validate_bangladesh_mobile, normalize_mobile
 
 logger = logging.getLogger(__name__)
 db = UnifiedDatabaseManager()
@@ -180,17 +170,210 @@ def render_google_login_button(registration_mode=False):
         # Trigger OIDC flow
         st.login()
 
-
 def render_google_registration_form(db_instance):
     """Render registration completion form for Google users"""
     
-    user_info = st.session_state.get('pending_google_signup', {})
+    print("🔍 RENDER_GOOGLE_REGISTRATION_FORM CALLED")
+    
+    # Try both session variables for user info
+    user_info = st.session_state.get('pending_google_signup') or st.session_state.get('google_user_info')
+    
+    print(f"🔍 user_info: {user_info}")
     
     if not user_info:
         st.error("Session expired. Please try again.")
         st.session_state.show_google_registration = False
+        st.rerun()
         return
     
+    # Clear any pending states that might interfere
+    st.session_state.verification_step = None
+    st.session_state.pending_registration = None
+    
+    # ========== ADD CSS TO FIX TEXT COLOR ON LIGHT BACKGROUND ==========
+    st.markdown("""
+    <style>
+        /* Fix label colors - make them dark for visibility */
+        .stTextInput label, .stSelectbox label, .stCheckbox label {
+            color: #333333 !important;
+            font-weight: 500 !important;
+        }
+        
+        /* Fix disabled input text color */
+        .stTextInput input:disabled {
+            color: #666666 !important;
+            opacity: 0.8 !important;
+        }
+        
+        /* Fix placeholder text */
+        .stTextInput input::placeholder {
+            color: #999999 !important;
+        }
+        
+        /* Fix form heading colors */
+        .stMarkdown h3, .stMarkdown h4 {
+            color: #333333 !important;
+        }
+        
+        /* Fix paragraph text */
+        .stMarkdown p, .stMarkdown li, .stMarkdown span {
+            color: #333333 !important;
+        }
+        
+        /* Fix info box text */
+        .stAlert .stMarkdown p {
+            color: #333333 !important;
+        }
+        
+        /* Fix error messages */
+        .stAlert .stMarkdown p {
+            color: #721c24 !important;
+        }
+        
+        /* Fix caption text */
+        .stCaption {
+            color: #666666 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create the form
+    st.markdown("### ✅ Complete Your Registration with Google")
+    st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
+    
+    with st.form("google_registration_form"):
+        # Pre-filled fields from Google
+        st.text_input("Email", value=user_info.get('email', ''), disabled=True)
+        full_name = st.text_input("Full Name *", value=user_info.get('name', ''))
+        username = st.text_input("Username *", value=user_info.get('email', '').split('@')[0])
+        
+        st.markdown("---")
+        st.markdown("#### Contact Information")
+        
+        # Mobile Number - MANDATORY
+        mobile = st.text_input(
+            "Mobile Number *", 
+            placeholder="01XXXXXXXXX (11 digits)",
+            help="Enter your 11-digit Bangladeshi mobile number starting with 01 (e.g., 017XXXXXXXX)"
+        )
+        
+        phone = st.text_input("Phone (Alternative)", placeholder="Your phone number")
+        
+        st.markdown("---")
+        st.markdown("#### Professional Information (Optional)")
+        
+        specialization = st.selectbox(
+            "Specialization",
+            ["", "Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
+            "Project Manager", "Civil Engineer", "Architect", "Other"]
+        )
+        years_experience = st.slider("Years of Experience", 0, 40, 5)
+        
+        terms = st.checkbox("I agree to the Terms of Service and Privacy Policy *")
+        
+        submitted = st.form_submit_button("✅ Complete Registration with Google", type="primary", use_container_width=True)
+        
+        if submitted:
+            errors = []
+            
+            # Validate full name
+            if not full_name or not full_name.strip():
+                errors.append("Full name is required")
+            
+            # Validate username
+            if not username or not username.strip():
+                errors.append("Username is required")
+            elif len(username) < 3:
+                errors.append("Username must be at least 3 characters")
+            
+            # Validate mobile number - MANDATORY
+            if not mobile or not mobile.strip():
+                errors.append("Mobile number is required")
+            else:
+                # Normalize and validate
+                normalized_mobile = normalize_mobile(mobile)
+                if not validate_bangladesh_mobile(normalized_mobile):
+                    errors.append("Invalid Bangladeshi mobile number. Must be 11 digits starting with 01 (e.g., 017XXXXXXXX)")
+                else:
+                    mobile = normalized_mobile
+                    
+                    # ========== CHECK IF MOBILE NUMBER ALREADY EXISTS ==========
+                    try:
+                        # Try using the database manager's method
+                        if hasattr(db_instance, 'get_user_by_mobile'):
+                            existing_user = db_instance.get_user_by_mobile(mobile)
+                        else:
+                            # Fallback: query directly
+                            query = "SELECT * FROM users WHERE mobile_number = ? LIMIT 1"
+                            existing_user = db_instance.query_one(query, (mobile,))
+                        
+                        if existing_user:
+                            errors.append(f"This mobile number ({mobile}) is already registered. Please use a different mobile number.")
+                    except Exception as e:
+                        print(f"⚠️ Error checking mobile number: {e}")
+            
+            # Validate terms
+            if not terms:
+                errors.append("You must agree to the Terms of Service and Privacy Policy")
+            
+            if errors:
+                for err in errors:
+                    st.error(f"❌ {err}")
+            else:
+                # Store pending registration
+                st.session_state.pending_registration = {
+                    'account_type': 'individual',
+                    'full_name': full_name.strip(),
+                    'username': username.strip(),
+                    'email': user_info['email'],
+                    'mobile': mobile,
+                    'phone': phone if phone else '',
+                    'specialization': specialization,
+                    'years_experience': years_experience,
+                    'is_google_user': True,
+                    'google_id': user_info.get('google_id') or user_info.get('sub', ''),
+                    'password': None  # No password needed for Google users
+                }
+                
+                # Skip OTP for Google users since they're already verified by Google
+                st.session_state.verification_step = 'email_otp'
+                st.session_state.verification_contact = user_info['email']
+                st.session_state.verification_purpose = 'google_registration'
+                st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
+                
+                st.success("✅ Google account verified! Completing registration...")
+                
+                # Clear the registration flag and user info
+                st.session_state.show_google_registration = False
+                st.session_state.pending_google_signup = None
+                st.session_state.google_user_info = None
+                
+                # Complete registration
+                complete_registration()
+                st.rerun()
+                return  # CRITICAL: Stop execution after submit
+            
+def render_google_registration_form_bak2(db_instance):
+    """Render registration completion form for Google users"""
+    
+    print("🔍 RENDER_GOOGLE_REGISTRATION_FORM CALLED")
+    
+    # Try both session variables for user info
+    user_info = st.session_state.get('pending_google_signup') or st.session_state.get('google_user_info')
+    
+    print(f"🔍 user_info: {user_info}")
+    
+    if not user_info:
+        st.error("Session expired. Please try again.")
+        st.session_state.show_google_registration = False
+        st.rerun()
+        return
+    
+    # Clear any pending states that might interfere
+    st.session_state.verification_step = None
+    st.session_state.pending_registration = None
+    
+    # Create the form
     st.markdown("### ✅ Complete Your Registration with Google")
     st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
     
@@ -252,7 +435,7 @@ def render_google_registration_form(db_instance):
                     'specialization': specialization,
                     'years_experience': years_experience,
                     'is_google_user': True,
-                    'google_id': user_info.get('google_id'),
+                    'google_id': user_info.get('google_id') or user_info.get('sub', ''),
                     'password': None  # No password needed for Google users
                 }
                 
@@ -263,14 +446,16 @@ def render_google_registration_form(db_instance):
                 st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
                 
                 st.success("✅ Google account verified! Completing registration...")
+                
+                # Clear the registration flag and user info
+                st.session_state.show_google_registration = False
+                st.session_state.pending_google_signup = None
+                st.session_state.google_user_info = None
+                
+                # Complete registration
                 complete_registration()
                 st.rerun()
-
-
-def complete_registration():
-    """Complete the registration process for Google users"""
-    from modules.auth import complete_registration as auth_complete_registration
-    return auth_complete_registration()
+                return  # CRITICAL: Stop execution after submit
 
 
 def get_oidc_component():
@@ -405,7 +590,7 @@ def render_google_login_button(registration_mode=False):
         # Trigger OIDC flow
         st.login()
 
-def render_google_registration_form(db_instance):
+def render_google_registration_form_bak(db_instance):
     """Render registration completion form for Google users"""
     
     user_info = st.session_state.get('pending_google_signup', {})
@@ -493,9 +678,13 @@ def render_google_registration_form(db_instance):
 
 
 def complete_registration():
-    """Complete the registration process for Google users"""
-    from modules.auth import complete_registration as auth_complete_registration
-    return auth_complete_registration()
+    """Complete the registration process for Google users"""    
+    from _pages.registration_page import complete_registration as reg_complete
+    reg_complete()
+    st.rerun()
+    return
+
+   
 
 
 def get_oidc_component():

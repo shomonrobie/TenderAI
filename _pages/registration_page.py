@@ -92,6 +92,11 @@ def show():
     print(f"🔍 logged_in: {st.session_state.get('logged_in', False)}")
     print(f"🔍 page: {st.session_state.get('page', 'None')}")
     
+    if st.session_state.get('show_google_registration', False):
+        print("🔍 Google registration flag detected - showing registration form")
+        from modules.google_auth import render_google_registration_form
+        render_google_registration_form(db)
+        return  # IMPORTANT: Stop execution here
     # ========== CHECK IF USER IS ALREADY LOGGED IN ==========
     if st.session_state.get('logged_in', False):
         print("✅ User already logged in, redirecting to dashboard...")

@@ -86,7 +86,12 @@ def show():
     print(f"🔍 page: {st.session_state.get('page', 'None')}")
     print(f"🔍 user_role: {st.session_state.get('user_role', 'None')}")
     
-        # ✅ If already logged in, redirect immediately
+    # ✅ If already logged in, redirect immediately
+    if st.session_state.get('show_google_registration', False):
+        print("🔍 Google registration flag detected - showing registration form")
+        from modules.google_auth import render_google_registration_form
+        render_google_registration_form(db)
+        return  # CRITICAL: Stop execution here
     if st.session_state.get('logged_in', False):
         user_role = st.session_state.get('user_role', 'viewer')
         print(f"✅ Already logged in as: {user_role}")
@@ -140,6 +145,7 @@ def show():
                 
                 if result:
                     if result.get('logged_in'):
+                        print(f"✅ OIDC user logged in: {email}")
                         user_role = st.session_state.get('user_role', 'viewer')
                         if user_role in ['admin', 'system_admin']:
                             navigate_to("admin_dashboard")
@@ -149,7 +155,15 @@ def show():
                             navigate_to("dashboard")
                         return
                     elif result.get('show_registration'):
+                        print(f"🔄 New OIDC user, showing registration form: {email}")
+                        # Set the flag and explicitly clear any pending state
                         st.session_state.show_google_registration = True
+                        # Remove any other flags that might interfere
+                        st.session_state.verification_step = None
+                        st.session_state.pending_registration = None
+                        # Force rerun to show registration form
+                        st.rerun()
+                        return
             else:
                 print("ℹ️ No email in st.user yet - waiting for OIDC callback")
     except Exception as e:
@@ -158,10 +172,20 @@ def show():
     
     # Check if showing Google registration
     if st.session_state.get('show_google_registration'):
+        print("🔍 Showing Google registration form")
         from modules.google_auth import render_google_registration_form
         render_google_registration_form(db)
-        return
+        return  # <-- CRITICAL: Return after showing form
     
+        # ========== CHECK FOR OIDC CALLBACK (code in URL) ==========
+    if 'code' in st.query_params:
+        print("🔄 OIDC callback detected on login page")
+        # If we're here and st.user is not populated yet, show loading
+        if not (hasattr(st, 'user') and st.user):
+            print("⏳ Waiting for OIDC callback to complete...")
+            st.info("⏳ Completing Google authentication...")
+            return
+
     # ========== HANDLE OIDC AUTHENTICATION ==========
     # Check if user is authenticated via Streamlit's OIDC
     # Use try/except to handle different Streamlit versions
