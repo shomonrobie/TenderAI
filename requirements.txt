@@ -1,6 +1,7 @@
 ﻿# Core
 streamlit>=1.42.0
 authlib>=1.3.2
+httpx>=0.27.0  # <-- ADD THIS!
 
 # Data Processing
 pandas>=2.0.3
