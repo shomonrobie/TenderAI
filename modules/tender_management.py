@@ -2339,86 +2339,6 @@ def _render_tender_table_rows(display_data: List[Dict], company_id: int):
     if total_pages > 1:
         _render_pagination(total_pages)
                 
-def _render_tender_table_rows_bak(display_data: List[Dict], company_id: int):
-    """Render table rows with pagination"""
-    
-    # Initialize pagination
-    if 'tender_page' not in st.session_state:
-        st.session_state.tender_page = 1
-    
-    items_per_page = 10
-    total_items = len(display_data)
-    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
-    
-    # Ensure current page is valid
-    if st.session_state.tender_page < 1:
-        st.session_state.tender_page = 1
-    elif st.session_state.tender_page > total_pages:
-        st.session_state.tender_page = total_pages
-    
-    # Calculate slice
-    start_idx = (st.session_state.tender_page - 1) * items_per_page
-    end_idx = min(start_idx + items_per_page, total_items)
-    page_items = display_data[start_idx:end_idx]
-    
-    # Table header
-    st.markdown("""
-    <div style="display:grid; grid-template-columns: 0.5fr 2.5fr 2.5fr 2fr 1.5fr 1.5fr 1fr; gap:0; padding:10px 12px; background:#1a1a3e; border-radius:8px 8px 0 0; border-bottom:2px solid rgba(102,126,234,0.2);">
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">S.No</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Tender/Proposal ID, Reference No., Status</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Procurement Nature, Title</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">PE</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Type, Method</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Publishing Date, Closing Date</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Dashboard</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Render rows
-    for idx, item in enumerate(page_items, start=start_idx + 1):
-        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
-        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
-        
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
-        
-        with col1:
-            st.write(f"{idx}")
-        with col2:
-            st.markdown(f"""
-            <div class="tender-id-cell">{item['tender_id']}</div>
-            <div class="ref-text">REF: {item['tender_id']}</div>
-            <span class="status-badge {item['status_class']}">{item['status_display']}</span>
-            """, unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-            <div class="tender-title-cell">
-                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        with col4:
-            st.caption(item['procuring_entity'][:50])
-        with col5:
-            st.write(item['procurement_type'])
-            st.caption("LTM")
-        with col6:
-            st.caption(pub_date_str)
-            st.caption(closing_date_str)
-        with col7:
-            if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
-                tender_data = get_tender_by_id(item['tender_id'], company_id)
-                if tender_data:
-                    tender_data = _normalize_tender_data(tender_data)
-                    st.session_state.view_tender_detail = tender_data
-                    st.rerun()
-                else:
-                    st.error("Failed to load tender details")
-        
-        st.divider()
-    
-    # Pagination
-    if total_pages > 1:
-        _render_pagination(total_pages)
-
 
 def _render_pagination(total_pages: int):
     """Render pagination controls"""
@@ -3285,23 +3205,6 @@ def render_tender_management() -> None:
     # Render the dashboard
     render_tender_dashboard()
 
-def render_tender_management_bak() -> None:
-    """Main tender management entry point"""
-    
-    render_role_badge()
-    st.markdown("---")
-    
-    if not can_view_tenders():
-        st.error("🔒 You don't have permission to view tenders.")
-        return
-    
-    # Initialize view state
-    if 'view_tender_detail' not in st.session_state:
-        st.session_state.view_tender_detail = None
-    
-    # Render the dashboard
-    render_tender_dashboard()
-
 def _generate_html_report(tender_data, competitor_bids_sorted, official_estimate, 
                          nppi_factor, slt_lower, wa, wsd, winner_bid_obj=None, 
                          avg_nppi=None, predicted_winner=None, sensitivity_data=None):
@@ -3793,31 +3696,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
                     st.rerun()
                 else:
                     st.error("Failed to add milestone.")
-
-
-def _add_team_summary_to_information_tab_bak(tender_data: Dict[str, Any]):
-    """Add a quick team summary to the information tab"""
-    
-    tender_db_id = tender_data.get('id')
-    if not tender_db_id:
-        return
-    
-    st.markdown("#### 👥 Team Summary")
-    team = db.get_tender_team(tender_db_id)
-    
-    # team is a list of tuples, not a DataFrame
-    if team and len(team) > 0:
-        team_cols = st.columns(min(4, len(team)))
-        for i, member in enumerate(team):
-            # member is a tuple: (user_id, full_name, user_role, assigned_role, assigned_at)
-            if len(member) >= 4:
-                full_name = member[1]
-                assigned_role = member[3]
-                with team_cols[i % len(team_cols)]:
-                    st.info(f"**{assigned_role}**\n\n{full_name}")
-    else:
-        st.caption("No team members assigned. Go to 'Team & Milestones' tab to add members.")
-
+                    
 # =============================================================================
 # FIX: _add_team_summary_to_information_tab - Handle DataFrame properly
 # =============================================================================
