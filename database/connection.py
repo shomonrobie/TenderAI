@@ -1,155 +1,317 @@
 # database/connection.py
-"""Database-agnostic connection manager"""
 
 import os
 import logging
-from contextlib import contextmanager
 from typing import Optional
+import streamlit as st
+from contextlib import contextmanager
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
-
-class RowFactory:
-    """Wrapper to make any database row behave like a dictionary"""
-    
-    @staticmethod
-    def sqlite_row_factory(cursor, row):
-        """Convert SQLite row to dict"""
-        return {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
-    
-    @staticmethod
-    def dict_row(cursor, row):
-        """Generic dict row factory"""
-        return dict(zip([col[0] for col in cursor.description], row))
+# Global variables for the connection
+_db_type: str = "supabase"  # default
+_supabase_client = None
+_sqlite_connection = None  # Cache SQLite connection
 
 
-class DatabaseConnection:
-    """Manages database connections for multiple database types"""
+def init_db_connection(db_type: str = "supabase"):
+    """
+    Initialize the database connection type (call once at app startup)
     
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        if not hasattr(self, '_initialized'):
-            self._db_type = None  # Use private variable, not property
-            self._connect_func = None
-            self._init_connection()
-            self._initialized = True
-    
-    def _init_connection(self):
-        """Initialize connection based on database type"""
-        from config.database import DB_CONFIG
+    Args:
+        db_type: 'supabase' or 'sqlite'
+    """
+    global _db_type
+    _db_type = db_type.lower()
+    logger.info(f"✅ Database connection initialized with type: {_db_type}")
+
+
+@st.cache_resource(show_spinner=False)
+def get_supabase_client():
+    """
+    Return a cached Supabase client - created only once per Streamlit process.
+    Uses @st.cache_resource for optimal performance.
+    """
+    global _supabase_client
+
+    if _supabase_client is not None:
+        return _supabase_client
+
+    try:
+        from supabase import create_client
         
-        self._db_type = DB_CONFIG['type']  # Use private variable
+        # Try multiple sources for credentials
+        url = None
+        key = None
         
-        if self._db_type == 'sqlite':
-            self._init_sqlite()
-        elif self._db_type == 'postgresql':
-            self._init_postgresql()
-        elif self._db_type == 'mysql':
-            self._init_mysql()
-        elif self._db_type == 'cockroachdb':
-            self._init_cockroachdb()
-        else:
-            raise ValueError(f"Unsupported database type: {self._db_type}")
-    
-    def _init_sqlite(self):
-        """Initialize SQLite connection"""
-        import sqlite3
-        from config.database import DB_CONFIG
-        
-        db_path = DB_CONFIG.get('path', 'data/tender_system.db')
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        
-        def connect():
-            conn = sqlite3.connect(db_path)
-            # Use custom row factory that returns dicts
-            conn.row_factory = RowFactory.sqlite_row_factory
-            return conn
-        
-        self._connect_func = connect
-    
-    def _init_postgresql(self):
-        """Initialize PostgreSQL connection"""
+        # 1. Try config.database
         try:
-            import psycopg2
-            import psycopg2.extras
-            
             from config.database import DB_CONFIG
-            
-            def connect():
-                conn = psycopg2.connect(
-                    host=DB_CONFIG.get('host', 'localhost'),
-                    port=DB_CONFIG.get('port', 5432),
-                    database=DB_CONFIG.get('database', 'tenderai'),
-                    user=DB_CONFIG.get('user', 'postgres'),
-                    password=DB_CONFIG.get('password', '')
-                )
-                # Use RealDictCursor for dictionary-like rows
-                return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor).connection
-            self._connect_func = connect
+            url = DB_CONFIG.get("url")
+            key = DB_CONFIG.get("key")
         except ImportError:
-            raise ImportError("psycopg2 required for PostgreSQL. pip install psycopg2-binary")
+            pass
+        
+        # 2. Try Streamlit secrets (connections format)
+        if not url or not key:
+            try:
+                if "connections" in st.secrets and "supabase" in st.secrets["connections"]:
+                    supabase_config = st.secrets["connections"]["supabase"]
+                    url = supabase_config.get("SUPABASE_URL")
+                    key = supabase_config.get("SUPABASE_KEY")
+            except:
+                pass
+        
+        # 3. Try Streamlit secrets (flat format)
+        if not url or not key:
+            try:
+                url = st.secrets.get("SUPABASE_URL")
+                key = st.secrets.get("SUPABASE_KEY")
+            except:
+                pass
+        
+        # 4. Try environment variables
+        if not url or not key:
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_KEY")
+
+        if not url or not key:
+            raise ValueError("Supabase URL and Key not found in config, secrets, or environment")
+
+        _supabase_client = create_client(url, key)
+        logger.info("✅ Supabase client successfully created and cached")
+        return _supabase_client
+
+    except Exception as e:
+        logger.error(f"❌ Failed to create Supabase client: {e}")
+        raise
+
+
+def _create_sqlite_connection():
+    """Create a new SQLite connection"""
+    db_path = "data/tender_system.db"
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
-    def _init_mysql(self):
-        """Initialize MySQL/MariaDB connection"""
-        try:
-            import pymysql
-            from pymysql.cursors import DictCursor
-            
-            from config.database import DB_CONFIG
-            
-            def connect():
-                return pymysql.connect(
-                    host=DB_CONFIG.get('host', 'localhost'),
-                    port=DB_CONFIG.get('port', 3306),
-                    database=DB_CONFIG.get('database', 'tenderai'),
-                    user=DB_CONFIG.get('user', 'root'),
-                    password=DB_CONFIG.get('password', ''),
-                    cursorclass=DictCursor  # Returns dict rows
-                )
-            self._connect_func = connect
-        except ImportError:
-            raise ImportError("pymysql required for MySQL. pip install pymysql")
+    conn = sqlite3.connect(
+        db_path, 
+        timeout=30,
+        check_same_thread=False,  # Allow use across threads
+        isolation_level=None  # Auto-commit mode helps in some cases
+    )
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+
+@st.cache_resource(show_spinner=False)
+def get_sqlite_connection():
+    """Always returns a valid open connection"""
+    global _sqlite_connection
     
-    def _init_cockroachdb(self):
-        """Initialize CockroachDB connection"""
-        try:
-            import psycopg2
-            import psycopg2.extras
-            
-            from config.database import DB_CONFIG
-            
-            def connect():
-                conn = psycopg2.connect(
-                    host=DB_CONFIG.get('host', 'localhost'),
-                    port=DB_CONFIG.get('port', 26257),
-                    database=DB_CONFIG.get('database', 'tenderai'),
-                    user=DB_CONFIG.get('user', 'root'),
-                    password=DB_CONFIG.get('password', '')
-                )
-                return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor).connection
-            self._connect_func = connect
-        except ImportError:
-            raise ImportError("psycopg2 required for CockroachDB")
+    if _sqlite_connection is None or not _is_connection_open(_sqlite_connection):
+        _sqlite_connection = _create_sqlite_connection()
+        logger.info("✅ SQLite connection (re)created")
     
-    def get_connection(self):
-        """Returns database connection (raw connection, not context manager)"""
-        return self._connect_func()
+    return _sqlite_connection
+
+def _is_connection_open(conn) -> bool:
+    if conn is None:
+        return False
+    try:
+        conn.execute("SELECT 1")
+        return True
+    except:
+        return False
     
-    def get_cursor(self, conn):
-        """Get cursor (already configured for dict rows)"""
+def get_connection():
+    """
+    Get database connection (database-agnostic).
+    For Supabase: returns the client directly
+    For SQLite: returns the SQLite connection
+    """
+    print(f"🔍 get_connection() called, _db_type={_db_type}")
+    
+    if _db_type == "supabase":
+        client = get_supabase_client()
+        print(f"🔍 Returning Supabase client: {client is not None}")
+        return client
+    else:
+        conn = get_sqlite_connection()
+        print(f"🔍 Returning SQLite connection: {conn is not None}")
+        return conn
+
+
+
+@contextmanager
+def get_db_connection():
+    """
+    Context manager for database connections.
+    Auto-reopens if connection is closed.
+    
+    Usage:
+        with get_db_connection() as conn:
+            # Use conn
+    """
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        # For SQLite, we DON'T close the connection - keep it cached
+        # The connection will be checked and reopened if needed next time
+        pass
+
+
+def get_cursor(conn=None):
+    """
+    Get a cursor from a connection.
+    Auto-reopens if connection is closed.
+    For Supabase, returns a wrapped cursor.
+    For SQLite, returns a regular cursor.
+    """
+    if _db_type == "supabase":
+        from database.supabase_sql_wrapper import SupabaseSQLWrapper
+        return SupabaseSQLWrapper(get_connection())
+    else:
+        if conn is None:
+            conn = get_connection()
         return conn.cursor()
+
+
+def get_db_type() -> str:
+    """Get current database type"""
+    return _db_type
+
+
+def is_supabase() -> bool:
+    """Check if using Supabase"""
+    return _db_type == "supabase"
+
+
+def is_sqlite() -> bool:
+    """Check if using SQLite"""
+    return _db_type == "sqlite"
+
+class SupabaseContextWrapper:
+    """Simple wrapper to support context manager pattern for Supabase"""
     
-    @property
-    def db_type(self):
-        """Get current database type"""
-        return self._db_type
+    def __init__(self, client):
+        self.client = client
+        self._wrapper = None
+        print(f"🔍 SupabaseContextWrapper created")
+    
+    def __enter__(self):
+        print(f"🔍 SupabaseContextWrapper.__enter__ called")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print(f"🔍 SupabaseContextWrapper.__exit__ called")
+        pass
+    
+    def _get_wrapper(self):
+        """Get or create the SQL wrapper"""
+        if self._wrapper is None:
+            from database.supabase_sql_wrapper import SupabaseSQLWrapper
+            self._wrapper = SupabaseSQLWrapper(self.client)
+        return self._wrapper
+    
+    # ✅ Only these explicit methods are needed
+    def execute(self, sql: str, params: tuple = None):
+        """Execute SQL"""
+        return self._get_wrapper().execute(sql, params)
+    
+    def fetchone(self):
+        """Fetch one row"""
+        return self._get_wrapper().fetchone()
+    
+    def fetchall(self):
+        """Fetch all rows"""
+        return self._get_wrapper().fetchall()
+    
+    def commit(self):
+        """Commit (no-op for Supabase)"""
+        return self
+    
+    def rollback(self):
+        """Rollback (no-op for Supabase)"""
+        return self
+    
+    def close(self):
+        """Close (no-op for Supabase)"""
+        return self
 
+# ============================================================================
+# BACKWARD COMPATIBILITY
+# ============================================================================
 
-# Global instance
-db_connection = DatabaseConnection()
+# class SupabaseContextWrapper:
+#     """Backward compatibility wrapper for old code"""
+#     def __init__(self, client=None):
+#         self.client = client or get_supabase_client()
+#         self._cursor = None
+    
+#     def __enter__(self):
+#         return self
+    
+#     def __exit__(self, exc_type, exc_val, exc_tb):
+#         pass
+    
+#     def cursor(self):
+#         from database.supabase_sql_wrapper import SupabaseSQLWrapper
+#         if self._cursor is None:
+#             self._cursor = SupabaseSQLWrapper(get_connection())
+#         return self._cursor
+    
+#     def execute(self, sql: str, params: tuple = None):
+#         cursor = self.cursor()
+#         return cursor.execute(sql, params)
+    
+#     def fetchone(self):
+#         return self.cursor().fetchone()
+    
+#     def fetchall(self):
+#         return self.cursor().fetchall()
+    
+    
+#     # ✅ FIX: Only delegate if method exists on wrapper or client
+#     # def __getattr__(self, name):
+#     #     """Delegate any other calls to the wrapper or client"""
+#     #     print(f"🔍 Connection SupabaseContextWrapper.__getattr__: {name}")
+        
+#     #     # Try the wrapper first
+#     #     wrapper = self._get_wrapper()
+#     #     if hasattr(wrapper, name):
+#     #         attr = getattr(wrapper, name)
+#     #         if callable(attr):
+#     #             print(f"✅ Delegating {name} to wrapper")
+#     #             return attr
+#     #         return attr
+        
+#     #     # Try the client
+#     #     if hasattr(self.client, name):
+#     #         attr = getattr(self.client, name)
+#     #         if callable(attr):
+#     #             print(f"✅ Delegating {name} to client")
+#     #             return attr
+#     #         return attr
+        
+#     #     # Not found
+#     #     raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+# # For backward compatibility
+# db_connection = get_connection()
+
+# # Update __all__
+# __all__ = [
+#     'init_db_connection',
+#     'get_supabase_client',
+#     'get_sqlite_connection',
+#     'get_connection',
+#     'get_db_connection',
+#     'get_cursor',
+#     'get_db_type',
+#     'is_supabase',
+#     'is_sqlite',
+#     'db_connection',
+#     'SupabaseContextWrapper',
+# ]

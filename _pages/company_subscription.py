@@ -2,11 +2,11 @@
 
 import streamlit as st
 from modules.subscription_manager import SubscriptionManager
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 from modules.subscription import get_plan, get_plans, is_premium_plan
 from modules.subscription_ui import render_subscription_card
 from typing import List, Union, Dict, Callable, Optional
-db = UnifiedDatabaseManager()
+
 
 
 def show():
@@ -25,7 +25,7 @@ def show():
     if not company_id:
         st.error("No company found. Please contact support.")
         return
-    
+    db= get_db_manager()
     # Get subscription using unified method
     current_sub = db.get_company_subscription(company_id)
     
@@ -114,7 +114,7 @@ def _format_limit(value: int) -> str:
 
 def _render_usage_progress(sub: Dict, company_id: int):
     """Render usage progress bars"""
-    
+    db= get_db_manager()
     # BOQ Usage
     max_boq = sub.get('max_boq_generations', 5)
     boq_used = sub.get('boq_used', 0)

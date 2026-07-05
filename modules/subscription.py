@@ -5,10 +5,18 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
+
 from modules.subscription_ui import render_subscription_card
 
-db = UnifiedDatabaseManager()
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
 
 # =============================================================================
 # PLAN CACHE
@@ -32,71 +40,69 @@ def get_plans_from_db(force_refresh: bool = False) -> Dict[str, Dict]:
     
     # Return cached plans if not expired (5 minutes)
     if not force_refresh and _plans_cache is not None:
-        
         if _plans_cache_time and datetime.now() - _plans_cache_time < timedelta(minutes=5):
             return _plans_cache
-    
+    db = get_db()
+
     try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT 
-                    plan_name,
-                    monthly_price,
-                    yearly_price,
-                    max_boq_generations,
-                    max_bid_optimizations,
-                    max_tender_analyses,
-                    max_users,
-                    extension_auto_fills,
-                    can_export_data,
-                    can_edit_rates,
-                    can_delete_rates,
-                    can_create_versions,
-                    can_manage_team,
-                    description,
-                    is_active
-                FROM subscription_plans
-                WHERE is_active = 1
-                ORDER BY monthly_price
-            """)
-            
-            rows = cursor.fetchall()
-            
-            plans = {}
-            for row in rows:
-                plan_name = row['plan_name']
-                plans[plan_name] = {
-                    'name': plan_name.title(),
-                    'price_monthly': row['monthly_price'] or 0,
-                    'price_yearly': row['yearly_price'] or 0,
-                    'analyses_limit': row['max_tender_analyses'] or 5,
-                    'max_boq_generations': row['max_boq_generations'] or 5,
-                    'max_bid_optimizations': row['max_bid_optimizations'] or 5,
-                    'extension_auto_fills': row['extension_auto_fills'] or 5,
-                    'users_limit': row['max_users'] or 1,
-                    'can_export_data': bool(row['can_export_data']),
-                    'can_edit_rates': bool(row['can_edit_rates']),
-                    'can_delete_rates': bool(row['can_delete_rates']),
-                    'can_create_versions': bool(row['can_create_versions']),
-                    'can_manage_team': bool(row['can_manage_team']),
-                    'description': row['description'] or '',
-                    'is_active': bool(row['is_active']),
-                    'color': _get_plan_color(plan_name),
-                    'badge': _get_plan_badge(plan_name),
-                    'features': _get_plan_features(plan_name)
-                }
-            
-            _plans_cache = plans
-            _plans_cache_time = datetime.now()
-            
-            print(f"📊 Loaded {len(plans)} plans from database")
-            return plans
+        # ✅ Use query() which handles both SQLite and Supabase
+        rows = db.query("""
+            SELECT 
+                plan_name,
+                monthly_price,
+                yearly_price,
+                max_boq_generations,
+                max_bid_optimizations,
+                max_tender_analyses,
+                max_users,
+                extension_auto_fills,
+                can_export_data,
+                can_edit_rates,
+                can_delete_rates,
+                can_create_versions,
+                can_manage_team,
+                description,
+                is_active
+            FROM subscription_plans
+            WHERE is_active = 1
+            ORDER BY monthly_price
+        """)
+        
+        plans = {}
+        for row in rows:
+            plan_name = row['plan_name']
+            plans[plan_name] = {
+                'name': plan_name.title(),
+                'price_monthly': row['monthly_price'] or 0,
+                'price_yearly': row['yearly_price'] or 0,
+                'analyses_limit': row['max_tender_analyses'] or 5,
+                'max_boq_generations': row['max_boq_generations'] or 5,
+                'max_bid_optimizations': row['max_bid_optimizations'] or 5,
+                'extension_auto_fills': row['extension_auto_fills'] or 5,
+                'users_limit': row['max_users'] or 1,
+                'can_export_data': bool(row['can_export_data']),
+                'can_edit_rates': bool(row['can_edit_rates']),
+                'can_delete_rates': bool(row['can_delete_rates']),
+                'can_create_versions': bool(row['can_create_versions']),
+                'can_manage_team': bool(row['can_manage_team']),
+                'description': row['description'] or '',
+                'is_active': bool(row['is_active']),
+                'color': _get_plan_color(plan_name),
+                'badge': _get_plan_badge(plan_name),
+                'features': _get_plan_features(plan_name)
+            }
+        
+        _plans_cache = plans
+        _plans_cache_time = datetime.now()
+        
+        print(f"📊 Loaded {len(plans)} plans from database")
+        return plans
             
     except Exception as e:
         print(f"⚠️ subscription.py > Error loading plans from database: {e}")
         # Fallback to default plans
         return get_default_plans()
+
 
 
 def get_default_plans() -> Dict[str, Dict]:
@@ -854,6 +860,8 @@ def get_effective_plan_for_user(user_id: int) -> Dict:
     Returns:
         Dict with plan details
     """
+    db = get_db()
+    
     # ✅ Get user data
     user = db.get_user_by_id(user_id)
     if not user:

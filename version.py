@@ -3,9 +3,9 @@
 TenderAI Version Management
 """
 
-__version__ = "3.0.2"
+__version__ = "4.0.0"
 __version_info__ = (3, 0, 2)
-__version_date__ = "2026-06-30"
+__version_date__ = "2026-07-05"
 
 # App metadata
 __app_name__ = "TenderAI"

@@ -1,11 +1,11 @@
 # modules/profile.py
 
 import streamlit as st
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 from utils.otp_service import OTPService
 from modules.registration import mask_contact
 
-
+db = get_db_manager()
 def render_profile():
     """User profile page with verification status"""
     

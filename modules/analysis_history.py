@@ -1,3 +1,5 @@
+# modules/analysis_history.py - Refactored to use CRUD pattern
+
 """
 Analysis History Module - Enhanced with Row Buttons & Detailed Reports
 With Role-Based Access Control
@@ -8,7 +10,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import traceback
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 from modules.rbac import (
     rbac, can_view_tenders, can_export_data, can_run_analysis,
     render_role_badge, require_permission
@@ -21,9 +23,6 @@ from utils.helpers import (
     get_risk_indicator,
     render_page_header
 )
-
-# Initialize database
-db = UnifiedDatabaseManager()
 
 
 def parse_competitor_bids(competitor_bids_data):
@@ -47,6 +46,9 @@ def parse_competitor_bids(competitor_bids_data):
 def show_analysis_history():
     """Tender analysis history page with row buttons and detailed reports"""
     
+    # ✅ Use cached db manager
+    db = get_db_manager()
+    
     st.markdown(get_compact_css(), unsafe_allow_html=True)
 
     # Page Header with role badge
@@ -61,6 +63,7 @@ def show_analysis_history():
     
     # Get current user's company ID
     company_id = st.session_state.get('company_id')
+    user_id = st.session_state.get('user_id')
     user_role = st.session_state.get('user_role', 'viewer')
     permissions = rbac.get_current_user_permissions()
     
@@ -72,13 +75,13 @@ def show_analysis_history():
         return
     
     try:
-        # Use the database manager to get analyses
-        analyses_df = db.get_user_analyses(
-            st.session_state.user_id,
-            company_id,
-            st.session_state.user_role,
-            limit=200
-        )
+        # ✅ Use CRUD method to get analyses
+        analyses_data = db.get_tender_analyses(company_id, user_id, user_role, limit=200)
+        
+        if analyses_data:
+            analyses_df = pd.DataFrame(analyses_data)
+        else:
+            analyses_df = pd.DataFrame()
         
         # Show info for viewers
         if user_role == 'viewer':
@@ -86,22 +89,6 @@ def show_analysis_history():
         
         if analyses_df.empty:
             st.info("📭 No analyses saved yet. Run your first analysis in **Three-Tier Bid Optimization**!")
-            
-            # Show direct query results for debugging (only for admins)
-            if user_role in ['admin', 'system_admin']:
-                with st.expander("🔍 Database Debug", expanded=False):
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM tender_analyses WHERE company_id = ?", (company_id,))
-                    count = cursor.fetchone()[0]
-                    st.write(f"Direct query count for company_id={company_id}: {count}")
-                    
-                    if count > 0:
-                        cursor.execute("SELECT id, tender_id, tender_title, analysis_date FROM tender_analyses WHERE company_id = ? LIMIT 5", (company_id,))
-                        rows = cursor.fetchall()
-                        for row in rows:
-                            st.write(f"  - ID: {row[0]}, Tender: {row[1]}, Title: {row[2][:50]}, Date: {row[3]}")
-                    conn.close()
             
             if can_run_new_analysis:
                 if st.button("➕ Run New Analysis", use_container_width=True):

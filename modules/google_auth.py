@@ -2,13 +2,21 @@
 import streamlit as st
 import os
 from datetime import datetime
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 import logging
 
 from utils.validators import validate_bangladesh_mobile, normalize_mobile
+from utils.helpers import navigate_to
 
 logger = logging.getLogger(__name__)
-db = UnifiedDatabaseManager()
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
 
 
 def is_oidc_configured():
@@ -42,7 +50,7 @@ def is_oidc_configured():
 
 def handle_google_callback():
     """Handle Google OAuth callback using Streamlit's built-in OIDC"""
-    
+    db = get_db()
     # Check if user is authenticated via Streamlit's OIDC
     try:
         if hasattr(st, 'user') and st.user:
@@ -171,9 +179,12 @@ def render_google_login_button(registration_mode=False):
         st.login()
 
 def render_google_registration_form(db_instance):
-    """Render registration completion form for Google users"""
+    """Render registration completion form for Google users with OTP verification"""
     
     print("🔍 RENDER_GOOGLE_REGISTRATION_FORM CALLED")
+    
+    # Check if we have an existing user ID from process_oidc_user
+    existing_user_id = st.session_state.get('existing_google_user_id')
     
     # Try both session variables for user info
     user_info = st.session_state.get('pending_google_signup') or st.session_state.get('google_user_info')
@@ -186,60 +197,67 @@ def render_google_registration_form(db_instance):
         st.rerun()
         return
     
-    # Clear any pending states that might interfere
-    st.session_state.verification_step = None
-    st.session_state.pending_registration = None
+    # Check if user already exists in database
+    email = user_info.get('email')
+    if email and not existing_user_id:
+        existing_user = db_instance.get_user_by_email(email)
+        if existing_user:
+            existing_user_id = existing_user.get('id')
+            print(f"✅ Existing user found: {existing_user_id}")
     
-    # ========== ADD CSS TO FIX TEXT COLOR ON LIGHT BACKGROUND ==========
+    # ========== CSS STYLES ==========
     st.markdown("""
     <style>
-        /* Fix label colors - make them dark for visibility */
         .stTextInput label, .stSelectbox label, .stCheckbox label {
             color: #333333 !important;
             font-weight: 500 !important;
         }
-        
-        /* Fix disabled input text color */
         .stTextInput input:disabled {
             color: #666666 !important;
             opacity: 0.8 !important;
         }
-        
-        /* Fix placeholder text */
         .stTextInput input::placeholder {
             color: #999999 !important;
         }
-        
-        /* Fix form heading colors */
         .stMarkdown h3, .stMarkdown h4 {
             color: #333333 !important;
         }
-        
-        /* Fix paragraph text */
         .stMarkdown p, .stMarkdown li, .stMarkdown span {
             color: #333333 !important;
         }
-        
-        /* Fix info box text */
         .stAlert .stMarkdown p {
             color: #333333 !important;
         }
-        
-        /* Fix error messages */
-        .stAlert .stMarkdown p {
-            color: #721c24 !important;
-        }
-        
-        /* Fix caption text */
         .stCaption {
             color: #666666 !important;
         }
     </style>
     """, unsafe_allow_html=True)
     
-    # Create the form
+    # ========== CHECK IF USER ALREADY COMPLETED REGISTRATION ==========
+    if existing_user_id:
+        user = db_instance.get_user_by_id(existing_user_id)
+        if user and user.get('registration_complete', False):
+            st.success(f"✅ Welcome back, {user.get('full_name', user_info.get('name'))}!")
+            from modules.auth import login_user
+            if login_user(user, None, True):
+                st.session_state.show_google_registration = False
+                user_role = st.session_state.get('user_role', 'viewer')
+                if user_role in ['admin', 'system_admin']:
+                    navigate_to("admin_dashboard")
+                elif user_role == 'company_admin':
+                    navigate_to("company_dashboard")
+                else:
+                    navigate_to("dashboard")
+                return
+    
+    # ========== REGISTRATION FORM ==========
     st.markdown("### ✅ Complete Your Registration with Google")
-    st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
+    
+    if existing_user_id:
+        st.info(f"👋 Welcome back, **{user_info.get('name', '')}**! Please complete your registration.")
+    else:
+        st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
     
     with st.form("google_registration_form"):
         # Pre-filled fields from Google
@@ -250,13 +268,11 @@ def render_google_registration_form(db_instance):
         st.markdown("---")
         st.markdown("#### Contact Information")
         
-        # Mobile Number - MANDATORY
         mobile = st.text_input(
             "Mobile Number *", 
             placeholder="01XXXXXXXXX (11 digits)",
             help="Enter your 11-digit Bangladeshi mobile number starting with 01 (e.g., 017XXXXXXXX)"
         )
-        
         phone = st.text_input("Phone (Alternative)", placeholder="Your phone number")
         
         st.markdown("---")
@@ -265,7 +281,7 @@ def render_google_registration_form(db_instance):
         specialization = st.selectbox(
             "Specialization",
             ["", "Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
-            "Project Manager", "Civil Engineer", "Architect", "Other"]
+             "Project Manager", "Civil Engineer", "Architect", "Other"]
         )
         years_experience = st.slider("Years of Experience", 0, 40, 5)
         
@@ -286,28 +302,23 @@ def render_google_registration_form(db_instance):
             elif len(username) < 3:
                 errors.append("Username must be at least 3 characters")
             
-            # Validate mobile number - MANDATORY
+            # Validate mobile number
             if not mobile or not mobile.strip():
                 errors.append("Mobile number is required")
             else:
-                # Normalize and validate
                 normalized_mobile = normalize_mobile(mobile)
                 if not validate_bangladesh_mobile(normalized_mobile):
-                    errors.append("Invalid Bangladeshi mobile number. Must be 11 digits starting with 01 (e.g., 017XXXXXXXX)")
+                    errors.append("Invalid Bangladeshi mobile number. Must be 11 digits starting with 01")
                 else:
                     mobile = normalized_mobile
                     
-                    # ========== CHECK IF MOBILE NUMBER ALREADY EXISTS ==========
+                    # Check if mobile number already exists
                     try:
-                        # Try using the database manager's method
-                        if hasattr(db_instance, 'get_user_by_mobile'):
-                            existing_user = db_instance.get_user_by_mobile(mobile)
-                        else:
-                            # Fallback: query directly
-                            query = "SELECT * FROM users WHERE mobile_number = ? LIMIT 1"
-                            existing_user = db_instance.query_one(query, (mobile,))
-                        
-                        if existing_user:
+                        existing_mobile_user = db_instance.query_one(
+                            "SELECT id FROM users WHERE mobile_number = ? AND id != ?", 
+                            (mobile, existing_user_id or 0)
+                        )
+                        if existing_mobile_user:
                             errors.append(f"This mobile number ({mobile}) is already registered. Please use a different mobile number.")
                     except Exception as e:
                         print(f"⚠️ Error checking mobile number: {e}")
@@ -320,8 +331,8 @@ def render_google_registration_form(db_instance):
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # Store pending registration
-                st.session_state.pending_registration = {
+                # Store pending registration data
+                pending_data = {
                     'account_type': 'individual',
                     'full_name': full_name.strip(),
                     'username': username.strip(),
@@ -332,130 +343,82 @@ def render_google_registration_form(db_instance):
                     'years_experience': years_experience,
                     'is_google_user': True,
                     'google_id': user_info.get('google_id') or user_info.get('sub', ''),
-                    'password': None  # No password needed for Google users
+                    'password': None
                 }
                 
-                # Skip OTP for Google users since they're already verified by Google
-                st.session_state.verification_step = 'email_otp'
-                st.session_state.verification_contact = user_info['email']
-                st.session_state.verification_purpose = 'google_registration'
-                st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
+                st.session_state.pending_registration = pending_data
                 
-                st.success("✅ Google account verified! Completing registration...")
+                # ✅ If user already exists, update directly (no OTP needed)
+                if existing_user_id:
+                    try:
+                        db_instance.execute("""
+                            UPDATE users 
+                            SET full_name = ?, username = ?, mobile_number = ?,
+                                specialization = ?, years_experience = ?,
+                                registration_complete = TRUE,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, (
+                            full_name.strip(),
+                            username.strip(),
+                            mobile,
+                            specialization,
+                            years_experience,
+                            existing_user_id
+                        ))
+                        
+                        st.success("✅ Registration completed successfully!")
+                        st.balloons()
+                        
+                        # Clear session flags
+                        st.session_state.show_google_registration = False
+                        st.session_state.pending_google_signup = None
+                        st.session_state.google_user_info = None
+                        
+                        # Login the user
+                        user = db_instance.get_user_by_id(existing_user_id)
+                        if user:
+                            from modules.auth import login_user
+                            if login_user(user, None, True):
+                                user_role = st.session_state.get('user_role', 'viewer')
+                                if user_role in ['admin', 'system_admin']:
+                                    navigate_to("admin_dashboard")
+                                elif user_role == 'company_admin':
+                                    navigate_to("company_dashboard")
+                                else:
+                                    navigate_to("dashboard")
+                                return
+                        return
+                        
+                    except Exception as e:
+                        st.error(f"Error completing registration: {e}")
+                        return
                 
-                # Clear the registration flag and user info
-                st.session_state.show_google_registration = False
-                st.session_state.pending_google_signup = None
-                st.session_state.google_user_info = None
+                # ✅ New user - send OTP for email verification
+                from utils.otp_service import OTPService
+                otp_service = OTPService(db_instance)
+                success, message, otp_code = otp_service.send_verification_otp(
+                    contact_type='email',
+                    contact_value=user_info['email'],
+                    target_type='user',
+                    target_id=0,
+                    purpose='registration'
+                )
                 
-                # Complete registration
-                complete_registration()
-                st.rerun()
-                return  # CRITICAL: Stop execution after submit
-            
-def render_google_registration_form_bak2(db_instance):
-    """Render registration completion form for Google users"""
-    
-    print("🔍 RENDER_GOOGLE_REGISTRATION_FORM CALLED")
-    
-    # Try both session variables for user info
-    user_info = st.session_state.get('pending_google_signup') or st.session_state.get('google_user_info')
-    
-    print(f"🔍 user_info: {user_info}")
-    
-    if not user_info:
-        st.error("Session expired. Please try again.")
-        st.session_state.show_google_registration = False
-        st.rerun()
-        return
-    
-    # Clear any pending states that might interfere
-    st.session_state.verification_step = None
-    st.session_state.pending_registration = None
-    
-    # Create the form
-    st.markdown("### ✅ Complete Your Registration with Google")
-    st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
-    
-    with st.form("google_registration_form"):
-        # Pre-filled fields from Google
-        st.text_input("Email", value=user_info.get('email', ''), disabled=True)
-        full_name = st.text_input("Full Name *", value=user_info.get('name', ''))
-        username = st.text_input("Username *", value=user_info.get('email', '').split('@')[0])
-        
-        st.markdown("---")
-        st.markdown("#### Additional Information (Optional)")
-        
-        mobile = st.text_input("Mobile Number (Optional)", placeholder="01XXXXXXXXX - You can add this later")
-        phone = st.text_input("Phone (Alternative)", placeholder="Your phone number")
-        
-        st.caption("💡 You can add your mobile number later from your profile settings.")
-        
-        specialization = st.selectbox(
-            "Specialization",
-            ["", "Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
-            "Project Manager", "Civil Engineer", "Architect", "Other"]
-        )
-        years_experience = st.slider("Years of Experience", 0, 40, 5)
-        
-        terms = st.checkbox("I agree to the Terms of Service and Privacy Policy *")
-        
-        submitted = st.form_submit_button("✅ Complete Registration with Google", type="primary", use_container_width=True)
-        
-        if submitted:
-            errors = []
-            if not full_name:
-                errors.append("Full name is required")
-            if not username:
-                errors.append("Username is required")
-            if not terms:
-                errors.append("You must agree to the Terms of Service")
-            
-            # Validate mobile only if provided
-            if mobile:
-                from utils.validators import normalize_mobile, validate_bangladesh_mobile
-                normalized_mobile = normalize_mobile(mobile)
-                if not validate_bangladesh_mobile(normalized_mobile):
-                    errors.append("Invalid Bangladeshi mobile number")
+                if success:
+                    st.session_state.verification_step = 'email_otp'
+                    st.session_state.verification_contact = user_info['email']
+                    st.session_state.verification_purpose = 'registration'
+                    st.session_state.temp_otp_code = otp_code
+                    st.session_state.pending_registration = pending_data
+                    st.session_state.show_google_registration = False
+                    st.session_state.pending_google_signup = None
+                    st.session_state.google_user_info = None
+                    
+                    st.success(f"✅ {message}")
+                    st.rerun()
                 else:
-                    mobile = normalized_mobile
-            
-            if errors:
-                for err in errors:
-                    st.error(f"❌ {err}")
-            else:
-                # Store pending registration
-                st.session_state.pending_registration = {
-                    'account_type': 'individual',
-                    'full_name': full_name.strip(),
-                    'username': username.strip(),
-                    'email': user_info['email'],
-                    'mobile': mobile if mobile else '',
-                    'phone': phone,
-                    'specialization': specialization,
-                    'years_experience': years_experience,
-                    'is_google_user': True,
-                    'google_id': user_info.get('google_id') or user_info.get('sub', ''),
-                    'password': None  # No password needed for Google users
-                }
-                
-                # Skip OTP for Google users since they're already verified by Google
-                st.session_state.verification_step = 'email_otp'
-                st.session_state.verification_contact = user_info['email']
-                st.session_state.verification_purpose = 'google_registration'
-                st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
-                
-                st.success("✅ Google account verified! Completing registration...")
-                
-                # Clear the registration flag and user info
-                st.session_state.show_google_registration = False
-                st.session_state.pending_google_signup = None
-                st.session_state.google_user_info = None
-                
-                # Complete registration
-                complete_registration()
-                st.rerun()
-                return  # CRITICAL: Stop execution after submit
+                    st.error(f"❌ {message}")
 
 
 def get_oidc_component():
@@ -463,7 +426,7 @@ def get_oidc_component():
     return None
 def handle_google_callback():
     """Handle Google OAuth callback using Streamlit's built-in OIDC"""
-    
+    db = get_db()
     # Check if user is authenticated via Streamlit's OIDC
     try:
         if hasattr(st, 'user') and st.user:
@@ -590,92 +553,6 @@ def render_google_login_button(registration_mode=False):
         # Trigger OIDC flow
         st.login()
 
-def render_google_registration_form_bak(db_instance):
-    """Render registration completion form for Google users"""
-    
-    user_info = st.session_state.get('pending_google_signup', {})
-    
-    if not user_info:
-        st.error("Session expired. Please try again.")
-        st.session_state.show_google_registration = False
-        return
-    
-    st.markdown("### ✅ Complete Your Registration with Google")
-    st.info(f"👋 Welcome **{user_info.get('name', '')}**! Please complete your registration.")
-    
-    with st.form("google_registration_form"):
-        # Pre-filled fields from Google
-        st.text_input("Email", value=user_info.get('email', ''), disabled=True)
-        full_name = st.text_input("Full Name *", value=user_info.get('name', ''))
-        username = st.text_input("Username *", value=user_info.get('email', '').split('@')[0])
-        
-        st.markdown("---")
-        st.markdown("#### Additional Information (Optional)")
-        
-        mobile = st.text_input("Mobile Number (Optional)", placeholder="01XXXXXXXXX - You can add this later")
-        phone = st.text_input("Phone (Alternative)", placeholder="Your phone number")
-        
-        st.caption("💡 You can add your mobile number later from your profile settings.")
-        
-        specialization = st.selectbox(
-            "Specialization",
-            ["", "Construction Consultant", "Bid Analyst", "Quantity Surveyor", 
-            "Project Manager", "Civil Engineer", "Architect", "Other"]
-        )
-        years_experience = st.slider("Years of Experience", 0, 40, 5)
-        
-        terms = st.checkbox("I agree to the Terms of Service and Privacy Policy *")
-        
-        submitted = st.form_submit_button("✅ Complete Registration with Google", type="primary", use_container_width=True)
-        
-        if submitted:
-            errors = []
-            if not full_name:
-                errors.append("Full name is required")
-            if not username:
-                errors.append("Username is required")
-            if not terms:
-                errors.append("You must agree to the Terms of Service")
-            
-            # Validate mobile only if provided
-            if mobile:
-                from utils.validators import normalize_mobile, validate_bangladesh_mobile
-                normalized_mobile = normalize_mobile(mobile)
-                if not validate_bangladesh_mobile(normalized_mobile):
-                    errors.append("Invalid Bangladeshi mobile number")
-                else:
-                    mobile = normalized_mobile
-            
-            if errors:
-                for err in errors:
-                    st.error(f"❌ {err}")
-            else:
-                # Store pending registration
-                st.session_state.pending_registration = {
-                    'account_type': 'individual',
-                    'full_name': full_name.strip(),
-                    'username': username.strip(),
-                    'email': user_info['email'],
-                    'mobile': mobile if mobile else '',
-                    'phone': phone,
-                    'specialization': specialization,
-                    'years_experience': years_experience,
-                    'is_google_user': True,
-                    'google_id': user_info.get('google_id'),
-                    'password': None  # No password needed for Google users
-                }
-                
-                # Skip OTP for Google users since they're already verified by Google
-                st.session_state.verification_step = 'email_otp'
-                st.session_state.verification_contact = user_info['email']
-                st.session_state.verification_purpose = 'google_registration'
-                st.session_state.temp_otp_code = 'GOOGLE_VERIFIED'
-                
-                st.success("✅ Google account verified! Completing registration...")
-                complete_registration()
-                st.rerun()
-
-
 
 def complete_registration():
     """Complete the registration process for Google users"""    
@@ -690,6 +567,7 @@ def complete_registration():
 def get_oidc_component():
     """Legacy function - returns None as we're using built-in OIDC"""
     return None
+
 
 def process_oidc_user():
     """Process OIDC user after successful authentication"""
@@ -711,15 +589,16 @@ def process_oidc_user():
             user_dict = dict(st.user) if st.user else {}
             print(f"🔍 st.user as dict: {user_dict}")
             email = user_dict.get('email')
+            name = user_dict.get('name', email.split('@')[0] if email else 'Unknown')
+            google_sub = user_dict.get('sub', '')
+            google_picture = user_dict.get('picture', '')
         except Exception as e:
             print(f"⚠️ Could not read st.user: {e}")
-            # Check if we have a code in URL (still processing)
             if 'code' in st.query_params:
                 print("⏳ Code in URL - waiting for OIDC to complete...")
                 return None
             email = None
         
-        # If no email, check if we have a code (still processing)
         if not email:
             if 'code' in st.query_params:
                 print("⏳ OIDC callback in progress, waiting for user data...")
@@ -729,42 +608,133 @@ def process_oidc_user():
                 return None
         
         print(f"✅ Processing OIDC user: {email}")
+        print(f"   Name: {name}")
+        print(f"   Google Sub: {google_sub}")
         
-        # Check if user exists in database
-        from database.unified_db_manager import UnifiedDatabaseManager
-        db = UnifiedDatabaseManager()
+        db = get_db()
+        
+        # ✅ FIRST: Check if user exists by email
+        print("🔍 Checking if user exists...")
         existing_user = db.get_user_by_email(email)
         
-        print(f"🔍 Existing user found: {existing_user is not None}")
-        
         if existing_user:
-            print(f"✅ Existing user: {existing_user.get('username')} (ID: {existing_user.get('id')})")
+            print(f"✅ Existing user found: {existing_user.get('username')} (ID: {existing_user.get('id')})")
             
-            # Log the user in
-            from modules.auth import login_user
-            login_success = login_user(existing_user, None, True)
+            registration_complete = existing_user.get('registration_complete', 0)
+            print(f"   Registration complete: {registration_complete}")
             
-            if login_success:
-                print(f"✅ OIDC user logged in: {email}")
-                print(f"   Session state - logged_in: {st.session_state.get('logged_in')}")
-                print(f"   Session state - user_role: {st.session_state.get('user_role')}")
-                print(f"   Session state - page before redirect: {st.session_state.get('page')}")
+            # ✅ If user exists but registration not complete - show registration form
+            if not registration_complete or registration_complete == 0:
+                print("🔄 User exists but registration incomplete - showing registration form")
+                st.session_state['google_user_info'] = {
+                    'email': email,
+                    'name': name,
+                    'sub': google_sub,
+                    'picture': google_picture
+                }
+                st.session_state['show_google_registration'] = True
+                return {'show_registration': True, 'existing_user': existing_user}
+            
+            # ✅ User exists and registration complete - check if already logged in
+            if st.session_state.get('logged_in', False) and st.session_state.get('user_id') == existing_user.get('id'):
+                print("✅ User already logged in - skipping 2FA")
                 return {'logged_in': True, 'user_id': existing_user['id']}
+            
+            # ✅ Check if 2FA is already verified in this session
+            if st.session_state.get('two_factor_verified', False):
+                print("✅ 2FA already verified in this session - logging in")
+                from modules.auth import login_user
+                login_success = login_user(existing_user, None, True)
+                if login_success:
+                    return {'logged_in': True, 'user_id': existing_user['id']}
+                else:
+                    return None
+            
+            # ✅ Check if we're already in 2FA verification step
+            if st.session_state.get('verification_step') == '2fa_otp':
+                print("⏳ Already in 2FA verification - waiting for user input")
+                return {'requires_2fa': True, 'user_id': existing_user['id']}
+            
+            # ✅ User registration complete - send 2FA OTP
+            print("✅ User registration complete - sending 2FA OTP")
+            
+            # ✅ Store user data and send OTP
+            st.session_state.pending_2fa_user_id = existing_user['id']
+            st.session_state.pending_2fa_user_data = existing_user
+            st.session_state.verification_step = '2fa_otp'
+            
+            # Send OTP
+            from utils.otp_service import OTPService
+            otp_service = OTPService(db)
+            success, message, otp_code = otp_service.send_verification_otp(
+                contact_type='email',
+                contact_value=email,
+                target_type='user',
+                target_id=existing_user['id'],
+                purpose='2fa_login'
+            )
+            
+            if success:
+                st.session_state._2fa_otp_sent = True
+                st.session_state._2fa_otp_code = otp_code
+                st.session_state._2fa_contact = email
+                print(f"✅ 2FA OTP sent to: {email}")
+                return {'requires_2fa': True, 'user_id': existing_user['id']}
             else:
-                print(f"❌ Failed to login OIDC user: {email}")
+                print(f"❌ Failed to send 2FA OTP: {message}")
+                return None
+        
+        # ✅ User does NOT exist - create new user
+        print("🔄 No existing user found - creating new user")
+        
+        username = email.split('@')[0]
+        username = ''.join(c for c in username if c.isalnum() or c == '_')
+        
+        user_data = {
+            'username': username,
+            'email': email,
+            'full_name': name,
+            'google_id': google_sub,
+            'picture': google_picture,
+            'mobile_number': '',
+            'phone': ''
+        }
+        
+        print(f"📝 Creating/linking user with data: {user_data}")
+        
+        success, result = db.create_google_user(user_data)
+        
+        if success:
+            user_id = result
+            print(f"✅ User processed successfully! User ID: {user_id}")
+            
+            existing_user = db.get_user_by_id(user_id)
+            
+            if existing_user:
+                registration_complete = existing_user.get('registration_complete', 0)
+                
+                if not registration_complete or registration_complete == 0:
+                    print("🔄 New user - needs to complete registration")
+                    st.session_state['google_user_info'] = {
+                        'email': email,
+                        'name': name,
+                        'sub': google_sub,
+                        'picture': google_picture
+                    }
+                    st.session_state['show_google_registration'] = True
+                    return {'show_registration': True, 'new_user': True}
+                else:
+                    from modules.auth import login_user
+                    login_success = login_user(existing_user, None, True)
+                    if login_success:
+                        return {'logged_in': True, 'user_id': existing_user['id']}
+            else:
+                print(f"❌ Could not retrieve user after creation: {user_id}")
                 return None
         else:
-            # New user - store for registration
-            print(f"🔄 New OIDC user: {email}")
-            st.session_state['google_user_info'] = {
-                'email': email,
-                'name': user_dict.get('name', email.split('@')[0]),
-                'sub': user_dict.get('sub', ''),
-                'picture': user_dict.get('picture', '')
-            }
-            st.session_state['show_google_registration'] = True
-            print(f"🔍 Stored google_user_info: {st.session_state['google_user_info']}")
-            return {'show_registration': True}
+            error_msg = result
+            print(f"❌ Failed to process user: {error_msg}")
+            return None
             
     except Exception as e:
         print(f"❌ Error processing OIDC user: {e}")

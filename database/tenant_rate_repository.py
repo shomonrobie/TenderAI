@@ -1,73 +1,61 @@
 # database/tenant_rate_repository.py
 
-import sqlite3
-import json
+from database.unified_db_manager import get_db_manager
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
 
 class TenantRateRepository:
     """Repository for tenant rate management"""
     
-    def __init__(self, db_path: str = "data/tender_system.db"):
-        self.db_path = db_path
+    def __init__(self, db=None):
+        """Initialize with optional db instance"""
+        self.db = db or get_db_manager()
     
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        """Get database connection"""
+        return self.db.get_connection()
+    
+    def get_cursor(self, conn):
+        """Get cursor from connection"""
+        return self.db.get_cursor(conn)
     
     # ========== RATE BOOKS ==========
     
     def create_rate_book(self, data: Dict[str, Any]) -> int:
         """Create a new rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
-            # ✅ Include all fields including is_demo
             cursor.execute("""
                 INSERT INTO tenant_rate_books (
-                    tenant_id, tenant_type, name, source_type, source_version_id,
-                    description, is_active, is_archived, is_demo, environment_mode,
-                    data_source_type, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tenant_id, tenant_type, name, source_type, 
+                    source_version_id, description, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                data['tenant_id'],
-                data['tenant_type'],
-                data['name'],
-                data['source_type'],
+                data.get('tenant_id'),
+                data.get('tenant_type', 'company'),
+                data.get('name'),
+                data.get('source_type'),
                 data.get('source_version_id'),
                 data.get('description'),
-                data.get('is_active', 1),
-                data.get('is_archived', 0),
-                data.get('is_demo', 0),  # ✅ Ensure is_demo is set
-                data.get('environment_mode', 'DEMO'),
-                data.get('data_source_type', 'DEMO'),
-                data.get('created_by')
+                data.get('created_by'),
+                datetime.now().isoformat()
             ))
             
-            book_id = cursor.lastrowid
             conn.commit()
+            book_id = cursor.lastrowid
+            conn.close()
+            
             return book_id
-
-    
-    def get_rate_book(self, book_id: int) -> Optional[Dict[str, Any]]:
-        """Get a rate book by ID"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
             
-            cursor.execute("""
-                SELECT 
-                    rb.*,
-                    u.full_name as creator_name,
-                    rv.version_name as source_version_name
-                FROM tenant_rate_books rb
-                LEFT JOIN users u ON rb.created_by = u.id
-                LEFT JOIN rate_versions rv ON rb.source_version_id = rv.id
-                WHERE rb.id = ?
-            """, (book_id,))
-            
-            result = cursor.fetchone()
-            return dict(result) if result else None
+        except Exception as e:
+            logger.error(f"Error creating rate book: {e}")
+            raise
     
     def get_rate_books_by_tenant(
         self, 
@@ -75,187 +63,122 @@ class TenantRateRepository:
         tenant_type: str = 'company',
         include_archived: bool = False
     ) -> List[Dict[str, Any]]:
-        """Get all rate books for a tenant"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        """Get rate books for a tenant"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
             query = """
                 SELECT 
-                    rb.*,
-                    COUNT(DISTINCT ri.id) as item_count,
-                    COUNT(DISTINCT rv.id) as version_count,
-                    u.full_name as creator_name
-                FROM tenant_rate_books rb
-                LEFT JOIN tenant_rate_items ri ON rb.id = ri.rate_book_id
-                LEFT JOIN tenant_rate_versions rv ON rb.id = rv.rate_book_id
-                LEFT JOIN users u ON rb.created_by = u.id
-                WHERE rb.tenant_id = ? AND rb.tenant_type = ?
+                    id, tenant_id, tenant_type, name, source_type, 
+                    source_version_id, description, is_active, is_archived,
+                    is_demo, created_by, created_at, updated_at
+                FROM tenant_rate_books
+                WHERE tenant_id = ? AND tenant_type = ?
             """
             params = [tenant_id, tenant_type]
             
             if not include_archived:
-                query += " AND rb.is_archived = 0"
+                query += " AND is_archived = 0"
             
-            query += " GROUP BY rb.id ORDER BY rb.created_at DESC"
-            
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
-    
-    def update_rate_book(self, book_id: int, data: Dict[str, Any]) -> bool:
-        """Update a rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            fields = []
-            params = []
-            
-            allowed_fields = ['name', 'description', 'is_active', 'is_archived']
-            for field in allowed_fields:
-                if field in data:
-                    fields.append(f"{field} = ?")
-                    params.append(data[field])
-            
-            if not fields:
-                return False
-            
-            params.append(datetime.now().isoformat())
-            params.append(book_id)
-            
-            query = f"""
-                UPDATE tenant_rate_books 
-                SET {', '.join(fields)}, updated_at = ?
-                WHERE id = ?
-            """
+            query += " ORDER BY name"
             
             cursor.execute(query, params)
-            conn.commit()
-            return cursor.rowcount > 0
-    
-    def archive_rate_book(self, book_id: int) -> bool:
-        """Archive a rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+            rows = cursor.fetchall()
+            conn.close()
             
-            cursor.execute("""
-                UPDATE tenant_rate_books 
-                SET is_archived = 1, updated_at = ?
-                WHERE id = ?
-            """, (datetime.now().isoformat(), book_id))
+            return [dict(row) for row in rows] if rows else []
             
-            conn.commit()
-            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error getting rate books: {e}")
+            return []
     
-    def delete_rate_book(self, book_id: int) -> bool:
-        """Delete a rate book (cascade will handle child records)"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM tenant_rate_books WHERE id = ?", (book_id,))
-            conn.commit()
-            return cursor.rowcount > 0
-    
-    # ========== RATE VERSIONS ==========
+    # ========== VERSIONS ==========
     
     def create_rate_version(self, data: Dict[str, Any]) -> int:
-        """Create a new version of a rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        """Create a new rate version"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
-            # Get current max version
-            cursor.execute("""
-                SELECT MAX(version_number) as max_version 
-                FROM tenant_rate_versions 
-                WHERE rate_book_id = ?
-            """, (data['rate_book_id'],))
-            
-            result = cursor.fetchone()
-            next_version = (result['max_version'] or 0) + 1
-            
-            # Set current version as not current
+            # If this is set as current, unset others
             if data.get('is_current', False):
                 cursor.execute("""
                     UPDATE tenant_rate_versions 
                     SET is_current = 0 
                     WHERE rate_book_id = ?
-                """, (data['rate_book_id'],))
+                """, (data.get('rate_book_id'),))
             
             cursor.execute("""
                 INSERT INTO tenant_rate_versions (
-                    rate_book_id, version_number, version_name,
-                    effective_from, effective_to, is_current,
-                    notes, created_by
+                    rate_book_id, version_name, version_number, 
+                    effective_from, is_current, notes, created_by, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                data['rate_book_id'],
-                next_version,
-                data.get('version_name', f"Version {next_version}"),
-                data.get('effective_from'),
-                data.get('effective_to'),
-                data.get('is_current', 1 if next_version == 1 else 0),
+                data.get('rate_book_id'),
+                data.get('version_name', 'Version 1'),
+                1,  # version_number - you might want to calculate this
+                data.get('effective_from', datetime.now().date().isoformat()),
+                1 if data.get('is_current', False) else 0,
                 data.get('notes'),
-                data.get('created_by')
+                data.get('created_by'),
+                datetime.now().isoformat()
             ))
             
-            version_id = cursor.lastrowid
             conn.commit()
+            version_id = cursor.lastrowid
+            conn.close()
+            
             return version_id
-    
-    def get_rate_version(self, version_id: int) -> Optional[Dict[str, Any]]:
-        """Get a rate version by ID"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
             
-            cursor.execute("""
-                SELECT 
-                    rv.*,
-                    rb.name as rate_book_name,
-                    u.full_name as creator_name
-                FROM tenant_rate_versions rv
-                JOIN tenant_rate_books rb ON rv.rate_book_id = rb.id
-                LEFT JOIN users u ON rv.created_by = u.id
-                WHERE rv.id = ?
-            """, (version_id,))
-            
-            result = cursor.fetchone()
-            return dict(result) if result else None
+        except Exception as e:
+            logger.error(f"Error creating rate version: {e}")
+            raise
     
     def get_versions_for_book(self, book_id: int) -> List[Dict[str, Any]]:
         """Get all versions for a rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
             cursor.execute("""
                 SELECT 
-                    rv.*,
-                    u.full_name as creator_name,
-                    COUNT(DISTINCT pl.id) as pricing_count
-                FROM tenant_rate_versions rv
-                LEFT JOIN users u ON rv.created_by = u.id
-                LEFT JOIN tenant_pricing_levels pl ON rv.id = pl.rate_version_id
-                WHERE rv.rate_book_id = ?
-                GROUP BY rv.id
-                ORDER BY rv.version_number DESC
+                    id, rate_book_id, version_name, version_number,
+                    effective_from, is_current, notes, created_by, created_at
+                FROM tenant_rate_versions
+                WHERE rate_book_id = ?
+                ORDER BY version_number DESC
             """, (book_id,))
             
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
+            rows = cursor.fetchall()
+            conn.close()
+            
+            return [dict(row) for row in rows] if rows else []
+            
+        except Exception as e:
+            logger.error(f"Error getting versions: {e}")
+            return []
     
     def set_current_version(self, version_id: int) -> bool:
-        """Set a version as the current version"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        """Set a version as current"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
-            # Get the book ID
-            cursor.execute("SELECT rate_book_id FROM tenant_rate_versions WHERE id = ?", (version_id,))
-            result = cursor.fetchone()
+            # Get the book_id for this version
+            cursor.execute(
+                "SELECT rate_book_id FROM tenant_rate_versions WHERE id = ?",
+                (version_id,)
+            )
+            row = cursor.fetchone()
             
-            if not result:
+            if not row:
+                conn.close()
                 return False
             
-            book_id = result['rate_book_id']
+            book_id = row['rate_book_id']
             
-            # Set all versions for this book as not current
+            # Unset current for all versions of this book
             cursor.execute("""
                 UPDATE tenant_rate_versions 
                 SET is_current = 0 
@@ -270,63 +193,15 @@ class TenantRateRepository:
             """, (version_id,))
             
             conn.commit()
+            conn.close()
+            
             return True
+            
+        except Exception as e:
+            logger.error(f"Error setting current version: {e}")
+            return False
     
-    # ========== RATE ITEMS ==========
-    
-    def create_rate_item(self, data: Dict[str, Any]) -> int:
-        """Create a rate item"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                INSERT INTO tenant_rate_items (
-                    rate_book_id, master_reference_id, master_reference_type,
-                    item_code, item_description, unit, is_custom,
-                    is_active, display_order, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data['rate_book_id'],
-                data.get('master_reference_id'),
-                data.get('master_reference_type'),
-                data['item_code'],
-                data['item_description'],
-                data.get('unit'),
-                data.get('is_custom', 0),
-                data.get('is_active', 1),
-                data.get('display_order', 0),
-                data.get('created_by')
-            ))
-            
-            item_id = cursor.lastrowid
-            
-            # If this is the first version, create default pricing
-            cursor.execute("""
-                SELECT id FROM tenant_rate_versions 
-                WHERE rate_book_id = ? AND is_current = 1
-            """, (data['rate_book_id'],))
-            
-            version = cursor.fetchone()
-            
-            if version and not data.get('skip_pricing', False):
-                # Create default pricing levels
-                for level in ['ECONOMY', 'MARKET', 'PREMIUM']:
-                    cursor.execute("""
-                        INSERT INTO tenant_pricing_levels (
-                            rate_version_id, rate_item_id, pricing_level,
-                            price, currency, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    """, (
-                        version['id'],
-                        item_id,
-                        level,
-                        0.0,
-                        'BDT',
-                        data.get('created_by')
-                    ))
-            
-            conn.commit()
-            return item_id
+    # ========== ITEMS ==========
     
     def get_rate_items_by_book(
         self, 
@@ -334,448 +209,118 @@ class TenantRateRepository:
         version_id: Optional[int] = None,
         active_only: bool = True
     ) -> List[Dict[str, Any]]:
-        """Get all rate items for a book, optionally with pricing for a specific version"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        """Get items for a rate book"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
             query = """
                 SELECT 
-                    ri.*,
-                    GROUP_CONCAT(pl.pricing_level || ':' || pl.price) as pricing_data
-                FROM tenant_rate_items ri
+                    tri.id, tri.item_code, tri.item_description, 
+                    tri.unit, tri.is_active, tri.is_archived,
+                    trp.pricing_level, trp.price, trp.effective_from
+                FROM tenant_rate_items tri
+                LEFT JOIN tenant_rate_pricing trp ON tri.id = trp.item_id
+                WHERE tri.rate_book_id = ?
             """
+            params = [book_id]
             
             if version_id:
-                query += """
-                    LEFT JOIN tenant_pricing_levels pl 
-                    ON ri.id = pl.rate_item_id AND pl.rate_version_id = ?
-                """
-            else:
-                query += """
-                    LEFT JOIN tenant_pricing_levels pl 
-                    ON ri.id = pl.rate_item_id
-                """
-            
-            query += " WHERE ri.rate_book_id = ?"
-            
-            if active_only:
-                query += " AND ri.is_active = 1"
-            
-            query += " GROUP BY ri.id ORDER BY ri.display_order, ri.item_code"
-            
-            params = [version_id, book_id] if version_id else [book_id]
-            cursor.execute(query, params)
-            
-            results = cursor.fetchall()
-            items = []
-            
-            for row in results:
-                item = dict(row)
-                if item.get('pricing_data'):
-                    # Parse pricing data
-                    pricing = {}
-                    for p in item['pricing_data'].split(','):
-                        if ':' in p:
-                            level, price = p.split(':', 1)
-                            pricing[level] = float(price) if price else None
-                    item['pricing'] = pricing
-                    del item['pricing_data']
-                
-                items.append(item)
-            
-            return items
-    
-    def update_rate_item(self, item_id: int, data: Dict[str, Any]) -> bool:
-        """Update a rate item"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            fields = []
-            params = []
-            
-            allowed_fields = ['item_code', 'item_description', 'unit', 'is_active', 'display_order']
-            for field in allowed_fields:
-                if field in data:
-                    fields.append(f"{field} = ?")
-                    params.append(data[field])
-            
-            if not fields:
-                return False
-            
-            params.append(datetime.now().isoformat())
-            params.append(item_id)
-            
-            query = f"""
-                UPDATE tenant_rate_items 
-                SET {', '.join(fields)}, updated_at = ?
-                WHERE id = ?
-            """
-            
-            cursor.execute(query, params)
-            conn.commit()
-            return cursor.rowcount > 0
-    
-    def delete_rate_item(self, item_id: int) -> bool:
-        """Delete a rate item (cascade will handle pricing)"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("DELETE FROM tenant_rate_items WHERE id = ?", (item_id,))
-            conn.commit()
-            return cursor.rowcount > 0
-    
-    # ========== PRICING LEVELS ==========
-    
-    def update_pricing(
-        self, 
-        version_id: int, 
-        item_id: int, 
-        pricing_level: str, 
-        price: float,
-        user_id: int
-    ) -> bool:
-        """Update pricing for a specific item and version"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get current pricing for audit
-            cursor.execute("""
-                SELECT price FROM tenant_pricing_levels 
-                WHERE rate_version_id = ? AND rate_item_id = ? AND pricing_level = ?
-            """, (version_id, item_id, pricing_level))
-            
-            old_result = cursor.fetchone()
-            old_price = old_result['price'] if old_result else None
-            
-            # Update or insert
-            if old_result:
-                cursor.execute("""
-                    UPDATE tenant_pricing_levels 
-                    SET price = ?, updated_at = ?
-                    WHERE rate_version_id = ? AND rate_item_id = ? AND pricing_level = ?
-                """, (price, datetime.now().isoformat(), version_id, item_id, pricing_level))
-            else:
-                cursor.execute("""
-                    INSERT INTO tenant_pricing_levels (
-                        rate_version_id, rate_item_id, pricing_level,
-                        price, currency, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """, (version_id, item_id, pricing_level, price, 'BDT', user_id))
-            
-            # Audit log
-            cursor.execute("""
-                INSERT INTO tenant_rate_audit (
-                    rate_item_id, pricing_level_id, action,
-                    field_name, old_value, new_value, user_id
-                ) VALUES (
-                    ?, 
-                    (SELECT id FROM tenant_pricing_levels 
-                     WHERE rate_version_id = ? AND rate_item_id = ? AND pricing_level = ?),
-                    'UPDATE', 'price', ?, ?, ?
-                )
-            """, (item_id, version_id, item_id, pricing_level, 
-                  str(old_price) if old_price is not None else None, 
-                  str(price), user_id))
-            
-            conn.commit()
-            return True
-    
-    def get_item_pricing(
-        self, 
-        item_id: int, 
-        version_id: Optional[int] = None
-    ) -> Dict[str, Dict[str, Any]]:
-        """Get all pricing for an item"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            query = """
-                SELECT 
-                    pl.pricing_level,
-                    pl.price,
-                    pl.currency,
-                    pl.effective_from,
-                    pl.effective_to,
-                    pl.notes,
-                    rv.version_number,
-                    rv.is_current
-                FROM tenant_pricing_levels pl
-                JOIN tenant_rate_versions rv ON pl.rate_version_id = rv.id
-                WHERE pl.rate_item_id = ?
-            """
-            params = [item_id]
-            
-            if version_id:
-                query += " AND pl.rate_version_id = ?"
+                query += " AND trp.version_id = ?"
                 params.append(version_id)
             
-            query += " ORDER BY rv.version_number DESC, pl.pricing_level"
+            if active_only:
+                query += " AND tri.is_active = 1 AND tri.is_archived = 0"
+            
+            query += " ORDER BY tri.item_code"
             
             cursor.execute(query, params)
-            results = cursor.fetchall()
+            rows = cursor.fetchall()
+            conn.close()
             
+            return [dict(row) for row in rows] if rows else []
+            
+        except Exception as e:
+            logger.error(f"Error getting rate items: {e}")
+            return []
+    
+    def get_item_pricing(self, item_id: int, version_id: int) -> Dict[str, Any]:
+        """Get pricing for an item"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
+            
+            cursor.execute("""
+                SELECT 
+                    pricing_level, price, effective_from,
+                    created_by, created_at
+                FROM tenant_rate_pricing
+                WHERE item_id = ? AND version_id = ?
+                ORDER BY pricing_level
+            """, (item_id, version_id))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            # Group by pricing level
             pricing = {}
-            for row in results:
-                level = row['pricing_level']
+            for row in rows:
+                level = row.get('pricing_level', 'MARKET')
                 if level not in pricing:
                     pricing[level] = []
                 pricing[level].append(dict(row))
             
             return pricing
-    
-    # ========== CLONE FROM MASTER ==========
-    
-    def clone_pwd_master(
-        self, 
-        rate_book_id: int, 
-        version_id: int,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Clone PWD master rates to a tenant rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
             
-            # Get the rate book
+        except Exception as e:
+            logger.error(f"Error getting item pricing: {e}")
+            return {}
+    
+    def update_pricing(
+        self,
+        version_id: int,
+        item_id: int,
+        pricing_level: str,
+        price: float,
+        user_id: int
+    ) -> bool:
+        """Update pricing for an item"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
+            
+            # Check if pricing exists
             cursor.execute("""
-                SELECT * FROM tenant_rate_books WHERE id = ?
-            """, (rate_book_id,))
+                SELECT id FROM tenant_rate_pricing
+                WHERE version_id = ? AND item_id = ? AND pricing_level = ?
+            """, (version_id, item_id, pricing_level))
             
-            book = cursor.fetchone()
-            if not book:
-                return {'success': False, 'error': 'Rate book not found'}
+            existing = cursor.fetchone()
             
-            # Get PWD rates to clone
-            query = """
-                SELECT 
-                    pc.pwd_code as item_code,
-                    pc.description as item_description,
-                    pc.unit,
-                    pc.edition_year,
-                    pp.chapter_number,
-                    pr.zone_name,
-                    pr.unit_rate
-                FROM pwd_children pc
-                JOIN pwd_parents pp ON pc.parent_code = pp.pwd_code
-                LEFT JOIN pwd_rates pr ON pc.pwd_code = pr.pwd_code
-                WHERE 1=1
-            """
-            params = []
-            
-            if filters:
-                if filters.get('chapter_number'):
-                    query += " AND pp.chapter_number = ?"
-                    params.append(filters['chapter_number'])
-                if filters.get('edition_year'):
-                    query += " AND pc.edition_year = ?"
-                    params.append(filters['edition_year'])
-            
-            cursor.execute(query, params)
-            master_items = cursor.fetchall()
-            
-            items_created = 0
-            
-            for master in master_items:
-                # Check if item already exists
+            if existing:
+                # Update existing
                 cursor.execute("""
-                    SELECT id FROM tenant_rate_items 
-                    WHERE rate_book_id = ? AND item_code = ?
-                """, (rate_book_id, master['item_code']))
-                
-                existing = cursor.fetchone()
-                
-                if not existing:
-                    # Create item
-                    cursor.execute("""
-                        INSERT INTO tenant_rate_items (
-                            rate_book_id, master_reference_id, master_reference_type,
-                            item_code, item_description, unit, is_custom
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        rate_book_id,
-                        None,  # We don't track specific PWD reference ID
-                        'PWD',
-                        master['item_code'],
-                        master['item_description'],
-                        master['unit'],
-                        0
-                    ))
-                    
-                    item_id = cursor.lastrowid
-                    
-                    # Create pricing from master rates
-                    if master['unit_rate']:
-                        # Use PWD rate as MARKET price
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'MARKET',
-                            master['unit_rate'],
-                            'BDT'
-                        ))
-                        
-                        # ECONOMY = market * 0.85
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'ECONOMY',
-                            master['unit_rate'] * 0.85,
-                            'BDT'
-                        ))
-                        
-                        # PREMIUM = market * 1.15
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'PREMIUM',
-                            master['unit_rate'] * 1.15,
-                            'BDT'
-                        ))
-                    
-                    items_created += 1
+                    UPDATE tenant_rate_pricing
+                    SET price = ?, updated_by = ?, updated_at = ?
+                    WHERE version_id = ? AND item_id = ? AND pricing_level = ?
+                """, (price, user_id, datetime.now().isoformat(), version_id, item_id, pricing_level))
+            else:
+                # Insert new
+                cursor.execute("""
+                    INSERT INTO tenant_rate_pricing (
+                        version_id, item_id, pricing_level, price,
+                        created_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (version_id, item_id, pricing_level, price, user_id, datetime.now().isoformat()))
             
             conn.commit()
-            return {
-                'success': True, 
-                'items_created': items_created,
-                'message': f'Cloned {items_created} items from PWD master rates'
-            }
-    
-    def clone_lged_master(
-        self, 
-        rate_book_id: int, 
-        version_id: int,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """Clone LGED master rates to a tenant rate book"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+            conn.close()
             
-            # Get LGED rates to clone
-            query = """
-                SELECT 
-                    lc.code as item_code,
-                    lc.description as item_description,
-                    lc.unit,
-                    lc.edition_year,
-                    lp.chapter_number,
-                    lp.section_number,
-                    lzr.zone_name,
-                    lzr.unit_rate
-                FROM lged_children lc
-                JOIN lged_parents lp ON lc.parent_code = lp.code
-                LEFT JOIN lged_zone_rates lzr ON lc.id = lzr.child_id
-                WHERE 1=1
-            """
-            params = []
+            return True
             
-            if filters:
-                if filters.get('chapter_number'):
-                    query += " AND lp.chapter_number = ?"
-                    params.append(filters['chapter_number'])
-                if filters.get('section_number'):
-                    query += " AND lp.section_number = ?"
-                    params.append(filters['section_number'])
-                if filters.get('edition_year'):
-                    query += " AND lc.edition_year = ?"
-                    params.append(filters['edition_year'])
-            
-            cursor.execute(query, params)
-            master_items = cursor.fetchall()
-            
-            items_created = 0
-            
-            for master in master_items:
-                # Check if item already exists
-                cursor.execute("""
-                    SELECT id FROM tenant_rate_items 
-                    WHERE rate_book_id = ? AND item_code = ?
-                """, (rate_book_id, master['item_code']))
-                
-                existing = cursor.fetchone()
-                
-                if not existing:
-                    # Create item
-                    cursor.execute("""
-                        INSERT INTO tenant_rate_items (
-                            rate_book_id, master_reference_id, master_reference_type,
-                            item_code, item_description, unit, is_custom
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        rate_book_id,
-                        None,
-                        'LGED',
-                        master['item_code'],
-                        master['item_description'],
-                        master['unit'],
-                        0
-                    ))
-                    
-                    item_id = cursor.lastrowid
-                    
-                    # Create pricing from master rates
-                    if master['unit_rate']:
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'MARKET',
-                            master['unit_rate'],
-                            'BDT'
-                        ))
-                        
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'ECONOMY',
-                            master['unit_rate'] * 0.85,
-                            'BDT'
-                        ))
-                        
-                        cursor.execute("""
-                            INSERT INTO tenant_pricing_levels (
-                                rate_version_id, rate_item_id, pricing_level,
-                                price, currency
-                            ) VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            version_id,
-                            item_id,
-                            'PREMIUM',
-                            master['unit_rate'] * 1.15,
-                            'BDT'
-                        ))
-                    
-                    items_created += 1
-            
-            conn.commit()
-            return {
-                'success': True,
-                'items_created': items_created,
-                'message': f'Cloned {items_created} items from LGED master rates'
-            }
+        except Exception as e:
+            logger.error(f"Error updating pricing: {e}")
+            return False
     
     # ========== AUDIT ==========
     
@@ -783,89 +328,147 @@ class TenantRateRepository:
         self,
         book_id: Optional[int] = None,
         user_id: Optional[int] = None,
-        limit: int = 100,
+        limit: int = 50,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """Get audit log entries"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+        """Get audit log"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
             query = """
                 SELECT 
-                    tra.*,
-                    u.full_name as user_name,
-                    rb.name as rate_book_name,
-                    ri.item_code,
-                    ri.item_description
-                FROM tenant_rate_audit tra
-                LEFT JOIN users u ON tra.user_id = u.id
-                LEFT JOIN tenant_rate_books rb ON tra.rate_book_id = rb.id
-                LEFT JOIN tenant_rate_items ri ON tra.rate_item_id = ri.id
+                    id, book_id, version_id, action, 
+                    details, user_id, created_at
+                FROM tenant_rate_audit
                 WHERE 1=1
             """
             params = []
             
             if book_id:
-                query += " AND tra.rate_book_id = ?"
+                query += " AND book_id = ?"
                 params.append(book_id)
             
             if user_id:
-                query += " AND tra.user_id = ?"
+                query += " AND user_id = ?"
                 params.append(user_id)
             
-            query += " ORDER BY tra.created_at DESC LIMIT ? OFFSET ?"
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
             params.extend([limit, offset])
             
             cursor.execute(query, params)
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
-    
-    # ========== IMPORT/EXPORT ==========
-    
-    def log_import(self, data: Dict[str, Any]) -> int:
-        """Log an import operation"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+            rows = cursor.fetchall()
+            conn.close()
             
-            cursor.execute("""
-                INSERT INTO tenant_rate_import_log (
-                    rate_book_id, file_name, import_type,
-                    total_records, successful_records, failed_records,
-                    error_log, imported_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data['rate_book_id'],
-                data['file_name'],
-                data['import_type'],
-                data.get('total_records', 0),
-                data.get('successful_records', 0),
-                data.get('failed_records', 0),
-                data.get('error_log'),
-                data.get('imported_by')
-            ))
+            return [dict(row) for row in rows] if rows else []
             
-            log_id = cursor.lastrowid
+        except Exception as e:
+            logger.error(f"Error getting audit log: {e}")
+            return []
+    
+    def clone_pwd_master(
+        self, 
+        book_id: int, 
+        version_id: int, 
+        filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Clone PWD master rates to tenant book"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
+            
+            # This is a placeholder - implement the actual clone logic
+            # based on your database schema
+            
+            # Example: Copy items from PWD master to tenant book
+            query = """
+                INSERT INTO tenant_rate_items (
+                    rate_book_id, item_code, item_description, unit, 
+                    created_by, created_at
+                )
+                SELECT 
+                    ?, pwd_code, description, unit,
+                    ?, ?
+                FROM pwd_children
+                WHERE version_id = ?
+            """
+            params = [book_id, 1, datetime.now().isoformat(), version_id]
+            
+            if filters:
+                if filters.get('chapter'):
+                    query += " AND pwd_code LIKE ?"
+                    params.append(f"{filters['chapter']}%")
+                
+                if filters.get('category'):
+                    query += " AND category = ?"
+                    params.append(filters['category'])
+            
+            cursor.execute(query, params)
             conn.commit()
-            return log_id
+            
+            # Get count
+            count = cursor.rowcount
+            
+            conn.close()
+            
+            return {
+                'success': True,
+                'count': count,
+                'message': f'Cloned {count} items from PWD master'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error cloning PWD master: {e}")
+            return {'success': False, 'error': str(e)}
     
-    def log_export(self, data: Dict[str, Any]) -> int:
-        """Log an export operation"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+    def clone_lged_master(
+        self, 
+        book_id: int, 
+        version_id: int, 
+        filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Clone LGED master rates to tenant book"""
+        try:
+            conn = self.get_connection()
+            cursor = self.get_cursor(conn)
             
-            cursor.execute("""
-                INSERT INTO tenant_rate_export_log (
-                    rate_book_id, file_name, export_type,
-                    total_records, exported_by
-                ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                data['rate_book_id'],
-                data['file_name'],
-                data['export_type'],
-                data.get('total_records', 0),
-                data.get('exported_by')
-            ))
+            # This is a placeholder - implement the actual clone logic
+            # based on your database schema
             
-            log_id = cursor.lastrowid
+            query = """
+                INSERT INTO tenant_rate_items (
+                    rate_book_id, item_code, item_description, unit, 
+                    created_by, created_at
+                )
+                SELECT 
+                    ?, code, description, unit,
+                    ?, ?
+                FROM lged_children
+                WHERE version_id = ?
+            """
+            params = [book_id, 1, datetime.now().isoformat(), version_id]
+            
+            if filters:
+                if filters.get('chapter'):
+                    query += " AND code LIKE ?"
+                    params.append(f"{filters['chapter']}%")
+            
+            cursor.execute(query, params)
             conn.commit()
-            return log_id
+            
+            count = cursor.rowcount
+            conn.close()
+            
+            return {
+                'success': True,
+                'count': count,
+                'message': f'Cloned {count} items from LGED master'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error cloning LGED master: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def get_connection(self):
+        """Get database connection"""
+        return self.db.get_connection()

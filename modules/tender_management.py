@@ -1,4 +1,3 @@
-# modules/tender_management.py
 """
 Complete Tender Management Module
 Track tender participation, bid submission, deadlines, and winner tracking
@@ -8,6 +7,7 @@ Refactored for:
 - Tender-specific detail pages
 - Proper session state management
 - Clean separation of concerns
+- Uses CRUD manager for all database operations
 """
 
 import streamlit as st
@@ -18,14 +18,16 @@ import time
 import numpy as np
 import logging
 from typing import Optional, Dict, List, Any, Tuple
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 import traceback
+
+# Get cached database manager instance
+db = get_db_manager()
 
 DEBUG_MODE = True
 logging.basicConfig(level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
-db = UnifiedDatabaseManager()
 
 from modules.rbac import (
     rbac, can_view_tenders, can_create_tender, can_edit_tender,
@@ -39,6 +41,7 @@ from modules.bid_analysis.bid_core import (
 )
 from modules.tender_data_importer import TenderDataImporter
 
+
 def debug_print(msg, data=None):
     """Debug print with timestamp"""
     from datetime import datetime
@@ -46,6 +49,7 @@ def debug_print(msg, data=None):
     print(f"[{timestamp}] 🔍 {msg}")
     if data is not None:
         print(f"   └─ {data}")
+
 
 # =============================================================================
 # 🔄 SHARED TENDER SELECTOR INSTANCE
@@ -128,7 +132,7 @@ def render_shared_tender_selector(
     cached_state = tender_selector_manager.get_selector_state(context)
     
     if cached_state.get('selected_tender_id') and cached_state.get('context') == context:
-        tender_data = db_instance.get_tender_by_id(cached_state['selected_tender_id'], company_id)
+        tender_data = db.get_tender_by_id(cached_state['selected_tender_id'], company_id)
         if tender_data:
             result = render_tender_selector(
                 db=db_instance,
@@ -141,7 +145,7 @@ def render_shared_tender_selector(
             )
             new_tender_id = result[0] if result else None
             if new_tender_id and str(new_tender_id) != str(cached_state['selected_tender_id']):
-                new_tender_data = db_instance.get_tender_by_id(new_tender_id, company_id)
+                new_tender_data = db.get_tender_by_id(new_tender_id, company_id)
                 tender_selector_manager.update_selection(new_tender_id, new_tender_data, search_term)
             return result
     
@@ -157,283 +161,97 @@ def render_shared_tender_selector(
     
     if result and result[0]:
         tender_id = result[0]
-        tender_data = db_instance.get_tender_by_id(tender_id, company_id)
+        tender_data = db.get_tender_by_id(tender_id, company_id)
         tender_selector_manager.update_selection(tender_id, tender_data, search_term)
     
     return result
 
 
 # =============================================================================
-# 🗄️ DATABASE METHODS
+# 🗄️ DATABASE METHODS - DELEGATE TO CRUD MANAGER
 # =============================================================================
 
 def create_tender(company_id: int, tender_data: Dict[str, Any], created_by: int) -> Optional[int]:
+    """Create a new tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT id FROM company_tenders WHERE company_id = ? AND tender_id = ? AND is_active = 1
-        ''', (company_id, tender_data.get('tender_id', '')))
-        if cursor.fetchone():
-            conn.close()
+        # Check if tender already exists
+        existing = db.get_tender_by_id(tender_data.get('tender_id', ''), company_id)
+        if existing:
+            logger.warning(f"Tender {tender_data.get('tender_id')} already exists")
             return None
         
-        columns = [
-            'company_id', 'tender_id', 'tender_title', 'procuring_entity', 'division',
-            'district', 'thana', 'country', 'procurement_type', 'official_estimate',
-            'submission_deadline', 'tender_security', 'document_fee', 'evaluation_type',
-            'mode_of_payment', 'eligibility_criteria', 'invitation_ref_no', 'package_no',
-            'project_code', 'project_name', 'inviting_official_name', 'inviting_official_designation',
-            'inviting_official_phone', 'inviting_official_email', 'inviting_official_address', 
-            'inviting_official_city', 'inviting_official_thana', 'inviting_official_district', 
-            'notes', 'created_by', 'is_locked', 'is_copy', 'original_tender_id', 'is_active',
-            'app_id', 'procuring_entity_code', 'procurement_nature', 'event_type', 
-            'budget_type', 'source_of_funds', 'category', 'tender_publication_date',
-            'document_selling_end_date', 'pre_bid_meeting_start', 'pre_bid_meeting_end',
-            'bid_opening_date', 'security_submission_deadline', 'security_valid_upto',
-            'tender_valid_upto'
-        ]
-        
-        defaults = {
-            'tender_id': '', 'tender_title': '', 'procuring_entity': '', 'division': 'Dhaka',
-            'district': '', 'thana': '', 'country': 'Bangladesh', 'procurement_type': 'works',
-            'official_estimate': 0.0, 'tender_security': 0.0, 'document_fee': 0.0,
-            'evaluation_type': 'Lot wise', 'mode_of_payment': 'Payment through Bank',
-            'eligibility_criteria': 'As Per Tender Documents', 'invitation_ref_no': '',
-            'package_no': '', 'project_code': '', 'project_name': '',
-            'inviting_official_name': '', 'inviting_official_designation': '',
-            'inviting_official_phone': '', 'inviting_official_email': '',
-            'inviting_official_address': '', 'inviting_official_city': '',
-            'inviting_official_thana': '', 'inviting_official_district': '', 'notes': '',
-            'app_id': '', 'procuring_entity_code': '', 'procurement_nature': 'Works',
-            'event_type': 'TENDER', 'budget_type': '', 'source_of_funds': 'Government',
-            'category': '', 'submission_deadline': None, 'security_submission_deadline': None
-        }
-        
-        values = []
-        for col in columns:
-            if col == 'company_id':
-                values.append(company_id)
-            elif col == 'created_by':
-                values.append(created_by)
-            elif col == 'is_locked':
-                values.append(0)
-            elif col == 'is_copy':
-                values.append(0)
-            elif col == 'original_tender_id':
-                values.append(None)
-            elif col == 'is_active':
-                values.append(1)
-            else:
-                val = tender_data.get(col, defaults.get(col))
-                if col in ['official_estimate', 'tender_security', 'document_fee']:
-                    try: val = float(val) if val is not None else 0.0
-                    except: val = 0.0
-                values.append(val)
-                
-        placeholders = ', '.join(['?'] * len(columns))
-        col_names = ', '.join(columns)
-        query = f"INSERT INTO company_tenders ({col_names}) VALUES ({placeholders})"
-        
-        cursor.execute(query, values)
-        tender_db_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        tender_selector_manager.clear_selection()
-        return tender_db_id
-        
+        result = db.create_tender(company_id, tender_data, created_by)
+        if result:
+            tender_selector_manager.clear_selection()
+        return result
     except Exception as e:
         logger.error(f"Failed to create tender: {e}", exc_info=True)
         return None
 
 
 def update_tender(tender_id: int, tender_data: Dict[str, Any], updated_by: int) -> bool:
+    """Update a tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT id FROM company_tenders WHERE id = ? AND company_id = ? AND is_active = 1
-        ''', (tender_id, st.session_state.company_id))
-        
-        if not cursor.fetchone():
-            conn.close()
+        # Get company_id from session state
+        company_id = st.session_state.get('company_id')
+        if not company_id:
+            logger.error("No company_id in session state")
             return False
         
-        updatable_columns = [
-            'tender_id', 'tender_title', 'procuring_entity', 'division',
-            'district', 'thana', 'country', 'procurement_type', 'official_estimate',
-            'submission_deadline', 'tender_security', 'document_fee', 'evaluation_type',
-            'mode_of_payment', 'eligibility_criteria', 'invitation_ref_no', 'package_no',
-            'project_code', 'project_name', 'inviting_official_name',
-            'inviting_official_designation', 'inviting_official_phone',
-            'inviting_official_email', 'inviting_official_address',
-            'inviting_official_city', 'inviting_official_thana',
-            'inviting_official_district', 'notes', 'app_id', 'procuring_entity_code',
-            'procurement_nature', 'event_type', 'budget_type', 'source_of_funds',
-            'category', 'tender_publication_date', 'document_selling_end_date',
-            'pre_bid_meeting_start', 'pre_bid_meeting_end', 'bid_opening_date',
-            'security_submission_deadline', 'security_valid_upto', 'tender_valid_upto'
-        ]
+        # Add company_id to tender_data for verification
+        tender_data['company_id'] = company_id
         
-        update_fields = []
-        update_values = []
-        
-        for col in updatable_columns:
-            if col in tender_data and tender_data[col] is not None:
-                update_fields.append(f"{col} = ?")
-                update_values.append(tender_data[col])
-        
-        if not update_fields:
-            conn.close()
-            return False
-        
-        update_fields.append("updated_at = ?")
-        update_values.append(datetime.now())
-        update_values.append(tender_id)
-        
-        query = f"UPDATE company_tenders SET {', '.join(update_fields)} WHERE id = ?"
-        
-        cursor.execute(query, update_values)
-        conn.commit()
-        success = cursor.rowcount > 0
-        conn.close()
-        
-        if success:
+        result = db.update_tender(tender_id, tender_data, updated_by)
+        if result:
             logger.info(f"Tender {tender_id} updated by user {updated_by}")
             tender_selector_manager.clear_selection()
-        
-        return success
-        
+        return result
     except Exception as e:
         logger.error(f"Failed to update tender: {e}", exc_info=True)
         return False
 
 
 def get_company_tenders(company_id: int, status_filter: Optional[str] = None, limit: int = 100) -> pd.DataFrame:
+    """Fetch company tenders with submitter name - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        query = '''
-        SELECT 
-            t.id, t.company_id, t.tender_id, t.tender_title, t.procuring_entity,
-            t.division, t.district, t.thana, t.country, t.procurement_type,
-            t.official_estimate, t.submission_deadline, t.tender_security,
-            t.document_fee, t.evaluation_type, t.mode_of_payment,
-            t.eligibility_criteria, t.invitation_ref_no, t.package_no,
-            t.project_code, t.project_name, t.inviting_official_name,
-            t.inviting_official_designation, t.inviting_official_phone,
-            t.inviting_official_email, t.inviting_official_address,
-            t.inviting_official_city, t.inviting_official_thana,
-            t.inviting_official_district, t.our_bid_amount, t.bid_submitted_by,
-            t.bid_submission_date, t.bid_status, t.evaluation_status,
-            t.winning_bid_amount, t.winning_competitor, t.our_rank,
-            t.total_bidders, t.award_date, t.notes, t.created_by,
-            t.created_at, t.updated_at,
-            t.is_locked, t.locked_at, t.locked_by,
-            t.is_copy, t.original_tender_id,
-            t.is_active, t.deleted_at, t.deleted_by,
-            u.full_name as submitted_by_name,
-            t.app_id, t.procuring_entity_code, t.procurement_nature,
-            t.event_type, t.budget_type, t.source_of_funds, t.category,
-            t.tender_publication_date, t.document_selling_end_date,
-            t.pre_bid_meeting_start, t.pre_bid_meeting_end,
-            t.bid_opening_date, t.security_submission_deadline,
-            t.security_valid_upto, t.tender_valid_upto
-        FROM company_tenders t
-        LEFT JOIN users u ON t.bid_submitted_by = u.id
-        WHERE t.company_id = ? AND t.is_active = 1
-        '''
-        params = [company_id]
-        
-        if status_filter:
-            query += " AND t.bid_status = ?"
-            params.append(status_filter)
-        
-        query += " ORDER BY t.created_at DESC LIMIT ?"
-        params.append(limit)
-        
-        cursor.execute(query, params)
-        columns = [desc[0] for desc in cursor.description]
-        data = cursor.fetchall()
-        conn.close()
-        
-        return pd.DataFrame(data, columns=columns) if data else pd.DataFrame()
-        
+        results = db.get_company_tenders(company_id, status_filter, limit)
+        return pd.DataFrame(results) if results else pd.DataFrame()
     except Exception as e:
         logger.error(f"Failed to fetch company tenders: {e}", exc_info=True)
         return pd.DataFrame()
 
 
 def get_tender_by_id(tender_id: str, company_id: int) -> Optional[Dict]:
-    """Get tender by ID as a dictionary"""
+    """Get tender by ID - delegates to CRUD"""
     try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM company_tenders 
-                WHERE tender_id = ? AND company_id = ? AND is_active = 1
-            """, (tender_id, company_id))
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            return None
+        return db.get_tender_by_id(tender_id, company_id)
     except Exception as e:
         logger.error(f"Error getting tender by ID: {e}")
         return None
 
 
-def update_tender_bid(tender_id: int, bid_amount: float, updated_by: int) -> bool:
+def get_tender_by_db_id(tender_db_id: int, company_id: int) -> Optional[Dict]:
+    """Get tender by database ID - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT our_bid_amount FROM company_tenders WHERE id = ?', (tender_id,))
-        current = cursor.fetchone()
-        
-        if current and current[0] is not None and current[0] != bid_amount:
-            cursor.execute('SELECT COALESCE(MAX(revision_number), 0) + 1 FROM bid_revisions WHERE tender_id = ?', (tender_id,))
-            next_rev = cursor.fetchone()[0]
-            
-            cursor.execute('''
-            INSERT INTO bid_revisions (tender_id, revision_number, bid_amount, revised_by, reason)
-            VALUES (?, ?, ?, ?, ?)
-            ''', (tender_id, next_rev, bid_amount, updated_by, 'Bid amount updated via UI'))
-        
-        cursor.execute('''
-        UPDATE company_tenders 
-        SET our_bid_amount = ?, updated_at = ?
-        WHERE id = ?
-        ''', (bid_amount, datetime.now(), tender_id))
-        
-        conn.commit()
-        conn.close()
-        return True
-        
+        return db.get_tender_by_db_id(tender_db_id, company_id)
+    except Exception as e:
+        logger.error(f"Error getting tender by DB ID: {e}")
+        return None
+
+
+def update_tender_bid(tender_id: int, bid_amount: float, updated_by: int) -> bool:
+    """Update tender bid with revision tracking - delegates to CRUD"""
+    try:
+        return db.update_tender_bid(tender_id, bid_amount, updated_by)
     except Exception as e:
         logger.error(f"Failed to update tender bid: {e}", exc_info=True)
         return False
 
 
 def submit_bid(tender_id: int, final_bid_amount: float, submitted_by: int) -> bool:
+    """Submit a bid - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE company_tenders 
-        SET our_bid_amount = ?, bid_submitted_by = ?, 
-            bid_submission_date = ?, bid_status = 'submitted',
-            updated_at = ?
-        WHERE id = ?
-        ''', (final_bid_amount, submitted_by, datetime.now(), datetime.now(), tender_id))
-        
-        conn.commit()
-        conn.close()
-        return True
-        
+        return db.submit_bid(tender_id, final_bid_amount, submitted_by)
     except Exception as e:
         logger.error(f"Failed to submit bid: {e}", exc_info=True)
         return False
@@ -441,24 +259,13 @@ def submit_bid(tender_id: int, final_bid_amount: float, submitted_by: int) -> bo
 
 def update_tender_result(tender_id: int, winning_bid_amount: float, winning_competitor: str, 
                         our_rank: int, total_bidders: int, award_date: str, bid_status: str) -> bool:
+    """Update tender results - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE company_tenders 
-        SET winning_bid_amount = ?, winning_competitor = ?, our_rank = ?,
-            total_bidders = ?, award_date = ?, bid_status = ?,
-            evaluation_status = 'completed', updated_at = ?
-        WHERE id = ?
-        ''', (winning_bid_amount, winning_competitor, our_rank, total_bidders,
-              award_date, bid_status, datetime.now(), tender_id))
-        
-        conn.commit()
-        conn.close()
-        tender_selector_manager.clear_selection()
-        return True
-        
+        result = db.update_tender_result(tender_id, winning_bid_amount, winning_competitor,
+                                        our_rank, total_bidders, award_date, bid_status)
+        if result:
+            tender_selector_manager.clear_selection()
+        return result
     except Exception as e:
         logger.error(f"Failed to update tender result: {e}", exc_info=True)
         return False
@@ -466,402 +273,150 @@ def update_tender_result(tender_id: int, winning_bid_amount: float, winning_comp
 
 def update_competitor_bid(tender_id: str, competitor_name: str, 
                          bid_amount: float, was_winner: bool = False) -> bool:
+    """Update competitor bid - delegates to CRUD"""
     try:
-        company_id = st.session_state.get('company_id')
-        if not company_id:
-            return False
-
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            
-            official_estimate = 1.0
-            cursor.execute("SELECT official_estimate FROM company_tenders WHERE tender_id = ?", (tender_id,))
-            row = cursor.fetchone()
-            if row and row['official_estimate']:
-                official_estimate = float(row['official_estimate'])
-            
-            bid_ratio = bid_amount / official_estimate if official_estimate > 0 else 0.95
-
-            cursor.execute("""
-                UPDATE competitor_bid_history 
-                SET bid_amount = ?,
-                    was_winner = ?,
-                    bid_ratio = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE tender_id = ? AND competitor_name = ?
-            """, (bid_amount, 1 if was_winner else 0, bid_ratio, tender_id, competitor_name))
-            
-            if cursor.rowcount == 0:
-                cursor.execute("""
-                    INSERT INTO competitor_bid_history 
-                    (company_id, competitor_name, tender_id, bid_amount, official_estimate, 
-                     bid_ratio, was_winner, bid_date, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    company_id, competitor_name, tender_id, bid_amount, official_estimate,
-                    bid_ratio, 1 if was_winner else 0, datetime.now().date()
-                ))
-            
-            conn.commit()
-            db.update_competitor_stats_from_bid(
-                company_id=company_id,
-                competitor_name=competitor_name,
-                bid_ratio=bid_ratio,
-                was_winner=was_winner
-            )
-            return True
-            
+        return db.update_competitor_bid(tender_id, competitor_name, bid_amount, was_winner)
     except Exception as e:
-        print(f"Error in update_competitor_bid: {e}")
+        logger.error(f"Error in update_competitor_bid: {e}", exc_info=True)
         return False
 
 
 def clear_tender_winner(tender_id: str) -> bool:
+    """Clear winner from tender - delegates to CRUD"""
     try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                UPDATE company_tenders 
-                SET winning_competitor = NULL, 
-                    winning_bid_amount = NULL,
-                    evaluation_status = 'completed',
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE tender_id = ?
-            """, (tender_id,))
-            conn.commit()
-            return True
+        return db.clear_tender_winner(tender_id)
     except Exception as e:
-        print(f"Error clearing winner for {tender_id}: {e}")
+        logger.error(f"Error clearing winner for {tender_id}: {e}", exc_info=True)
         return False
 
 
 def delete_tender(tender_id: int, deleted_by: int) -> bool:
+    """Delete a tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE company_tenders 
-        SET is_active = 0, deleted_at = ?, deleted_by = ?, updated_at = ?
-        WHERE id = ?
-        ''', (
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            deleted_by,
-            datetime.now(),
-            tender_id
-        ))
-        
-        conn.commit()
-        conn.close()
-        tender_selector_manager.clear_selection()
-        return True
-        
+        result = db.delete_tender(tender_id, deleted_by)
+        if result:
+            tender_selector_manager.clear_selection()
+        return result
     except Exception as e:
         logger.error(f"Failed to delete tender: {e}", exc_info=True)
         return False
 
-# =============================================================================
-# COMPLETE get_tender_team and assign_team_member functions
-# =============================================================================
 
 def get_tender_team(tender_id: int) -> List[tuple]:
-    """Get team members assigned to a tender"""
+    """Get team members assigned to a tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT u.id, u.full_name, u.role, ta.role as assigned_role, ta.assigned_at
-        FROM tender_team_assignments ta
-        JOIN users u ON ta.user_id = u.id
-        WHERE ta.tender_id = ? AND ta.is_active = 1
-        ORDER BY ta.assigned_at DESC
-        ''', (tender_id,))
-        
-        team = cursor.fetchall()
-        conn.close()
-        return team
-        
+        results = db.get_tender_team(tender_id)
+        # Convert dict results to tuple format for compatibility
+        return [(r['id'], r['full_name'], r['role'], r['assigned_role'], r['assigned_at']) for r in results]
     except Exception as e:
         logger.error(f"Failed to fetch tender team: {e}", exc_info=True)
         return []
 
 
-# =============================================================================
-# FIXED: assign_team_member - Uses is_active column
-# =============================================================================
-
 def assign_team_member(tender_id: int, user_id: int, role: str) -> bool:
-    """Assign a team member to a tender"""
+    """Assign a team member to a tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # Check for existing active assignment
-        cursor.execute('''
-        SELECT id FROM tender_team_assignments 
-        WHERE tender_id = ? AND user_id = ? AND is_active = 1
-        ''', (tender_id, user_id))
-        
-        if cursor.fetchone():
-            conn.close()
-            return True  # Already assigned
-        
-        cursor.execute('''
-        INSERT INTO tender_team_assignments (tender_id, user_id, role, assigned_at, is_active)
-        VALUES (?, ?, ?, ?, 1)
-        ''', (tender_id, user_id, role, datetime.now()))
-        
-        conn.commit()
-        conn.close()
-        return True
-        
+        return db.assign_team_member(tender_id, user_id, role)
     except Exception as e:
         logger.error(f"Failed to assign team member: {e}", exc_info=True)
         return False
 
-# =============================================================================
-# COMPLETE add_milestone function
-# =============================================================================
-
-def add_milestone(tender_id: int, milestone_name: str, due_date: str, 
-                 assigned_to: Optional[int], notes: str) -> Optional[int]:
-    """Add a milestone/task for a tender"""
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        INSERT INTO tender_milestones (
-            tender_id, milestone_name, due_date, assigned_to, notes, is_active, created_at
-        ) VALUES (?, ?, ?, ?, ?, 1, ?)
-        ''', (tender_id, milestone_name, due_date, assigned_to, notes, datetime.now()))
-        
-        milestone_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return milestone_id
-        
-    except Exception as e:
-        logger.error(f"Failed to add milestone: {e}", exc_info=True)
-        return None
-# Get tender milestones
-
-def get_tender_milestones(tender_id: int) -> pd.DataFrame:
-    """Get milestones for a tender"""
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # The is_active column exists in your table, so use it
-        cursor.execute('''
-        SELECT m.*, u.full_name as assigned_to_name
-        FROM tender_milestones m
-        LEFT JOIN users u ON m.assigned_to = u.id
-        WHERE m.tender_id = ? AND m.is_active = 1
-        ORDER BY m.due_date ASC, m.completed DESC
-        ''', (tender_id,))
-        
-        columns = [desc[0] for desc in cursor.description]
-        data = cursor.fetchall()
-        conn.close()
-        
-        return pd.DataFrame(data, columns=columns) if data else pd.DataFrame()
-        
-    except Exception as e:
-        logger.error(f"Failed to fetch milestones: {e}", exc_info=True)
-        return pd.DataFrame()
-
-
-# =============================================================================
-# FIXED: get_all_users - Uses is_active instead of status
-# =============================================================================
 
 def get_all_users(company_id: int) -> List[tuple]:
-    """Get all users for a company"""
+    """Get all users for a company - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # Your users table uses is_active, not status
-        cursor.execute('''
-        SELECT id, username, full_name, email, role, is_active
-        FROM users
-        WHERE company_id = ? AND is_active = 1
-        ORDER BY full_name ASC
-        ''', (company_id,))
-        
-        users = cursor.fetchall()
-        conn.close()
-        return users
-        
+        results = db.get_all_users(company_id)
+        # Convert dict results to tuple format for compatibility
+        return [(r['id'], r['username'], r['full_name'], r['email'], r['role'], r['is_active']) for r in results]
     except Exception as e:
         logger.error(f"Failed to fetch users: {e}", exc_info=True)
         return []
 
 
+def add_milestone(tender_id: int, milestone_name: str, due_date: str, 
+                 assigned_to: Optional[int], notes: str) -> Optional[int]:
+    """Add a milestone - delegates to CRUD"""
+    try:
+        return db.add_milestone(tender_id, milestone_name, due_date, assigned_to, notes)
+    except Exception as e:
+        logger.error(f"Failed to add milestone: {e}", exc_info=True)
+        return None
+
+
+def get_tender_milestones(tender_id: int) -> pd.DataFrame:
+    """Get milestones for a tender - delegates to CRUD"""
+    try:
+        results = db.get_tender_milestones(tender_id)
+        return pd.DataFrame(results) if results else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Failed to fetch milestones: {e}", exc_info=True)
+        return pd.DataFrame()
+
 
 def add_bid_revision(tender_id: int, bid_amount: float, revised_by: int, reason: str) -> bool:
-    """Add bid revision history"""
+    """Add bid revision history - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT COALESCE(MAX(revision_number), 0) + 1 FROM bid_revisions WHERE tender_id = ?', (tender_id,))
-        next_rev = cursor.fetchone()[0]
-        
-        cursor.execute('''
-        INSERT INTO bid_revisions (tender_id, revision_number, bid_amount, revised_by, reason, revised_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ''', (tender_id, next_rev, bid_amount, revised_by, reason, datetime.now()))
-        
-        conn.commit()
-        conn.close()
-        return True
-        
+        return db.add_bid_revision(tender_id, bid_amount, revised_by, reason)
     except Exception as e:
         logger.error(f"Failed to add bid revision: {e}", exc_info=True)
         return False
 
 
 def get_bid_revisions(tender_id: int) -> List[tuple]:
-    """Get bid revision history"""
+    """Get bid revision history - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT revision_number, bid_amount, revised_by, reason, revised_at
-        FROM bid_revisions 
-        WHERE tender_id = ?
-        ORDER BY revision_number DESC
-        ''', (tender_id,))
-        
-        revisions = cursor.fetchall()
-        conn.close()
-        return revisions
-        
+        results = db.get_bid_revisions(tender_id)
+        # Convert dict results to tuple format for compatibility
+        return [(r['revision_number'], r['bid_amount'], r['revised_by'], r['reason'], r['revised_at']) for r in results]
     except Exception as e:
         logger.error(f"Failed to fetch bid revisions: {e}", exc_info=True)
         return []
 
 
 def update_tender_lock_status(tender_id: int, locked: bool, locked_by: Optional[int] = None) -> bool:
-    """Update the lock status of a tender"""
+    """Update lock status - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        UPDATE company_tenders 
-        SET is_locked = ?, locked_at = ?, locked_by = ?, updated_at = ?
-        WHERE id = ?
-        ''', (
-            1 if locked else 0,
-            datetime.now().strftime('%Y-%m-%d %H:%M:%S') if locked else None,
-            locked_by,
-            datetime.now(),
-            tender_id
-        ))
-        
-        conn.commit()
-        conn.close()
-        return True
-        
+        return db.update_tender_lock_status(tender_id, locked, locked_by)
     except Exception as e:
         logger.error(f"Failed to update tender lock status: {e}", exc_info=True)
         return False
 
+
 def create_tender_copy(original_tender_id: int, created_by: int) -> Optional[int]:
-    """Create a backup copy of a tender with all e-GP fields"""
+    """Create a backup copy of a tender - delegates to CRUD"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # Get table structure
-        cursor.execute('PRAGMA table_info(company_tenders)')
-        cols = [row[1] for row in cursor.fetchall()]
-        
-        # Fetch original as dict for safe name-based access
-        cursor.execute(f'SELECT {", ".join(cols)} FROM company_tenders WHERE id = ?', (original_tender_id,))
-        row = cursor.fetchone()
-        if not row: return None
-        original = dict(zip(cols, row))
-        
-        # Prepare insert columns (exclude auto-increment ID)
-        insert_cols = [c for c in cols if c != 'id']
-        placeholders = ', '.join(['?' for _ in insert_cols])
-        
-        # Build values list
-        values = [original.get(c) for c in insert_cols]
-        
-        # Helper to safely update values by column name
-        def set_val(col_name, new_val):
-            if col_name in insert_cols:
-                values[insert_cols.index(col_name)] = new_val
-        
-        # Modify copy-specific fields
-        set_val('tender_id', f"{original['tender_id']}_COPY")
-        set_val('tender_title', f"{original['tender_title']} (Backup Copy)")
-        set_val('is_locked', 0)
-        set_val('is_copy', 1)
-        set_val('original_tender_id', original_tender_id)
-        set_val('created_by', created_by)
-        set_val('created_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        set_val('updated_at', None)
-        
-        # Reset bid/submission/evaluation fields for the copy
-        for field in ['bid_submitted_by', 'bid_status', 'our_bid_amount', 
-                      'bid_submission_date', 'evaluation_status', 'winning_bid_amount',
-                      'winning_competitor', 'our_rank', 'total_bidders', 'award_date']:
-            set_val(field, None)
-            
-        cursor.execute(f'INSERT INTO company_tenders ({", ".join(insert_cols)}) VALUES ({placeholders})', values)
-        new_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return new_id
-        
+        return db.create_tender_copy(original_tender_id, created_by)
     except Exception as e:
         logger.error(f"Failed to create tender copy: {e}", exc_info=True)
         return None
 
 
-# Attach methods to db instance
-# =============================================================================
-# ATTACH ALL METHODS TO DB INSTANCE
-# =============================================================================
+def get_competitor_bids(tender_id: str, company_id: int) -> pd.DataFrame:
+    """Get competitor bids for a tender - delegates to CRUD"""
+    try:
+        results = db.get_competitor_bids(tender_id, company_id)
+        return pd.DataFrame(results) if results else pd.DataFrame()
+    except Exception as e:
+        logger.error(f"Failed to fetch competitor bids: {e}", exc_info=True)
+        return pd.DataFrame()
 
-# Core CRUD operations
-db.create_tender = create_tender
-db.get_company_tenders = get_company_tenders
-db.update_tender = update_tender
-db.delete_tender = delete_tender
-db.get_tender_by_id = get_tender_by_id
 
-# Bid operations
-db.update_tender_bid = update_tender_bid
-db.submit_bid = submit_bid
-db.update_tender_result = update_tender_result
-db.update_competitor_bid = update_competitor_bid
-db.clear_tender_winner = clear_tender_winner
+def get_competitor_master_list(company_id: int, active_only: bool = True) -> List[Dict]:
+    """Get competitor master list - delegates to CRUD"""
+    try:
+        return db.get_competitor_master_list(company_id, active_only)
+    except Exception as e:
+        logger.error(f"Failed to fetch competitor list: {e}", exc_info=True)
+        return []
 
-# Team management
-db.get_tender_team = get_tender_team
-db.assign_team_member = assign_team_member
-db.get_all_users = get_all_users
 
-# Milestones
-db.add_milestone = add_milestone
-db.get_tender_milestones = get_tender_milestones
-
-# Lock and copy
-db.update_tender_lock_status = update_tender_lock_status
-db.create_tender_copy = create_tender_copy
-
-# Revisions
-db.add_bid_revision = add_bid_revision
-db.get_bid_revisions = get_bid_revisions
+def get_tender_summary_stats(company_id: int) -> Dict[str, Any]:
+    """Get tender summary statistics - delegates to CRUD"""
+    try:
+        return db.get_tender_summary_stats(company_id) or {}
+    except Exception as e:
+        logger.error(f"Failed to get tender stats: {e}", exc_info=True)
+        return {}
 
 
 # =============================================================================
@@ -899,6 +454,7 @@ def render_tender_dashboard() -> None:
     _render_dashboard_header()
     _render_search_filters()
     _render_tenders_table()
+
 
 def _render_dashboard_header():
     """Render dashboard header with e-GP style"""
@@ -957,18 +513,18 @@ def _render_dashboard_header():
     </div>
     """, unsafe_allow_html=True)
     
-    # Update stats with JS
-    tenders_df = db.get_company_tenders(st.session_state.company_id)
-    if not tenders_df.empty:
-        total = len(tenders_df)
-        active = len(tenders_df[tenders_df['bid_status'] == 'submitted'])
-        won = len(tenders_df[tenders_df['bid_status'] == 'won'])
+    # Update stats using CRUD
+    company_id = st.session_state.get('company_id')
+    if company_id:
+        stats = get_tender_summary_stats(company_id)
+        total = stats.get('total_tenders', 0)
+        won = stats.get('won_count', 0)
         win_rate = f"{(won/total*100):.0f}%" if total > 0 else "0%"
         
         st.markdown(f"""
         <script>
         document.getElementById('total-tenders').textContent = '{total}';
-        document.getElementById('active-tenders').textContent = '{active}';
+        document.getElementById('active-tenders').textContent = '{stats.get('submitted_count', 0)}';
         document.getElementById('won-tenders').textContent = '{won}';
         document.getElementById('win-rate').textContent = '{win_rate}';
         </script>
@@ -1201,6 +757,7 @@ def _render_summary_cards(official_estimate: float, our_bid: float, total_bidder
     with col4:
         st.metric("Our Rank", our_rank, help="Our rank among bidders")
 
+
 def _render_information_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_db_id: int, tender_id: str):
     """Render the Tender Information tab"""
     
@@ -1261,12 +818,12 @@ def _render_information_tab(tender_data: Dict[str, Any], official_estimate: floa
     from modules.rbac import can_edit_tender
     if can_edit_tender():
         if st.button("✏️ Edit This Tender", key=f"edit_tender_{tender_db_id}", use_container_width=True, type="primary"):
-        # Load tender data
             success = _load_tender_for_edit(tender_db_id)
             if success:
                 st.session_state.view_tender_detail = None
                 st.session_state.page = "tender_form"
                 st.rerun()
+
 
 def _render_winner_tab(tender_data: Dict[str, Any], official_estimate: float, tender_id: str):
     """Render the Winner Information tab"""
@@ -1292,24 +849,16 @@ def _render_winner_tab(tender_data: Dict[str, Any], official_estimate: float, te
         st.warning("No winner declared yet for this tender.")
         st.info("💡 You can declare a winner in the 'Tender Results CRUD' tab.")
     
-    # Bid history
+    # Bid history - using CRUD
     st.markdown("#### Bid History")
     try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT competitor_name, bid_amount, was_winner, bid_date
-                FROM competitor_bid_history
-                WHERE tender_id = ? AND company_id = ?
-                ORDER BY bid_amount ASC
-            """, (tender_id, st.session_state.company_id))
-            rows = cursor.fetchall()
-            if rows:
-                bid_data = [dict(row) for row in rows]
-                df = pd.DataFrame(bid_data)
-                df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
-                df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
-                st.dataframe(df, use_container_width=True, hide_index=True)
+        company_id = st.session_state.get('company_id')
+        if company_id:
+            bids_df = get_competitor_bids(tender_id, company_id)
+            if not bids_df.empty:
+                bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
+                bids_df['was_winner'] = bids_df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
+                st.dataframe(bids_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No bid history available. Import bid data first.")
     except Exception as e:
@@ -1333,30 +882,22 @@ def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: flo
         else:
             st.success("✅ Your bid is within a reasonable range.")
         
+        # Bid comparison using CRUD
         st.markdown("#### Bid Comparison")
         try:
-            with db.get_connection() as conn:
-                cursor = db.db_conn.get_cursor(conn)
-                cursor.execute("""
-                    SELECT competitor_name, bid_amount, was_winner
-                    FROM competitor_bid_history
-                    WHERE tender_id = ? AND company_id = ?
-                    ORDER BY bid_amount ASC
-                    LIMIT 10
-                """, (tender_id, st.session_state.company_id))
-                rows = cursor.fetchall()
-                if rows:
-                    bid_data = [dict(row) for row in rows]
-                    df = pd.DataFrame(bid_data)
-                    
+            company_id = st.session_state.get('company_id')
+            if company_id:
+                bids_df = get_competitor_bids(tender_id, company_id)
+                if not bids_df.empty:
+                    # Add our bid to comparison
                     our_row = {'competitor_name': '🏢 Our Bid', 'bid_amount': our_bid, 'was_winner': 0}
-                    df = pd.concat([df, pd.DataFrame([our_row])], ignore_index=True)
-                    df = df.sort_values('bid_amount').reset_index(drop=True)
+                    bids_df = pd.concat([bids_df, pd.DataFrame([our_row])], ignore_index=True)
+                    bids_df = bids_df.sort_values('bid_amount').reset_index(drop=True)
                     
-                    df['bid_amount'] = df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}")
-                    df['was_winner'] = df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
+                    bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}")
+                    bids_df['was_winner'] = bids_df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
                     
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.dataframe(bids_df, use_container_width=True, hide_index=True)
                 else:
                     st.info("No competitor data available.")
         except Exception as e:
@@ -1365,6 +906,7 @@ def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: flo
         st.info("💡 Set your bid amount to see NPPI analysis.")
     else:
         st.warning("⚠️ Official Estimate not set. Please update tender with OCE.")
+
 
 # =============================================================================
 # TAB 4: TENDER ANALYSIS (Full Report)
@@ -1385,20 +927,8 @@ def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: s
         st.warning("⚠️ OCE is required for analysis. Please update the tender with Official Cost Estimate.")
         return
     
-    # Load bids
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM competitor_bid_history
-                WHERE tender_id = ? AND company_id = ?
-                ORDER BY bid_amount ASC
-            """, (tender_id, company_id))
-            rows = cursor.fetchall()
-            bids_df = pd.DataFrame([dict(row) for row in rows]) if rows else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching bid history: {str(e)}")
-        return
+    # Load bids using CRUD
+    bids_df = get_competitor_bids(tender_id, company_id)
     
     if bids_df.empty:
         st.warning("No bid history found for this tender. Import bid data first.")
@@ -1627,60 +1157,45 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
 
     st.success(f"✅ Selected: **{tender_data.get('tender_title')}** | OCE: BDT {official_estimate:,.2f}")
 
-    # Load current bids with FULL PRECISION
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT competitor_name, 
-                       CAST(bid_amount AS REAL) as bid_amount,  -- Ensure full precision
-                       was_winner 
-                FROM competitor_bid_history 
-                WHERE tender_id = ? AND company_id = ?
-                ORDER BY bid_amount ASC
-            """, (tender_id, company_id))
-            rows = cursor.fetchall()
-            bids_data = [dict(row) for row in rows] if rows else []
-    except Exception as e:
-        st.error(f"Error loading bids: {e}")
-        bids_data = []
-
-    if not bids_data:
+    # Load current bids using CRUD
+    bids_df = get_competitor_bids(tender_id, company_id)
+    
+    if bids_df.empty:
         st.warning("No bid history found for this tender. Import bid data first.")
         return
 
-    # Convert to DataFrame with proper types
-    df = pd.DataFrame(bids_data)
-    if 'was_winner' not in df.columns:
-        df['was_winner'] = False
+    # Ensure proper types
+    if 'was_winner' not in bids_df.columns:
+        bids_df['was_winner'] = False
     
     # Ensure bid_amount is float with full precision
-    df['bid_amount'] = df['bid_amount'].astype(float)
+    bids_df['bid_amount'] = bids_df['bid_amount'].astype(float)
     
-    # CRITICAL: Format the bid_amount column to show 3 decimal places
-    df['bid_amount'] = df['bid_amount'].apply(lambda x: float(f"{x:.3f}"))
+    # Format for display
+    bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: float(f"{x:.3f}"))
 
     st.markdown("#### 📋 Edit Bid Amounts")
     st.caption("**Note:** Selecting a winner is optional. You can save without any winner.")
 
     # Editable Table with proper formatting
     edited_df = st.data_editor(
-        df,
+        bids_df,
         column_config={
             "competitor_name": st.column_config.TextColumn("Bidder Name", disabled=True),
             "bid_amount": st.column_config.NumberColumn(
                 "Bid Amount (BDT)", 
                 min_value=0.0, 
-                format="%.3f",  # Force 3 decimal places
-                step=1.0  # Smaller step for precision
+                format="%.3f",
+                step=1.0
             ),
             "was_winner": st.column_config.CheckboxColumn(
                 "Mark as Winner", 
                 default=False,
                 help="Only one bidder can be winner"
-            )
+            ),
+            "bid_date": st.column_config.DateColumn("Bid Date", disabled=True),
         },
-        hide_index=False,
+        hide_index=True,
         use_container_width=True,
         num_rows="fixed",
         key=f"editor_{tender_id}"
@@ -1703,14 +1218,13 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
             success_count = 0
             
             for _, row in edited_df.iterrows():
-                # Store with full precision (3 decimal places)
                 bid_amount = float(row['bid_amount'])
                 was_winner = bool(row['was_winner'])
                 
-                success = db.update_competitor_bid(
+                success = update_competitor_bid(
                     tender_id=tender_id,
                     competitor_name=row['competitor_name'],
-                    bid_amount=bid_amount,  # Keep full precision
+                    bid_amount=bid_amount,
                     was_winner=was_winner
                 )
                 if success:
@@ -1719,1031 +1233,7 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
             # Update main tender result if winner is selected
             if len(winners) == 1:
                 w = winners.iloc[0]
-                db.update_tender_result(
-                    tender_id=tender_id,
-                    winning_bid_amount=float(w['bid_amount']),  # Keep full precision
-                    winning_competitor=w['competitor_name'],
-                    our_rank=1,
-                    total_bidders=len(edited_df),
-                    award_date=datetime.now().strftime('%Y-%m-%d'),
-                    bid_status='awarded'
-                )
-                st.success("✅ All changes saved and **winner updated**!")
-            else:
-                # Clear winner from tender record
-                db.clear_tender_winner(tender_id)
-                st.success(f"✅ {success_count} bids saved successfully (No winner marked)")
-            
-            st.rerun()
-    
-    with col2:
-        if st.button("📥 Export Current Bids to CSV", use_container_width=True, key=f"export_{tender_id}"):
-            # Export with full precision
-            export_df = edited_df.copy()
-            export_df['bid_amount'] = export_df['bid_amount'].apply(lambda x: f"{x:.3f}")
-            csv = export_df.to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f"bid_results_{tender_id}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key=f"download_csv_{tender_id}"
-            )
-
-# =============================================================================
-# FIX: Update _render_tenders_table function to use Streamlit buttons properly
-# =============================================================================
-
-def _render_tenders_table():
-    """Render e-GP style tenders table with dashboard buttons"""
-    
-    st.markdown("""
-    <style>
-    .table-container {
-        background: #0f0f23;
-        border-radius: 12px;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-        overflow: hidden;
-        margin-top: 10px;
-    }
-    .tender-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-    .tender-table thead th {
-        background: #1a1a3e;
-        color: #94a3b8;
-        padding: 10px 12px;
-        text-align: left;
-        font-weight: 500;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        border-bottom: 2px solid rgba(102, 126, 234, 0.15);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-    }
-    .tender-table tbody tr {
-        border-bottom: 1px solid rgba(255,255,255,0.03);
-        transition: background 0.2s;
-    }
-    .tender-table tbody tr:hover {
-        background: rgba(102, 126, 234, 0.05);
-    }
-    .tender-table tbody td {
-        padding: 10px 12px;
-        vertical-align: top;
-        color: #e0e0e0;
-    }
-    .status-badge {
-        display: inline-block;
-        padding: 3px 10px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 500;
-    }
-    .status-awarded { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40; }
-    .status-submitted { background: #f59e0b20; color: #f59e0b; border: 1px solid #f59e0b40; }
-    .status-draft { background: #64748b20; color: #94a3b8; border: 1px solid #64748b40; }
-    .status-won { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40; }
-    .status-lost { background: #ef444420; color: #ef4444; border: 1px solid #ef444440; }
-    .status-processing { background: #3b82f620; color: #3b82f6; border: 1px solid #3b82f640; }
-    .tender-id-cell {
-        font-weight: 600;
-        color: #667eea;
-    }
-    .ref-text {
-        font-size: 11px;
-        color: #64748b;
-    }
-    .tender-title-cell {
-        max-width: 300px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .title-text {
-        display: block;
-        font-weight: 500;
-        color: #e0e0e0;
-    }
-    .pagination-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        padding: 15px 0;
-        flex-wrap: wrap;
-    }
-    .pagination-container .page-info {
-        color: #94a3b8;
-        font-size: 13px;
-    }
-    .pagination-container .page-btn {
-        background: rgba(102, 126, 234, 0.1) !important;
-        color: #94a3b8 !important;
-        border: 1px solid rgba(102, 126, 234, 0.2) !important;
-        padding: 4px 12px !important;
-        font-size: 13px !important;
-        border-radius: 4px !important;
-    }
-    .pagination-container .page-btn:hover:not(:disabled) {
-        background: rgba(102, 126, 234, 0.2) !important;
-        color: white !important;
-    }
-    .pagination-container .page-btn:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
-    }
-    .pagination-container .page-number {
-        display: flex;
-        gap: 4px;
-    }
-    .pagination-container .page-number button {
-        padding: 4px 10px !important;
-        font-size: 13px !important;
-        border-radius: 4px !important;
-        min-width: 32px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-    
-    # Get filtered tenders
-    tenders_df = db.get_company_tenders(company_id)
-    
-    if tenders_df.empty:
-        st.info("📭 No tenders found. Create your first tender entry!")
-        return
-    
-    # Apply filters
-    filtered_df = _apply_filters(tenders_df)
-    
-    # Header with action buttons
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown(f"### 📋 Tender/Proposal Search Result")
-        st.caption(f"Showing {len(filtered_df)} of {len(tenders_df)} tenders")
-    # In _render_tenders_table, replace the create button with:
-
-    with col2:
-        if st.button("➕ Create New Tender", key="create_new_tender", use_container_width=True, type="primary"):
-            # Reset edit state
-            st.session_state.edit_mode = False
-            st.session_state.edit_tender_id = None
-            st.session_state.extracted_data = None
-            st.session_state.skip_review = False
-            
-            # Navigate to tender form
-            st.session_state.page = "tender_form"
-            st.rerun()
-
-    
-    if filtered_df.empty:
-        st.info("No tenders match the current filters.")
-        return
-    
-    # Prepare display data
-    display_data = _prepare_tender_display_data(filtered_df)
-    
-    # Render table with pagination
-    _render_tender_table_rows(display_data, company_id)
-
-
-def _apply_filters(tenders_df: pd.DataFrame) -> pd.DataFrame:
-    """Apply search filters to tender data"""
-    filters = st.session_state.tender_search_filters
-    filtered_df = tenders_df.copy()
-    
-    if filters.get('procurement_nature') and filters['procurement_nature'] != 'All':
-        filtered_df = filtered_df[filtered_df['procurement_nature'] == filters['procurement_nature']]
-    if filters.get('procurement_type') and filters['procurement_type'] != 'All':
-        filtered_df = filtered_df[filtered_df['procurement_type'] == filters['procurement_type']]
-    if filters.get('tender_id'):
-        filtered_df = filtered_df[filtered_df['tender_id'].str.contains(filters['tender_id'], case=False, na=False)]
-    if filters.get('publishing_date_from'):
-        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) >= pd.to_datetime(filters['publishing_date_from'])]
-    if filters.get('publishing_date_to'):
-        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) <= pd.to_datetime(filters['publishing_date_to'])]
-    
-    # Apply status filter if set
-    if 'status_filter' in st.session_state.tender_search_filters:
-        status_filter = st.session_state.tender_search_filters['status_filter']
-        if status_filter == 'submitted':
-            filtered_df = filtered_df[filtered_df['bid_status'] == 'submitted']
-        elif status_filter == 'archived':
-            filtered_df = filtered_df[filtered_df['bid_status'] == 'archived']
-        elif status_filter == 'cancelled':
-            filtered_df = filtered_df[filtered_df['bid_status'] == 'cancelled']
-    
-    return filtered_df
-
-
-def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
-    """Prepare tender data for display"""
-    display_data = []
-    for _, row in filtered_df.iterrows():
-        status = row.get('bid_status', 'draft')
-        status_display = {
-            'won': 'Contract Awarded',
-            'submitted': 'Being processed',
-            'draft': 'Draft',
-            'lost': 'Lost',
-            'awarded': 'Contract Awarded'
-        }.get(status, status.title())
-        
-        status_class = {
-            'won': 'status-awarded',
-            'submitted': 'status-processing',
-            'draft': 'status-draft',
-            'lost': 'status-lost',
-            'awarded': 'status-awarded'
-        }.get(status, 'status-draft')
-        
-        display_data.append({
-            'id': row['id'],
-            'tender_id': row.get('tender_id', 'N/A'),
-            'title': row.get('tender_title', 'Untitled'),
-            'procuring_entity': row.get('procuring_entity', 'N/A'),
-            'procurement_type': row.get('procurement_type', 'N/A').upper(),
-            'status': status,
-            'status_display': status_display,
-            'status_class': status_class,
-            'pub_date': row.get('tender_publication_date'),
-            'closing_date': row.get('submission_deadline')
-        })
-    
-    return display_data
-
-def render_competitor_list():
-    """Display the main competitor dashboard with the UI shown"""
-    
-    company_id = st.session_state.get('company_id')
-    
-    # ============================================================================
-    # HEADER SECTION WITH 4 KPI CARDS
-    # ============================================================================
-    st.markdown("### 📊 Competitor Intelligence Dashboard")
-    
-    # Get summary stats
-    competitors = db.get_competitor_master_list(company_id, active_only=True)
-    
-    if not competitors:
-        st.info("No competitors found. Add your first competitor using the form above.")
-        return
-    
-    comp_df = pd.DataFrame(competitors)
-    
-    # Calculate KPIs
-    total_competitors = len(comp_df)
-    active_competitors = len([c for c in competitors if c.get('is_active', True)])
-    
-    total_bids = comp_df['total_bids'].sum()
-    total_wins = comp_df['total_wins'].sum()
-    win_rate = (total_wins / total_bids * 100) if total_bids > 0 else 0
-    
-    avg_ratio = comp_df['avg_bid_ratio'].mean()
-    if pd.isna(avg_ratio):
-        avg_ratio = 0.0
-    
-    # Display 4 KPIs
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Competitors", total_competitors)
-    with col2:
-        st.metric("Active Competitors", active_competitors)
-    with col3:
-        st.metric("Win Rate (All)", f"{win_rate:.1f}%")
-    with col4:
-        st.metric("Avg Bid Ratio", f"{avg_ratio:.3f}")
-    
-    st.divider()
-    
-    # ============================================================================
-    # CHARTS SECTION
-    # ============================================================================
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Bid Distribution Histogram
-        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
-            st.markdown("#### Bid Distribution")
-            fig = px.histogram(
-                comp_df,
-                x='total_bids',
-                title='Competitor Bid Distribution',
-                labels={'total_bids': 'Number of Bids'},
-                nbins=20,
-                color_discrete_sequence=['blue']
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No bid data available for chart")
-    
-    with col2:
-        # Win Rate by Competitor Bar Chart
-        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
-            st.markdown("#### Win Rate by Competitor")
-            comp_df['Win Rate'] = comp_df.apply(
-                lambda x: (x['total_wins'] / x['total_bids'] * 100) if x['total_bids'] > 0 else 0, 
-                axis=1
-            )
-            top_competitors = comp_df.nlargest(10, 'total_bids')
-            fig = px.bar(
-                top_competitors,
-                x='competitor_name',
-                y='Win Rate',
-                title='Top 10 Competitors by Win Rate',
-                labels={'competitor_name': 'Competitor', 'Win Rate': 'Win Rate (%)'},
-                color='Win Rate',
-                color_continuous_scale='Blues'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No win rate data available for chart")
-    
-    st.divider()
-    
-    # ============================================================================
-    # COMPETITOR LIST TABLE WITH [🔍] DETAILS BUTTON
-    # ============================================================================
-    st.markdown("### 📋 Competitor List")
-    
-    # ========================================================================
-    # SEARCH BAR (like the tender search)
-    # ========================================================================
-    search = st.text_input(
-        "🔍 Search Competitor",
-        placeholder="Enter competitor name, type, or strategy...",
-        key="competitor_search_input"
-    )
-    
-    # Apply search filter
-    filtered_competitors = competitors.copy()
-    if search:
-        search_lower = search.lower()
-        filtered_competitors = [
-            c for c in competitors
-            if (search_lower in str(c.get('competitor_name', '')).lower() or
-                search_lower in str(c.get('business_type', '')).lower() or
-                search_lower in str(c.get('preferred_strategy', '')).lower() or
-                search_lower in str(c.get('contact_person', '')).lower())
-        ]
-    
-    # Sort and paginate
-    # Sorting
-    if 'competitor_sort' not in st.session_state:
-        st.session_state.competitor_sort = "Name"
-    
-    sort_options = {
-        "Name": "competitor_name",
-        "Total Bids": "total_bids",
-        "Win Rate": "win_percentage",
-        "Last Seen": "last_seen"
-    }
-    
-    sort_by = st.selectbox(
-        "Sort by", 
-        list(sort_options.keys()),
-        key="competitor_sort_selector"
-    )
-    
-    sort_key = sort_options.get(sort_by, "competitor_name")
-    if sort_key == "win_percentage":
-        # Calculate win rate for sorting
-        for c in filtered_competitors:
-            c['win_percentage'] = (c.get('total_wins', 0) / c.get('total_bids', 1) * 100) if c.get('total_bids', 0) > 0 else 0
-        filtered_competitors.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
-    elif sort_key == "last_seen":
-        filtered_competitors.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
-    elif sort_key == "total_bids":
-        filtered_competitors.sort(key=lambda x: x.get('total_bids', 0), reverse=True)
-    else:
-        filtered_competitors.sort(key=lambda x: x.get('competitor_name', ''))
-    
-    # Show result count
-    st.caption(f"Showing {len(filtered_competitors)} competitors")
-    
-    # Pagination
-    page_size = 10
-    total_pages = (len(filtered_competitors) - 1) // page_size + 1 if filtered_competitors else 1
-    
-    # Get current page from session state
-    if 'competitor_page' not in st.session_state:
-        st.session_state.competitor_page = 1
-    
-    # Ensure current page is valid
-    if st.session_state.competitor_page < 1:
-        st.session_state.competitor_page = 1
-    elif st.session_state.competitor_page > total_pages:
-        st.session_state.competitor_page = total_pages
-    
-    page = st.session_state.competitor_page
-    start_idx = (page - 1) * page_size
-    end_idx = min(start_idx + page_size, len(filtered_competitors))
-    page_competitors = filtered_competitors[start_idx:end_idx]
-    
-    # Display table with [🔍] button
-    if page_competitors:
-        # Header
-        cols = st.columns([3, 2, 2, 2, 1])
-        cols[0].write("**Competitor Name**")
-        cols[1].write("**Type**")
-        cols[2].write("**First Seen**")
-        cols[3].write("**Last Seen**")
-        cols[4].write("**Details**")
-        
-        st.divider()
-        
-        # Rows
-        for idx, comp in enumerate(page_competitors, start=start_idx + 1):
-            cols = st.columns([3, 2, 2, 2, 1])
-            
-            # Competitor Name
-            cols[0].write(f"**{comp.get('competitor_name', 'Unknown')}**")
-            
-            # Business Type
-            cols[1].write(comp.get('business_type', 'N/A'))
-            
-            # First Seen (fix date conversion)
-            first_seen = comp.get('first_seen')
-            if first_seen and isinstance(first_seen, str):
-                try:
-                    first_seen = datetime.strptime(first_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
-                except:
-                    first_seen = 'N/A'
-            elif first_seen:
-                first_seen = first_seen.strftime('%Y-%m-%d')
-            else:
-                first_seen = 'N/A'
-            cols[2].write(first_seen)
-            
-            # Last Seen (fix date conversion)
-            last_seen = comp.get('last_seen')
-            if last_seen and isinstance(last_seen, str):
-                try:
-                    last_seen = datetime.strptime(last_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
-                except:
-                    last_seen = 'N/A'
-            elif last_seen:
-                last_seen = last_seen.strftime('%Y-%m-%d')
-            else:
-                last_seen = 'N/A'
-            cols[3].write(last_seen)
-            
-            # [🔍] Details Button - using unique key with idx
-            comp_id = comp.get('id')
-            if cols[4].button(
-                "🔍",
-                key=f"view_comp_{comp_id}_{idx}",
-                help=f"View full intelligence profile for {comp.get('competitor_name')}"
-            ):
-                # Store competitor ID and navigate using session state
-                st.session_state.competitor_id = comp_id
-                st.session_state.page = "competitor_profile"
-                st.rerun()
-        
-        # Pagination controls
-        st.divider()
-        col1, col2, col3 = st.columns([1, 3, 1])
-        
-        with col1:
-            if page > 1:
-                if st.button("◀ Previous", key="comp_prev_page"):
-                    st.session_state.competitor_page = page - 1
-                    st.rerun()
-        
-        with col2:
-            st.caption(f"Page {page} of {total_pages} | Showing {len(page_competitors)} of {len(filtered_competitors)} competitors")
-        
-        with col3:
-            if page < total_pages:
-                if st.button("Next ▶", key="comp_next_page"):
-                    st.session_state.competitor_page = page + 1
-                    st.rerun()
-    else:
-        st.info("No competitors match your search criteria")
-
-def _render_tender_table_rows(display_data: List[Dict], company_id: int):
-    """Render table rows with pagination and search"""
-    
-    # ========================================================================
-    # SEARCH BAR (like the competitor search)
-    # ========================================================================
-    search = st.text_input(
-        "🔍 Search Tenders", 
-        placeholder="Search by tender ID, reference, title, or procuring entity...",
-        key="tender_search_input"
-    )
-    
-    # Apply search filter
-    filtered_data = display_data
-    if search:
-        search_lower = search.lower()
-        filtered_data = [
-            item for item in display_data
-            if (search_lower in str(item.get('tender_id', '')).lower() or
-                search_lower in str(item.get('tender_id', '')).lower() or
-                search_lower in str(item.get('title', '')).lower() or
-                search_lower in str(item.get('procuring_entity', '')).lower() or
-                search_lower in str(item.get('procurement_type', '')).lower())
-        ]
-    
-    # ========================================================================
-    # PAGINATION
-    # ========================================================================
-    # Initialize pagination
-    if 'tender_page' not in st.session_state:
-        st.session_state.tender_page = 1
-    
-    items_per_page = 10
-    total_items = len(filtered_data)
-    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
-    
-    # Ensure current page is valid
-    if st.session_state.tender_page < 1:
-        st.session_state.tender_page = 1
-    elif st.session_state.tender_page > total_pages:
-        st.session_state.tender_page = total_pages
-    
-    # Calculate slice
-    start_idx = (st.session_state.tender_page - 1) * items_per_page
-    end_idx = min(start_idx + items_per_page, total_items)
-    page_items = filtered_data[start_idx:end_idx]
-    
-    # Show result count
-    st.caption(f"Showing {len(page_items)} of {total_items} tenders")
-    
-    # Table header
-    st.markdown("""
-    <div style="display:grid; grid-template-columns: 0.5fr 2.5fr 2.5fr 2fr 1.5fr 1.5fr 1fr; gap:0; padding:10px 12px; background:#1a1a3e; border-radius:8px 8px 0 0; border-bottom:2px solid rgba(102,126,234,0.2);">
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">S.No</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Tender/Proposal ID, Reference No., Status</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Procurement Nature, Title</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">PE</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Type, Method</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Publishing Date, Closing Date</div>
-        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Dashboard</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Render rows
-    for idx, item in enumerate(page_items, start=start_idx + 1):
-        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
-        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
-        
-        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
-        
-        with col1:
-            st.write(f"{idx}")
-        with col2:
-            st.markdown(f"""
-            <div class="tender-id-cell">{item['tender_id']}</div>
-            <div class="ref-text">REF: {item['tender_id']}</div>
-            <span class="status-badge {item['status_class']}">{item['status_display']}</span>
-            """, unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-            <div class="tender-title-cell">
-                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        with col4:
-            st.caption(item['procuring_entity'][:50])
-        with col5:
-            st.write(item['procurement_type'])
-            st.caption("LTM")
-        with col6:
-            st.caption(pub_date_str)
-            st.caption(closing_date_str)
-        with col7:
-            # Use a unique key with the item ID and index
-            if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
-                tender_data = get_tender_by_id(item['tender_id'], company_id)
-                if tender_data:
-                    tender_data = _normalize_tender_data(tender_data)
-                    st.session_state.view_tender_detail = tender_data
-                    st.rerun()
-                else:
-                    st.error("Failed to load tender details")
-        
-        st.divider()
-    
-    # Pagination
-    if total_pages > 1:
-        _render_pagination(total_pages)
-                
-
-def _render_pagination(total_pages: int):
-    """Render pagination controls"""
-    
-    st.markdown('<div class="pagination-container">', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([2, 4, 2])
-    
-    with col1:
-        st.markdown(f"""
-        <div class="page-info">
-            Page <strong>{st.session_state.tender_page}</strong> of <strong>{total_pages}</strong>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        nav_cols = st.columns([1, 1, 3, 1, 1])
-        
-        with nav_cols[0]:
-            if st.button("«", key="first_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
-                st.session_state.tender_page = 1
-                st.rerun()
-        
-        with nav_cols[1]:
-            if st.button("‹", key="prev_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
-                st.session_state.tender_page -= 1
-                st.rerun()
-        
-        with nav_cols[2]:
-            # Page number buttons
-            page_cols = st.columns(min(total_pages, 5))
-            start_page = max(1, st.session_state.tender_page - 2)
-            end_page = min(total_pages, start_page + 4)
-            
-            for i, p in enumerate(range(start_page, end_page + 1)):
-                with page_cols[i]:
-                    if st.button(str(p), key=f"page_{p}", use_container_width=True, 
-                                type="primary" if p == st.session_state.tender_page else "secondary"):
-                        st.session_state.tender_page = p
-                        st.rerun()
-        
-        with nav_cols[3]:
-            if st.button("›", key="next_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
-                st.session_state.tender_page += 1
-                st.rerun()
-        
-        with nav_cols[4]:
-            if st.button("»", key="last_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
-                st.session_state.tender_page = total_pages
-                st.rerun()
-    
-    with col3:
-        # Go to page
-        go_to_page = st.number_input(
-            "Go to",
-            min_value=1,
-            max_value=total_pages,
-            value=st.session_state.tender_page,
-            step=1,
-            key="go_to_page_input",
-            label_visibility="collapsed"
-        )
-        if go_to_page != st.session_state.tender_page:
-            st.session_state.tender_page = go_to_page
-            st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
-    """Render tender analysis for a specific tender"""
-    
-    st.markdown("### 📊 Tender Analysis Report (PPR 2025 Compliant)")
-    st.markdown("*Official SLT • NPPI Analysis • Winner Prediction • Sensitivity*")
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-    
-    if official_estimate <= 0:
-        st.warning("⚠️ OCE is required for analysis. Please update the tender with Official Cost Estimate.")
-        return
-    
-    # Load bids
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM competitor_bid_history
-                WHERE tender_id = ? AND company_id = ?
-                ORDER BY bid_amount ASC
-            """, (tender_id, company_id))
-            rows = cursor.fetchall()
-            bids_df = pd.DataFrame([dict(row) for row in rows]) if rows else pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error fetching bid history: {str(e)}")
-        return
-    
-    if bids_df.empty:
-        st.warning("No bid history found for this tender. Import bid data first.")
-        return
-    
-    # Summary
-    st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("Tender ID", tender_id)
-    with col2:
-        winner_name = tender_data.get('winning_competitor') or "Not Declared"
-        st.metric("Winner", winner_name)
-    with col3:
-        winner_amount = tender_data.get('winning_bid_amount') or 0
-        st.metric("Winning Bid", f"BDT {winner_amount:,.2f}" if winner_amount else "N/A")
-    with col4:
-        st.metric("OCE", f"BDT {official_estimate:,.2f}" if official_estimate else "Not Set")
-    
-    # Prepare bids
-    competitor_bids = []
-    for _, row in bids_df.iterrows():
-        name = row.get('competitor_name', '')
-        bid = float(row.get('bid_amount', 0))
-        is_winner = row.get('was_winner', 0) == 1
-        if bid > 0:
-            competitor_bids.append({'name': name, 'bid': bid, 'is_winner': is_winner})
-    
-    competitor_bids_sorted = sorted(competitor_bids, key=lambda x: x['bid'])
-    
-    if len(competitor_bids_sorted) < 2:
-        st.warning("At least 2 bids required for analysis.")
-        return
-    
-    # ===================== OFFICIAL SLT =====================
-    st.markdown("---")
-    st.markdown("### 🎯 Official PPR 2025 SLT Analysis")
-    
-    procurement_type = tender_data.get('procurement_type', 'works')
-    tender_date = tender_data.get('tender_publication_date') or tender_data.get('created_at')
-    
-    nppi_factor = _get_simulated_nppi(procurement_type, tender_date)
-    x_nppi = official_estimate * nppi_factor
-    n = len(competitor_bids_sorted)
-    bid_amounts = [b['bid'] for b in competitor_bids_sorted]
-    avg_quoted = sum(bid_amounts) / n
-    
-    wa = (0.20 * official_estimate) + (0.30 * x_nppi) + (0.50 * avg_quoted)
-    variance = sum((b - wa) ** 2 for b in bid_amounts) / n
-    wsd = variance ** 0.5
-    slt_lower = wa - wsd
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("OCE", f"BDT {official_estimate:,.2f}")
-    with col2: st.metric("X_NPPI", f"BDT {x_nppi:,.2f}", f"NPPI: {nppi_factor:.3f}")
-    with col3: st.metric("Weighted Avg", f"BDT {wa:,.2f}")
-    with col4: st.metric("SLT Lower Limit", f"BDT {slt_lower:,.2f}")
-    
-    # ===================== NPPI SENSITIVITY ANALYSIS =====================
-    st.markdown("---")
-    st.markdown("### 📈 NPPI Sensitivity Analysis")
-    
-    nppi_range = np.arange(0.80, 1.00, 0.005)
-    sensitivity_data = []
-    
-    for nppi in nppi_range:
-        evaluated = [b['bid'] * nppi for b in competitor_bids_sorted]
-        sorted_eval = sorted(evaluated)
-        lowest = sorted_eval[0]
-        second_lowest = sorted_eval[1] if len(sorted_eval) > 1 else lowest
-        margin = second_lowest - lowest
-        
-        sensitivity_data.append({
-            'NPPI': round(nppi, 3),
-            'Lowest Evaluated': round(lowest, 2),
-            'Margin to 2nd': round(margin, 2),
-            'Potential Winner': competitor_bids_sorted[0]['name'] if lowest == competitor_bids_sorted[0]['bid'] * nppi else "Changes"
-        })
-    
-    sens_df = pd.DataFrame(sensitivity_data)
-    
-    # Visualization
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=sens_df['NPPI'],
-        y=sens_df['Lowest Evaluated'],
-        mode='lines+markers',
-        name='Lowest Evaluated Price',
-        line=dict(color='#1f77b4', width=3)
-    ))
-    fig.add_trace(go.Scatter(
-        x=sens_df['NPPI'],
-        y=sens_df['Margin to 2nd'],
-        mode='lines',
-        name='Margin to 2nd Lowest',
-        line=dict(color='#ff7f0e', dash='dash')
-    ))
-    fig.update_layout(
-        title="NPPI Sensitivity Analysis",
-        xaxis_title="NPPI Factor",
-        yaxis_title="Price (BDT)",
-        height=400,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
-    st.dataframe(sens_df.style.format({
-        'NPPI': '{:.3f}',
-        'Lowest Evaluated': 'BDT {:,.2f}',
-        'Margin to 2nd': 'BDT {:,.2f}'
-    }), use_container_width=True, hide_index=True)
-
-    # ===================== WINNER PREDICTION =====================
-    st.markdown("---")
-    st.markdown("### 🔮 Winner Prediction (NPPI Range + SLT)")
-    
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        nppi_min = st.number_input("NPPI Min", value=0.82, step=0.001, format="%.3f", key="nppi_min")
-        nppi_max = st.number_input("NPPI Max", value=0.98, step=0.001, format="%.3f", key="nppi_max")
-    with col2:
-        if st.button("🔮 Run Prediction", type="primary", use_container_width=True, key="run_prediction"):
-            predictions = []
-            nppi_values = np.arange(nppi_min, nppi_max + 0.001, 0.001)
-            
-            for nppi in nppi_values:
-                evaluated = []
-                for b in competitor_bids_sorted:
-                    eval_price = b['bid'] * nppi
-                    x_nppi_test = official_estimate * nppi
-                    wa_test = (0.20 * official_estimate) + (0.30 * x_nppi_test) + (0.50 * avg_quoted)
-                    var_test = sum((b['bid'] - wa_test) ** 2 for b in competitor_bids_sorted) / n
-                    wsd_test = var_test ** 0.5
-                    slt_test = wa_test - wsd_test
-                    
-                    final_score = eval_price if b['bid'] >= slt_test else eval_price * 1.4
-                    evaluated.append({'name': b['name'], 'final_score': final_score})
-                
-                sorted_eval = sorted(evaluated, key=lambda x: x['final_score'])
-                predictions.append({
-                    'nppi': round(nppi, 3),
-                    'predicted_winner': sorted_eval[0]['name'],
-                    'evaluated_price': round(sorted_eval[0]['final_score'], 2)
-                })
-            
-            pred_df = pd.DataFrame(predictions)
-            most_likely = pred_df['predicted_winner'].mode()[0]
-            
-            st.success(f"**Most Likely Winner:** {most_likely}")
-            st.dataframe(pred_df.style.format({
-                'nppi': '{:.3f}',
-                'evaluated_price': 'BDT {:,.2f}'
-            }), use_container_width=True, hide_index=True)
-
-    # ===================== REVERSE ENGINEERING =====================
-    winner_bid_obj = next((b for b in competitor_bids_sorted if b['is_winner']), None)
-    
-    if winner_bid_obj:
-        st.markdown("---")
-        st.markdown("#### 🔍 Reverse-Engineered NPPI Factor")
-        
-        nppi_range = np.arange(0.75, 1.05, 0.001)
-        results = []
-        winner_name = winner_bid_obj['name']
-        
-        for nppi_test in nppi_range:
-            evaluated = [{'name': b['name'], 'price': b['bid'] * nppi_test} for b in competitor_bids_sorted]
-            sorted_eval = sorted(evaluated, key=lambda x: x['price'])
-            is_correct = sorted_eval[0]['name'] == winner_name
-            rank = next((i+1 for i, x in enumerate(sorted_eval) if x['name'] == winner_name), None)
-            
-            results.append({'nppi': nppi_test, 'is_correct': is_correct, 'rank': rank})
-        
-        correct_nppi = [r for r in results if r['is_correct']]
-        if correct_nppi:
-            avg_nppi = sum(r['nppi'] for r in correct_nppi) / len(correct_nppi)
-            st.success(f"**Most Likely NPPI Used by e-GP: {avg_nppi:.3f}**")
-            
-            correct_values = [r['nppi'] for r in correct_nppi]
-            fig = go.Figure()
-            fig.add_trace(go.Histogram(x=correct_values, nbinsx=30, name="Successful NPPI", marker_color="green"))
-            fig.update_layout(title="Distribution of NPPI Values That Make Winner #1", xaxis_title="NPPI Factor", yaxis_title="Frequency", height=350)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Could not find exact NPPI. Showing closest match.")
-
-    # ===================== HTML REPORT =====================
-    st.markdown("---")
-    if st.button("📄 Generate Professional HTML Report", type="primary", use_container_width=True, key="generate_report"):
-        html_content = _generate_html_report(
-            tender_data=tender_data,
-            competitor_bids_sorted=competitor_bids_sorted,
-            official_estimate=official_estimate,
-            nppi_factor=nppi_factor,
-            slt_lower=slt_lower,
-            wa=wa,
-            wsd=wsd,
-            winner_bid_obj=winner_bid_obj,
-            avg_nppi=avg_nppi if 'avg_nppi' in locals() else None,
-            predicted_winner=most_likely if 'most_likely' in locals() else None
-        )
-        
-        st.download_button(
-            "⬇️ Download HTML Report",
-            html_content,
-            f"TenderAI_Report_{tender_id}_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
-            "text/html",
-            use_container_width=True,
-            key="download_report"
-        )
-
-
-# =============================================================================
-# TAB 2: TENDER RESULTS CRUD
-# =============================================================================
-
-def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
-    """Render tender result CRUD for a specific tender"""
-    
-    st.markdown("### 🏆 Tender Result CRUD")
-    st.caption("Edit bid amounts • Winner selection is **optional**")
-    
-    company_id = st.session_state.get('company_id')
-    if not company_id:
-        st.warning("Please select a company first.")
-        return
-
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}** | OCE: BDT {official_estimate:,.2f}")
-
-    # Load current bids
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT competitor_name, bid_amount, was_winner 
-                FROM competitor_bid_history 
-                WHERE tender_id = ? AND company_id = ?
-                ORDER BY bid_amount ASC
-            """, (tender_id, company_id))
-            rows = cursor.fetchall()
-            bids_data = [dict(row) for row in rows] if rows else []
-    except Exception as e:
-        st.error(f"Error loading bids: {e}")
-        bids_data = []
-
-    if not bids_data:
-        st.warning("No bid history found for this tender. Import bid data first.")
-        return
-
-    df = pd.DataFrame(bids_data)
-    if 'was_winner' not in df.columns:
-        df['was_winner'] = False
-
-    st.markdown("#### 📋 Edit Bid Amounts")
-    st.caption("**Note:** Selecting a winner is optional. You can save without any winner.")
-
-    # Editable Table
-    edited_df = st.data_editor(
-        df,
-        column_config={
-            "competitor_name": st.column_config.TextColumn("Bidder Name", disabled=True),
-            "bid_amount": st.column_config.NumberColumn(
-                "Bid Amount (BDT)", 
-                min_value=0.0, 
-                format="%.2f",
-                step=1000.0
-            ),
-            "was_winner": st.column_config.CheckboxColumn(
-                "Mark as Winner", 
-                default=False,
-                help="Only one bidder can be winner"
-            )
-        },
-        hide_index=False,
-        use_container_width=True,
-        num_rows="fixed",
-        key=f"editor_{tender_id}"
-    )
-
-    # Winner status
-    winners = edited_df[edited_df['was_winner'] == True]
-    if len(winners) > 1:
-        st.error("⚠️ Only **one** winner is allowed.")
-    elif len(winners) == 1:
-        w = winners.iloc[0]
-        if official_estimate > 0:
-            nppi = (float(w['bid_amount']) / official_estimate) * 100
-            st.success(f"🏆 Winner: **{w['competitor_name']}** | Bid: BDT {w['bid_amount']:,.2f} | NPPI: **{nppi:.3f}%**")
-
-    # Save Button
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True, key=f"save_results_{tender_id}"):
-            success_count = 0
-            
-            for _, row in edited_df.iterrows():
-                success = db.update_competitor_bid(
-                    tender_id=tender_id,
-                    competitor_name=row['competitor_name'],
-                    bid_amount=float(row['bid_amount']),
-                    was_winner=bool(row['was_winner'])
-                )
-                if success:
-                    success_count += 1
-
-            # Update main tender result if winner is selected
-            if len(winners) == 1:
-                w = winners.iloc[0]
-                db.update_tender_result(
+                update_tender_result(
                     tender_id=tender_id,
                     winning_bid_amount=float(w['bid_amount']),
                     winning_competitor=w['competitor_name'],
@@ -2755,14 +1245,16 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
                 st.success("✅ All changes saved and **winner updated**!")
             else:
                 # Clear winner from tender record
-                db.clear_tender_winner(tender_id)
+                clear_tender_winner(tender_id)
                 st.success(f"✅ {success_count} bids saved successfully (No winner marked)")
             
             st.rerun()
     
     with col2:
         if st.button("📥 Export Current Bids to CSV", use_container_width=True, key=f"export_{tender_id}"):
-            csv = edited_df.to_csv(index=False)
+            export_df = edited_df.copy()
+            export_df['bid_amount'] = export_df['bid_amount'].apply(lambda x: f"{x:.3f}")
+            csv = export_df.to_csv(index=False)
             st.download_button(
                 label="Download CSV",
                 data=csv,
@@ -2773,11 +1265,9 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
 
 
 # =============================================================================
-# TAB 3: IMPORT TENDER DATA
+# TAB 6: IMPORT TENDER DATA
 # =============================================================================
-# =============================================================================
-# FIX: _render_tender_importer_for_tender - Handle header row and no winner
-# =============================================================================
+
 def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
     """Render tender data importer for a specific tender with replace option"""
     
@@ -2797,18 +1287,9 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
     st.success(f"✅ Selected: **{tender_data.get('tender_title')}**")
     st.caption(f"Tender ID: `{tender_id}` | OCE: BDT {official_estimate:,.2f}")
     
-    # Check if data already exists
-    existing_data_count = 0
-    try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT COUNT(*) FROM competitor_bid_history 
-                WHERE tender_id = ? AND company_id = ?
-            """, (tender_id, company_id))
-            existing_data_count = cursor.fetchone()[0]
-    except Exception as e:
-        st.warning(f"Could not check existing data: {e}")
+    # Check if data already exists using CRUD
+    bids_df = get_competitor_bids(tender_id, company_id)
+    existing_data_count = len(bids_df)
     
     # Show warning if data exists
     replace_data = False
@@ -3205,6 +1686,7 @@ def render_tender_management() -> None:
     # Render the dashboard
     render_tender_dashboard()
 
+
 def _generate_html_report(tender_data, competitor_bids_sorted, official_estimate, 
                          nppi_factor, slt_lower, wa, wsd, winner_bid_obj=None, 
                          avg_nppi=None, predicted_winner=None, sensitivity_data=None):
@@ -3365,12 +1847,16 @@ def _generate_html_report(tender_data, competitor_bids_sorted, official_estimate
     return html
 
 
-
 def _render_tender_reports() -> None:
     """Generate reports for tenders"""
     st.markdown("### 📊 Tender Reports")
     
-    tenders_df = db.get_company_tenders(st.session_state.company_id)
+    company_id = st.session_state.get('company_id')
+    if not company_id:
+        st.warning("Please select a company first.")
+        return
+    
+    tenders_df = get_company_tenders(company_id)
     
     if tenders_df.empty:
         st.info("📭 No data available")
@@ -3456,10 +1942,9 @@ def _render_tender_reports() -> None:
         st.info(f"📊 Total: {total} | Won: {won} | Win Rate: {win_rate:.1f}%")
 
 
-
 def _render_team_management(tender_id: int, key_prefix: str) -> None:
     """Render team assignment UI in expander"""
-    team = db.get_tender_team(tender_id)
+    team = get_tender_team(tender_id)
     
     if team:
         st.markdown("**Current Team:**")
@@ -3468,7 +1953,7 @@ def _render_team_management(tender_id: int, key_prefix: str) -> None:
     
     # Add new member
     st.markdown("**Add Member:**")
-    users = db.get_all_users(company_id=st.session_state.company_id)
+    users = get_all_users(company_id=st.session_state.company_id)
     user_options = {f"{u[3]} ({u[5]})": u[0] for u in users} if users else {}
     
     col1, col2, col3 = st.columns([2, 2, 1])
@@ -3479,14 +1964,14 @@ def _render_team_management(tender_id: int, key_prefix: str) -> None:
     with col3:
         if st.button("➕ Add", key=f"{key_prefix}_add_btn_{tender_id}"):
             if new_member != "Select" and new_member in user_options:
-                if db.assign_team_member(tender_id, user_options[new_member], role):
+                if assign_team_member(tender_id, user_options[new_member], role):
                     st.success("Member added!")
                     st.rerun()
 
 
 def _render_milestones(tender_id: int, key_prefix: str) -> None:
     """Render milestone management UI"""
-    milestones = db.get_tender_milestones(tender_id)
+    milestones = get_tender_milestones(tender_id)
     
     if not milestones.empty:
         st.markdown("**Milestones:**")
@@ -3502,7 +1987,7 @@ def _render_milestones(tender_id: int, key_prefix: str) -> None:
             name = st.text_input("Milestone Name", key=f"{key_prefix}_milestone_name_{tender_id}")
             due = st.date_input("Due Date", value=datetime.now() + timedelta(days=7), key=f"{key_prefix}_milestone_due_{tender_id}")
         with col2:
-            users = db.get_all_users(company_id=st.session_state.company_id)
+            users = get_all_users(company_id=st.session_state.company_id)
             user_options = {f"{u[3]} ({u[5]})": u[0] for u in users} if users else {}
             assigned = st.selectbox("Assign To", ["Select"] + list(user_options.keys()), key=f"{key_prefix}_milestone_assign_{tender_id}")
             notes = st.text_area("Notes", key=f"{key_prefix}_milestone_notes_{tender_id}")
@@ -3510,15 +1995,15 @@ def _render_milestones(tender_id: int, key_prefix: str) -> None:
         if st.button("Add Milestone", key=f"{key_prefix}_milestone_add_{tender_id}"):
             if name and assigned != "Select":
                 assigned_id = user_options[assigned] if assigned in user_options else None
-                if db.add_milestone(tender_id, name, due.strftime('%Y-%m-%d'), assigned_id, notes):
+                if add_milestone(tender_id, name, due.strftime('%Y-%m-%d'), assigned_id, notes):
                     st.success("Milestone added!")
                     st.rerun()
-
 
 
 # =============================================================================
 # FIX: _render_team_and_milestones_for_tender
 # =============================================================================
+
 def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_id: str):
     """Render team management and milestones for a specific tender"""
     
@@ -3539,12 +2024,11 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
     st.markdown("#### 👥 Team Assignment")
     
     # Get current team - returns list of tuples
-    team = db.get_tender_team(tender_db_id)
+    team = get_tender_team(tender_db_id)
     
     if team and len(team) > 0:
         st.markdown("**Current Team Members:**")
         for member in team:
-            # member: (user_id, full_name, user_role, assigned_role, assigned_at)
             if len(member) >= 4:
                 full_name = member[1]
                 assigned_role = member[3]
@@ -3555,7 +2039,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
     
     # Add new member
     st.markdown("**Add Team Member:**")
-    users = db.get_all_users(company_id=st.session_state.company_id)
+    users = get_all_users(company_id=st.session_state.company_id)
     
     # users is list of tuples: (id, username, full_name, email, role, is_active)
     if users:
@@ -3582,7 +2066,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
         with col3:
             if st.button("➕ Add Member", key=f"add_team_member_{tender_db_id}", use_container_width=True):
                 if new_member != "Select" and new_member in user_options:
-                    if db.assign_team_member(tender_db_id, user_options[new_member], role):
+                    if assign_team_member(tender_db_id, user_options[new_member], role):
                         st.success(f"✅ {new_member} added as {role}!")
                         st.rerun()
                     else:
@@ -3598,7 +2082,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
     st.markdown("#### 🎯 Milestones & Tasks")
     
     # Get current milestones
-    milestones = db.get_tender_milestones(tender_db_id)
+    milestones = get_tender_milestones(tender_db_id)
     
     if milestones is not None and not milestones.empty:
         st.markdown("**Current Milestones:**")
@@ -3624,14 +2108,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
                 if not m.get('completed'):
                     if st.button("✅ Complete", key=f"complete_milestone_{m['id']}", use_container_width=True):
                         try:
-                            with db.get_connection() as conn:
-                                cursor = db.db_conn.get_cursor(conn)
-                                cursor.execute("""
-                                    UPDATE tender_milestones 
-                                    SET completed = 1, completed_at = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                """, (m['id'],))
-                                conn.commit()
+                            if db.complete_milestone(m['id']):
                                 st.success("✅ Milestone completed!")
                                 st.rerun()
                         except Exception as e:
@@ -3654,7 +2131,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
             )
         with col2:
             # Get users for assignment
-            users = db.get_all_users(company_id=st.session_state.company_id)
+            users = get_all_users(company_id=st.session_state.company_id)
             if users:
                 user_options = {}
                 for user in users:
@@ -3684,7 +2161,7 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
                 st.error("❌ Milestone name is required.")
             else:
                 assigned_id = user_options.get(assigned_to) if assigned_to in user_options else None
-                milestone_id = db.add_milestone(
+                milestone_id = add_milestone(
                     tender_db_id, 
                     milestone_name, 
                     due_date.strftime('%Y-%m-%d'), 
@@ -3696,9 +2173,10 @@ def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_i
                     st.rerun()
                 else:
                     st.error("Failed to add milestone.")
-                    
+
+
 # =============================================================================
-# FIX: _add_team_summary_to_information_tab - Handle DataFrame properly
+# FIX: _add_team_summary_to_information_tab
 # =============================================================================
 
 def _add_team_summary_to_information_tab(tender_data: Dict[str, Any]):
@@ -3709,232 +2187,30 @@ def _add_team_summary_to_information_tab(tender_data: Dict[str, Any]):
         return
     
     st.markdown("#### 👥 Team Summary")
-    team = db.get_tender_team(tender_db_id)
+    team = get_tender_team(tender_db_id)
     
-    # Check if team is a DataFrame or list and handle accordingly
-    if team is not None:
-        # If it's a DataFrame
-        if hasattr(team, 'empty'):
-            if not team.empty:
-                # Display team members from DataFrame
-                team_cols = st.columns(min(4, len(team)))
-                for i, (_, member) in enumerate(team.iterrows()):
-                    full_name = member.get('full_name', 'Unknown')
-                    assigned_role = member.get('assigned_role', 'Unknown')
-                    with team_cols[i % len(team_cols)]:
-                        st.info(f"**{assigned_role}**\n\n{full_name}")
-            else:
-                st.caption("No team members assigned. Go to 'Team & Milestones' tab to add members.")
-        # If it's a list
-        elif isinstance(team, list):
-            if len(team) > 0:
-                team_cols = st.columns(min(4, len(team)))
-                for i, member in enumerate(team):
-                    if len(member) >= 4:
-                        full_name = member[1]
-                        assigned_role = member[3]
-                        with team_cols[i % len(team_cols)]:
-                            st.info(f"**{assigned_role}**\n\n{full_name}")
-            else:
-                st.caption("No team members assigned. Go to 'Team & Milestones' tab to add members.")
-        else:
-            st.caption("No team members assigned. Go to 'Team & Milestones' tab to add members.")
+    if team and len(team) > 0:
+        team_cols = st.columns(min(4, len(team)))
+        for i, member in enumerate(team):
+            if len(member) >= 4:
+                full_name = member[1]
+                assigned_role = member[3]
+                with team_cols[i % len(team_cols)]:
+                    st.info(f"**{assigned_role}**\n\n{full_name}")
     else:
         st.caption("No team members assigned. Go to 'Team & Milestones' tab to add members.")
 
 
 # =============================================================================
-# FIX: _render_team_and_milestones_for_tender - Handle DataFrame properly
-# =============================================================================
-
-def _render_team_and_milestones_for_tender(tender_data: Dict[str, Any], tender_id: str):
-    """Render team management and milestones for a specific tender"""
-    
-    st.markdown("### 👥 Team Management & Milestones")
-    
-    # Get tender ID from data
-    tender_db_id = tender_data.get('id')
-    if not tender_db_id:
-        st.warning("Tender ID not found for team management.")
-        return
-    
-    # ========== MILESTONE PROGRESS ==========
-    _render_milestone_status_update(tender_db_id)
-    
-    st.markdown("---")
-    
-    # ========== TEAM MANAGEMENT SECTION ==========
-    st.markdown("#### 👥 Team Assignment")
-    
-    # Get current team - returns list of tuples
-    team = db.get_tender_team(tender_db_id)
-    
-    if team and len(team) > 0:
-        st.markdown("**Current Team Members:**")
-        for member in team:
-            # member: (user_id, full_name, user_role, assigned_role, assigned_at)
-            if len(member) >= 4:
-                full_name = member[1]
-                assigned_role = member[3]
-                user_role = member[2] if len(member) > 2 else 'user'
-                st.markdown(f"- **{full_name}** • {assigned_role} • {user_role}")
-    else:
-        st.info("No team members assigned yet.")
-    
-    # Add new member
-    st.markdown("**Add Team Member:**")
-    users = db.get_all_users(company_id=st.session_state.company_id)
-    
-    # users is list of tuples: (id, username, full_name, email, role, is_active)
-    if users:
-        user_options = {}
-        for user in users:
-            if len(user) >= 3:
-                user_id = user[0]
-                full_name = user[2]
-                user_options[f"{full_name} ({user[1]})"] = user_id
-        
-        col1, col2, col3 = st.columns([2, 2, 1])
-        with col1:
-            new_member = st.selectbox(
-                "Select Member", 
-                ["Select"] + list(user_options.keys()), 
-                key=f"team_member_select_{tender_db_id}"
-            )
-        with col2:
-            role = st.selectbox(
-                "Role", 
-                ["Bid Manager", "Technical Lead", "Financial", "Legal", "Support", "QA/QC", "Procurement"], 
-                key=f"team_role_select_{tender_db_id}"
-            )
-        with col3:
-            if st.button("➕ Add Member", key=f"add_team_member_{tender_db_id}", use_container_width=True):
-                if new_member != "Select" and new_member in user_options:
-                    if db.assign_team_member(tender_db_id, user_options[new_member], role):
-                        st.success(f"✅ {new_member} added as {role}!")
-                        st.rerun()
-                    else:
-                        st.error("Failed to add team member.")
-                else:
-                    st.warning("Please select a valid member.")
-    else:
-        st.warning("No users found for this company. Please add users first.")
-    
-    st.markdown("---")
-    
-    # ========== MILESTONES SECTION ==========
-    st.markdown("#### 🎯 Milestones & Tasks")
-    
-    # Get current milestones
-    milestones = db.get_tender_milestones(tender_db_id)
-    
-    if milestones is not None and not milestones.empty:
-        st.markdown("**Current Milestones:**")
-        for _, m in milestones.iterrows():
-            icon = "✅" if m.get('completed') else "⏳"
-            
-            col1, col2, col3 = st.columns([3, 2, 1])
-            with col1:
-                st.markdown(f"{icon} **{m['milestone_name']}**")
-                if m.get('notes'):
-                    st.caption(f"📝 {m['notes'][:50]}")
-            with col2:
-                due_date = m.get('due_date', 'N/A')
-                if due_date and due_date != 'N/A':
-                    try:
-                        due_dt = pd.to_datetime(due_date)
-                        st.caption(f"📅 Due: {due_dt.strftime('%d %b %Y')}")
-                    except:
-                        st.caption(f"📅 Due: {due_date}")
-                if m.get('assigned_to_name'):
-                    st.caption(f"👤 Assigned to: {m['assigned_to_name']}")
-            with col3:
-                if not m.get('completed'):
-                    if st.button("✅ Complete", key=f"complete_milestone_{m['id']}", use_container_width=True):
-                        try:
-                            with db.get_connection() as conn:
-                                cursor = db.db_conn.get_cursor(conn)
-                                cursor.execute("""
-                                    UPDATE tender_milestones 
-                                    SET completed = 1, completed_at = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                """, (m['id'],))
-                                conn.commit()
-                                st.success("✅ Milestone completed!")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to complete milestone: {e}")
-    else:
-        st.info("No milestones created yet.")
-    
-    # Add new milestone
-    with st.expander("➕ Add New Milestone"):
-        col1, col2 = st.columns(2)
-        with col1:
-            milestone_name = st.text_input(
-                "Milestone Name *", 
-                key=f"milestone_name_{tender_db_id}"
-            )
-            due_date = st.date_input(
-                "Due Date", 
-                value=datetime.now() + timedelta(days=7), 
-                key=f"milestone_due_{tender_db_id}"
-            )
-        with col2:
-            # Get users for assignment
-            users = db.get_all_users(company_id=st.session_state.company_id)
-            if users:
-                user_options = {}
-                for user in users:
-                    if len(user) >= 3:
-                        user_id = user[0]
-                        full_name = user[2]
-                        user_options[f"{full_name} ({user[1]})"] = user_id
-                
-                assigned_to = st.selectbox(
-                    "Assign To", 
-                    ["Select"] + list(user_options.keys()), 
-                    key=f"milestone_assign_{tender_db_id}"
-                )
-            else:
-                assigned_to = "Select"
-                user_options = {}
-                st.warning("No users available for assignment")
-            
-            notes = st.text_area(
-                "Notes", 
-                placeholder="Optional notes about this milestone...",
-                key=f"milestone_notes_{tender_db_id}"
-            )
-        
-        if st.button("📌 Add Milestone", key=f"add_milestone_{tender_db_id}", type="primary", use_container_width=True):
-            if not milestone_name:
-                st.error("❌ Milestone name is required.")
-            else:
-                assigned_id = user_options.get(assigned_to) if assigned_to in user_options else None
-                milestone_id = db.add_milestone(
-                    tender_db_id, 
-                    milestone_name, 
-                    due_date.strftime('%Y-%m-%d'), 
-                    assigned_id, 
-                    notes
-                )
-                if milestone_id:
-                    st.success(f"✅ Milestone '{milestone_name}' added successfully!")
-                    st.rerun()
-                else:
-                    st.error("Failed to add milestone.")
-
-# =============================================================================
-# FIX: _render_milestone_status_update - Handle DataFrame properly
+# FIX: _render_milestone_status_update
 # =============================================================================
 
 def _render_milestone_status_update(tender_db_id: int):
     """Render a quick milestone status update section"""
     
-    milestones = db.get_tender_milestones(tender_db_id)
+    milestones = get_tender_milestones(tender_db_id)
     
-    if milestones is None or not hasattr(milestones, 'empty') or milestones.empty:
+    if milestones is None or milestones.empty:
         st.caption("No milestones created yet.")
         return
     
@@ -3967,20 +2243,17 @@ def _load_tender_for_edit(tender_id: int) -> bool:
     debug_print(f"_load_tender_for_edit() called with tender_id: {tender_id}")
     
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM company_tenders WHERE id = ?", (tender_id,))
-        cols = [desc[0] for desc in cursor.description]
-        row = cursor.fetchone()
-        conn.close()
+        company_id = st.session_state.get('company_id')
+        if not company_id:
+            debug_print("No company_id in session state")
+            return False
         
-        debug_print(f"Query executed. Row found: {row is not None}")
-        if row:
-            debug_print(f"Columns: {cols}")
-            debug_print(f"Row data: {dict(zip(cols, row))}")
-            
-            # Convert row to dict
-            tender_data = dict(zip(cols, row))
+        # Use CRUD to get tender
+        tender_data = get_tender_by_db_id(tender_id, company_id)
+        
+        debug_print(f"Query executed. Row found: {tender_data is not None}")
+        if tender_data:
+            debug_print(f"Row data: {tender_data}")
             
             # Store in session state
             st.session_state.extracted_data = tender_data
@@ -4012,3 +2285,627 @@ def _load_tender_for_edit(tender_id: int) -> bool:
         debug_print(traceback.format_exc())
         st.error(f"❌ Failed to load tender: {str(e)}")
         return False
+
+
+# =============================================================================
+# RENDER TENDERS TABLE
+# =============================================================================
+
+def _render_tenders_table():
+    """Render e-GP style tenders table with dashboard buttons"""
+    
+    st.markdown("""
+    <style>
+    .table-container {
+        background: #0f0f23;
+        border-radius: 12px;
+        border: 1px solid rgba(102, 126, 234, 0.1);
+        overflow: hidden;
+        margin-top: 10px;
+    }
+    .tender-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .tender-table thead th {
+        background: #1a1a3e;
+        color: #94a3b8;
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 500;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid rgba(102, 126, 234, 0.15);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    .tender-table tbody tr {
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+        transition: background 0.2s;
+    }
+    .tender-table tbody tr:hover {
+        background: rgba(102, 126, 234, 0.05);
+    }
+    .tender-table tbody td {
+        padding: 10px 12px;
+        vertical-align: top;
+        color: #e0e0e0;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 500;
+    }
+    .status-awarded { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40; }
+    .status-submitted { background: #f59e0b20; color: #f59e0b; border: 1px solid #f59e0b40; }
+    .status-draft { background: #64748b20; color: #94a3b8; border: 1px solid #64748b40; }
+    .status-won { background: #22c55e20; color: #22c55e; border: 1px solid #22c55e40; }
+    .status-lost { background: #ef444420; color: #ef4444; border: 1px solid #ef444440; }
+    .status-processing { background: #3b82f620; color: #3b82f6; border: 1px solid #3b82f640; }
+    .tender-id-cell {
+        font-weight: 600;
+        color: #667eea;
+    }
+    .ref-text {
+        font-size: 11px;
+        color: #64748b;
+    }
+    .tender-title-cell {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .title-text {
+        display: block;
+        font-weight: 500;
+        color: #e0e0e0;
+    }
+    .pagination-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        padding: 15px 0;
+        flex-wrap: wrap;
+    }
+    .pagination-container .page-info {
+        color: #94a3b8;
+        font-size: 13px;
+    }
+    .pagination-container .page-btn {
+        background: rgba(102, 126, 234, 0.1) !important;
+        color: #94a3b8 !important;
+        border: 1px solid rgba(102, 126, 234, 0.2) !important;
+        padding: 4px 12px !important;
+        font-size: 13px !important;
+        border-radius: 4px !important;
+    }
+    .pagination-container .page-btn:hover:not(:disabled) {
+        background: rgba(102, 126, 234, 0.2) !important;
+        color: white !important;
+    }
+    .pagination-container .page-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+    .pagination-container .page-number {
+        display: flex;
+        gap: 4px;
+    }
+    .pagination-container .page-number button {
+        padding: 4px 10px !important;
+        font-size: 13px !important;
+        border-radius: 4px !important;
+        min-width: 32px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    company_id = st.session_state.get('company_id')
+    if not company_id:
+        st.warning("Please select a company first.")
+        return
+    
+    # Get filtered tenders using CRUD
+    tenders_df = get_company_tenders(company_id)
+    
+    if tenders_df.empty:
+        st.info("📭 No tenders found. Create your first tender entry!")
+        return
+    
+    # Apply filters
+    filtered_df = _apply_filters(tenders_df)
+    
+    # Header with action buttons
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown(f"### 📋 Tender/Proposal Search Result")
+        st.caption(f"Showing {len(filtered_df)} of {len(tenders_df)} tenders")
+    
+    with col2:
+        if st.button("➕ Create New Tender", key="create_new_tender", use_container_width=True, type="primary"):
+            st.session_state.edit_mode = False
+            st.session_state.edit_tender_id = None
+            st.session_state.extracted_data = None
+            st.session_state.skip_review = False
+            st.session_state.page = "tender_form"
+            st.rerun()
+    
+    if filtered_df.empty:
+        st.info("No tenders match the current filters.")
+        return
+    
+    # Prepare display data
+    display_data = _prepare_tender_display_data(filtered_df)
+    
+    # Render table with pagination
+    _render_tender_table_rows(display_data, company_id)
+
+
+def _apply_filters(tenders_df: pd.DataFrame) -> pd.DataFrame:
+    """Apply search filters to tender data"""
+    filters = st.session_state.tender_search_filters
+    filtered_df = tenders_df.copy()
+    
+    if filters.get('procurement_nature') and filters['procurement_nature'] != 'All':
+        filtered_df = filtered_df[filtered_df['procurement_nature'] == filters['procurement_nature']]
+    if filters.get('procurement_type') and filters['procurement_type'] != 'All':
+        filtered_df = filtered_df[filtered_df['procurement_type'] == filters['procurement_type']]
+    if filters.get('tender_id'):
+        filtered_df = filtered_df[filtered_df['tender_id'].str.contains(filters['tender_id'], case=False, na=False)]
+    if filters.get('publishing_date_from'):
+        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) >= pd.to_datetime(filters['publishing_date_from'])]
+    if filters.get('publishing_date_to'):
+        filtered_df = filtered_df[pd.to_datetime(filtered_df['tender_publication_date']) <= pd.to_datetime(filters['publishing_date_to'])]
+    
+    return filtered_df
+
+
+def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
+    """Prepare tender data for display"""
+    display_data = []
+    for _, row in filtered_df.iterrows():
+        status = row.get('bid_status', 'draft')
+        status_display = {
+            'won': 'Contract Awarded',
+            'submitted': 'Being processed',
+            'draft': 'Draft',
+            'lost': 'Lost',
+            'awarded': 'Contract Awarded'
+        }.get(status, status.title())
+        
+        status_class = {
+            'won': 'status-awarded',
+            'submitted': 'status-processing',
+            'draft': 'status-draft',
+            'lost': 'status-lost',
+            'awarded': 'status-awarded'
+        }.get(status, 'status-draft')
+        
+        display_data.append({
+            'id': row['id'],
+            'tender_id': row.get('tender_id', 'N/A'),
+            'title': row.get('tender_title', 'Untitled'),
+            'procuring_entity': row.get('procuring_entity', 'N/A'),
+            'procurement_type': row.get('procurement_type', 'N/A').upper(),
+            'status': status,
+            'status_display': status_display,
+            'status_class': status_class,
+            'pub_date': row.get('tender_publication_date'),
+            'closing_date': row.get('submission_deadline')
+        })
+    
+    return display_data
+
+
+def _render_tender_table_rows(display_data: List[Dict], company_id: int):
+    """Render table rows with pagination and search"""
+    
+    # Search bar
+    search = st.text_input(
+        "🔍 Search Tenders", 
+        placeholder="Search by tender ID, reference, title, or procuring entity...",
+        key="tender_search_input"
+    )
+    
+    # Apply search filter
+    filtered_data = display_data
+    if search:
+        search_lower = search.lower()
+        filtered_data = [
+            item for item in display_data
+            if (search_lower in str(item.get('tender_id', '')).lower() or
+                search_lower in str(item.get('title', '')).lower() or
+                search_lower in str(item.get('procuring_entity', '')).lower() or
+                search_lower in str(item.get('procurement_type', '')).lower())
+        ]
+    
+    # Pagination
+    if 'tender_page' not in st.session_state:
+        st.session_state.tender_page = 1
+    
+    items_per_page = 10
+    total_items = len(filtered_data)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    
+    if st.session_state.tender_page < 1:
+        st.session_state.tender_page = 1
+    elif st.session_state.tender_page > total_pages:
+        st.session_state.tender_page = total_pages
+    
+    start_idx = (st.session_state.tender_page - 1) * items_per_page
+    end_idx = min(start_idx + items_per_page, total_items)
+    page_items = filtered_data[start_idx:end_idx]
+    
+    st.caption(f"Showing {len(page_items)} of {total_items} tenders")
+    
+    # Table header
+    st.markdown("""
+    <div style="display:grid; grid-template-columns: 0.5fr 2.5fr 2.5fr 2fr 1.5fr 1.5fr 1fr; gap:0; padding:10px 12px; background:#1a1a3e; border-radius:8px 8px 0 0; border-bottom:2px solid rgba(102,126,234,0.2);">
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">S.No</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Tender/Proposal ID, Reference No., Status</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Procurement Nature, Title</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">PE</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Type, Method</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Publishing Date, Closing Date</div>
+        <div style="color:#94a3b8; font-size:11px; font-weight:500; text-transform:uppercase;">Dashboard</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Render rows
+    for idx, item in enumerate(page_items, start=start_idx + 1):
+        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
+        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
+        
+        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
+        
+        with col1:
+            st.write(f"{idx}")
+        with col2:
+            st.markdown(f"""
+            <div class="tender-id-cell">{item['tender_id']}</div>
+            <div class="ref-text">REF: {item['tender_id']}</div>
+            <span class="status-badge {item['status_class']}">{item['status_display']}</span>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="tender-title-cell">
+                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.caption(item['procuring_entity'][:50])
+        with col5:
+            st.write(item['procurement_type'])
+            st.caption("LTM")
+        with col6:
+            st.caption(pub_date_str)
+            st.caption(closing_date_str)
+        with col7:
+            if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
+                tender_data = get_tender_by_id(item['tender_id'], company_id)
+                if tender_data:
+                    tender_data = _normalize_tender_data(tender_data)
+                    st.session_state.view_tender_detail = tender_data
+                    st.rerun()
+                else:
+                    st.error("Failed to load tender details")
+        
+        st.divider()
+    
+    # Pagination
+    if total_pages > 1:
+        _render_pagination(total_pages)
+
+
+def _render_pagination(total_pages: int):
+    """Render pagination controls"""
+    
+    st.markdown('<div class="pagination-container">', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 4, 2])
+    
+    with col1:
+        st.markdown(f"""
+        <div class="page-info">
+            Page <strong>{st.session_state.tender_page}</strong> of <strong>{total_pages}</strong>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        nav_cols = st.columns([1, 1, 3, 1, 1])
+        
+        with nav_cols[0]:
+            if st.button("«", key="first_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
+                st.session_state.tender_page = 1
+                st.rerun()
+        
+        with nav_cols[1]:
+            if st.button("‹", key="prev_page", use_container_width=True, disabled=(st.session_state.tender_page == 1)):
+                st.session_state.tender_page -= 1
+                st.rerun()
+        
+        with nav_cols[2]:
+            page_cols = st.columns(min(total_pages, 5))
+            start_page = max(1, st.session_state.tender_page - 2)
+            end_page = min(total_pages, start_page + 4)
+            
+            for i, p in enumerate(range(start_page, end_page + 1)):
+                with page_cols[i]:
+                    if st.button(str(p), key=f"page_{p}", use_container_width=True, 
+                                type="primary" if p == st.session_state.tender_page else "secondary"):
+                        st.session_state.tender_page = p
+                        st.rerun()
+        
+        with nav_cols[3]:
+            if st.button("›", key="next_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
+                st.session_state.tender_page += 1
+                st.rerun()
+        
+        with nav_cols[4]:
+            if st.button("»", key="last_page", use_container_width=True, disabled=(st.session_state.tender_page == total_pages)):
+                st.session_state.tender_page = total_pages
+                st.rerun()
+    
+    with col3:
+        go_to_page = st.number_input(
+            "Go to",
+            min_value=1,
+            max_value=total_pages,
+            value=st.session_state.tender_page,
+            step=1,
+            key="go_to_page_input",
+            label_visibility="collapsed"
+        )
+        if go_to_page != st.session_state.tender_page:
+            st.session_state.tender_page = go_to_page
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_competitor_list():
+    """Display the main competitor dashboard with the UI shown"""
+    
+    company_id = st.session_state.get('company_id')
+    
+    # ============================================================================
+    # HEADER SECTION WITH 4 KPI CARDS
+    # ============================================================================
+    st.markdown("### 📊 Competitor Intelligence Dashboard")
+    
+    # Get summary stats using CRUD
+    competitors = get_competitor_master_list(company_id, active_only=True)
+    
+    if not competitors:
+        st.info("No competitors found. Add your first competitor using the form above.")
+        return
+    
+    comp_df = pd.DataFrame(competitors)
+    
+    # Calculate KPIs
+    total_competitors = len(comp_df)
+    active_competitors = len([c for c in competitors if c.get('is_active', True)])
+    
+    total_bids = comp_df['total_bids'].sum()
+    total_wins = comp_df['total_wins'].sum()
+    win_rate = (total_wins / total_bids * 100) if total_bids > 0 else 0
+    
+    avg_ratio = comp_df['avg_bid_ratio'].mean()
+    if pd.isna(avg_ratio):
+        avg_ratio = 0.0
+    
+    # Display 4 KPIs
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Competitors", total_competitors)
+    with col2:
+        st.metric("Active Competitors", active_competitors)
+    with col3:
+        st.metric("Win Rate (All)", f"{win_rate:.1f}%")
+    with col4:
+        st.metric("Avg Bid Ratio", f"{avg_ratio:.3f}")
+    
+    st.divider()
+    
+    # ============================================================================
+    # CHARTS SECTION
+    # ============================================================================
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
+            st.markdown("#### Bid Distribution")
+            fig = go.Figure(data=[go.Histogram(
+                x=comp_df['total_bids'],
+                nbinsx=20,
+                marker_color='blue'
+            )])
+            fig.update_layout(
+                title='Competitor Bid Distribution',
+                xaxis_title='Number of Bids',
+                height=280,
+                margin=dict(t=30, b=0, l=0, r=0)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No bid data available for chart")
+    
+    with col2:
+        if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
+            st.markdown("#### Win Rate by Competitor")
+            comp_df['Win Rate'] = comp_df.apply(
+                lambda x: (x['total_wins'] / x['total_bids'] * 100) if x['total_bids'] > 0 else 0, 
+                axis=1
+            )
+            top_competitors = comp_df.nlargest(10, 'total_bids')
+            fig = go.Figure(data=[go.Bar(
+                x=top_competitors['competitor_name'],
+                y=top_competitors['Win Rate'],
+                marker_color=top_competitors['Win Rate'],
+                marker_colorscale='Blues',
+                text=top_competitors['Win Rate'].round(1).astype(str) + '%',
+                textposition='auto'
+            )])
+            fig.update_layout(
+                title='Top 10 Competitors by Win Rate',
+                xaxis_title='Competitor',
+                yaxis_title='Win Rate (%)',
+                height=280,
+                margin=dict(t=30, b=0, l=0, r=0)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No win rate data available for chart")
+    
+    st.divider()
+    
+    # ============================================================================
+    # COMPETITOR LIST TABLE
+    # ============================================================================
+    st.markdown("### 📋 Competitor List")
+    
+    # Search bar
+    search = st.text_input(
+        "🔍 Search Competitor",
+        placeholder="Enter competitor name, type, or strategy...",
+        key="competitor_search_input"
+    )
+    
+    # Apply search filter
+    filtered_competitors = competitors.copy()
+    if search:
+        search_lower = search.lower()
+        filtered_competitors = [
+            c for c in competitors
+            if (search_lower in str(c.get('competitor_name', '')).lower() or
+                search_lower in str(c.get('business_type', '')).lower() or
+                search_lower in str(c.get('preferred_strategy', '')).lower() or
+                search_lower in str(c.get('contact_person', '')).lower())
+        ]
+    
+    # Sorting
+    if 'competitor_sort' not in st.session_state:
+        st.session_state.competitor_sort = "Name"
+    
+    sort_options = {
+        "Name": "competitor_name",
+        "Total Bids": "total_bids",
+        "Win Rate": "win_percentage",
+        "Last Seen": "last_seen"
+    }
+    
+    sort_by = st.selectbox(
+        "Sort by", 
+        list(sort_options.keys()),
+        key="competitor_sort_selector"
+    )
+    
+    sort_key = sort_options.get(sort_by, "competitor_name")
+    if sort_key == "win_percentage":
+        for c in filtered_competitors:
+            c['win_percentage'] = (c.get('total_wins', 0) / c.get('total_bids', 1) * 100) if c.get('total_bids', 0) > 0 else 0
+        filtered_competitors.sort(key=lambda x: x.get('win_percentage', 0), reverse=True)
+    elif sort_key == "last_seen":
+        filtered_competitors.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
+    elif sort_key == "total_bids":
+        filtered_competitors.sort(key=lambda x: x.get('total_bids', 0), reverse=True)
+    else:
+        filtered_competitors.sort(key=lambda x: x.get('competitor_name', ''))
+    
+    st.caption(f"Showing {len(filtered_competitors)} competitors")
+    
+    # Pagination
+    page_size = 10
+    total_pages = (len(filtered_competitors) - 1) // page_size + 1 if filtered_competitors else 1
+    
+    if 'competitor_page' not in st.session_state:
+        st.session_state.competitor_page = 1
+    
+    if st.session_state.competitor_page < 1:
+        st.session_state.competitor_page = 1
+    elif st.session_state.competitor_page > total_pages:
+        st.session_state.competitor_page = total_pages
+    
+    page = st.session_state.competitor_page
+    start_idx = (page - 1) * page_size
+    end_idx = min(start_idx + page_size, len(filtered_competitors))
+    page_competitors = filtered_competitors[start_idx:end_idx]
+    
+    # Display table
+    if page_competitors:
+        cols = st.columns([3, 2, 2, 2, 1])
+        cols[0].write("**Competitor Name**")
+        cols[1].write("**Type**")
+        cols[2].write("**First Seen**")
+        cols[3].write("**Last Seen**")
+        cols[4].write("**Details**")
+        
+        st.divider()
+        
+        for idx, comp in enumerate(page_competitors, start=start_idx + 1):
+            cols = st.columns([3, 2, 2, 2, 1])
+            
+            cols[0].write(f"**{comp.get('competitor_name', 'Unknown')}**")
+            cols[1].write(comp.get('business_type', 'N/A'))
+            
+            first_seen = comp.get('first_seen')
+            if first_seen and isinstance(first_seen, str):
+                try:
+                    first_seen = datetime.strptime(first_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
+                except:
+                    first_seen = 'N/A'
+            elif first_seen:
+                first_seen = first_seen.strftime('%Y-%m-%d')
+            else:
+                first_seen = 'N/A'
+            cols[2].write(first_seen)
+            
+            last_seen = comp.get('last_seen')
+            if last_seen and isinstance(last_seen, str):
+                try:
+                    last_seen = datetime.strptime(last_seen, '%Y-%m-%d').strftime('%Y-%m-%d')
+                except:
+                    last_seen = 'N/A'
+            elif last_seen:
+                last_seen = last_seen.strftime('%Y-%m-%d')
+            else:
+                last_seen = 'N/A'
+            cols[3].write(last_seen)
+            
+            comp_id = comp.get('id')
+            if cols[4].button(
+                "🔍",
+                key=f"view_comp_{comp_id}_{idx}",
+                help=f"View full intelligence profile for {comp.get('competitor_name')}"
+            ):
+                st.session_state.competitor_id = comp_id
+                st.session_state.page = "competitor_profile"
+                st.rerun()
+        
+        # Pagination controls
+        st.divider()
+        col1, col2, col3 = st.columns([1, 3, 1])
+        
+        with col1:
+            if page > 1:
+                if st.button("◀ Previous", key="comp_prev_page"):
+                    st.session_state.competitor_page = page - 1
+                    st.rerun()
+        
+        with col2:
+            st.caption(f"Page {page} of {total_pages} | Showing {len(page_competitors)} of {len(filtered_competitors)} competitors")
+        
+        with col3:
+            if page < total_pages:
+                if st.button("Next ▶", key="comp_next_page"):
+                    st.session_state.competitor_page = page + 1
+                    st.rerun()
+    else:
+        st.info("No competitors match your search criteria")

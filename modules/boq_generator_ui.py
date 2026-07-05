@@ -1,20 +1,18 @@
-# modules/boq_generator_ui.py - COMPLETE FINAL VERSION
+# modules/boq_generator_ui.py - Refactored to use crud_boq and crud_rates
 
 import streamlit as st
 import pandas as pd
-import sqlite3
 from datetime import datetime
+from database.unified_db_manager import get_db_manager
 from modules.boq_generator import BOQGenerator
 from modules.rbac import (
     rbac, can_view_boq, can_create_boq, can_edit_boq, 
     can_delete_boq, can_export_data, render_role_badge
 )
 
-DB_PATH = "data/tender_system.db"
-
 
 def render_boq_generator():
-    """BOQ Generator UI - Complete version"""
+    """BOQ Generator UI - Refactored to use crud_boq and crud_rates"""
     
     st.markdown("""
     <div class="main-header">
@@ -31,6 +29,9 @@ def render_boq_generator():
         st.error("🔒 You don't have permission to view BOQ.")
         return
     
+    # ✅ Use cached db manager
+    db = get_db_manager()
+    
     company_id = st.session_state.get('company_id')
     user_id = st.session_state.get('user_id', 0)
     user_role = st.session_state.get('user_role', 'viewer')
@@ -39,14 +40,15 @@ def render_boq_generator():
         st.error("No company found. Please contact support.")
         return
     
-    boq_gen = BOQGenerator()
+    boq_gen = BOQGenerator(db)
     permissions = rbac.get_current_user_permissions()
     can_create = permissions.get('can_create_boq', False)
     
     # ========== STEP 1: Select Rate Book ==========
     st.markdown("### 📋 Step 1: Select Rate Book")
     
-    rate_books = boq_gen.get_company_rate_books(company_id)
+    # ✅ Use crud_rates method
+    rate_books = db.get_company_rate_books(company_id)
     
     if not rate_books:
         st.warning("⚠️ No rate books found. Please create or clone rate books first.")
@@ -57,12 +59,12 @@ def render_boq_generator():
     
     book_options = {}
     for book in rate_books:
-        label = f"{book['name']} ({book['source_type']})"
+        label = f"{book.get('name', 'Unnamed')} ({book.get('source_type', 'Unknown')})"
         if book.get('custom_source'):
-            label += f" - {book['custom_source']}"
+            label += f" - {book.get('custom_source')}"
         if book.get('is_demo'):
             label += " 📌"
-        book_options[book['id']] = label
+        book_options[book.get('id')] = label
     
     col1, col2 = st.columns(2)
     with col1:
@@ -73,18 +75,18 @@ def render_boq_generator():
             key="boq_rate_book"
         )
     
-    # Get version
-    version = boq_gen.get_rate_book_version(selected_book_id)
+    # ✅ Get version using crud_rates method
+    version = db.get_rate_book_version(selected_book_id)
     if not version:
         st.error("No active version found for this rate book.")
         return
     
     with col2:
-        st.info(f"📖 Version: {version['name']}")
+        st.info(f"📖 Version: {version.get('name', 'Unknown')}")
     
     pricing_level = st.selectbox(
         "Pricing Level",
-        options=["AGGRESSIVE", "COMPETITIVE", "STANDARD"],
+        options=["AGGRESSIVE", "COMPETITIVE", "STANDARD", "PWD_OFFICIAL"],
         index=1,
         key="boq_pricing_level_select",
         help="Select which cost level to use for BOQ"
@@ -123,34 +125,72 @@ def render_boq_generator():
             st.dataframe(df_boq.head(10), use_container_width=True)
             st.caption(f"Total items: {len(df_boq)}")
         
+        # ========== ✅ ADD COLUMN DETECTION HERE ==========
+        # Detect columns for debugging
+        def find_column(df, possible_names):
+            """Find a column in DataFrame by trying multiple possible names"""
+            df_cols_lower = [col.lower().strip() for col in df.columns]
+            for name in possible_names:
+                name_lower = name.lower().strip()
+                if name_lower in df_cols_lower:
+                    idx = df_cols_lower.index(name_lower)
+                    return df.columns[idx]
+            return None
+        
+        code_col = find_column(df_boq, ['Item Code (if any)', 'Item Code', 'Code', 'item_code', 'Item No', 'Sl No'])
+        desc_col = find_column(df_boq, ['Description of Item', 'Description', 'description', 'Item Description', 'Particulars'])
+        qty_col = find_column(df_boq, ['Quantity', 'Qty', 'qty', 'quantity'])
+        unit_col = find_column(df_boq, ['Measurement Unit', 'Unit', 'unit', 'UOM'])
+        
+        # ✅ Add the debug expander here
+        with st.expander("🔍 Column Detection", expanded=False):
+            st.write("**Detected columns in your file:**")
+            st.write(f"- Code column: **{code_col or 'Not found'}**")
+            st.write(f"- Description column: **{desc_col or 'Not found'}**")
+            st.write(f"- Quantity column: **{qty_col or 'Not found'}**")
+            st.write(f"- Unit column: **{unit_col or 'Not found'}**")
+            st.write("**Sample data (first 3 rows):**")
+            st.dataframe(df_boq.head(3))
+            
+            if not desc_col:
+                st.warning("⚠️ **Description column not found!** Please ensure your file has a 'Description' column.")
+            if not qty_col:
+                st.warning("⚠️ **Quantity column not found!** Please ensure your file has a 'Quantity' column.")
+        
         # ========== STEP 4: Match Rates ==========
         st.markdown("### 🔍 Step 3: Match Rates")
         
-        # Store selected values
+        # Store selected values in session state
         if 'boq_selected_book_id' not in st.session_state:
             st.session_state.boq_selected_book_id = selected_book_id
         if 'boq_version_id' not in st.session_state:
-            st.session_state.boq_version_id = version['id']
+            st.session_state.boq_version_id = version.get('id')
         if 'boq_pricing_level' not in st.session_state:
             st.session_state.boq_pricing_level = pricing_level
         
-        # Load rates from selected book
-        rates_df = boq_gen.get_rates_from_book(
+        # Load rates using BOQGenerator (which uses crud_rates)
+        rates_result = boq_gen.get_rates_from_book(
             st.session_state.boq_selected_book_id, 
             st.session_state.boq_version_id, 
             st.session_state.boq_pricing_level
         )
         
+        # Convert to DataFrame
+        if isinstance(rates_result, list):
+            rates_df = pd.DataFrame(rates_result) if rates_result else pd.DataFrame()
+        else:
+            rates_df = rates_result
+        
         if rates_df.empty:
-            st.error(f"No rates found in {book_options.get(selected_book_id, 'selected')} book.")
+            st.error(f"No rates found for {book_options.get(selected_book_id, 'selected')} book with {pricing_level} pricing.")
             return
         
-        st.info(f"📊 Loaded {len(rates_df)} rates from {book_options.get(selected_book_id, '')}")
+        st.info(f"📊 Loaded {len(rates_df)} rates from {book_options.get(selected_book_id, '')} with {pricing_level} pricing")
         
         if st.button("🚀 Match Items with Rates", type="primary", use_container_width=True):
             with st.spinner("Matching items..."):
                 st.session_state.boq_selected_book_id = selected_book_id
-                st.session_state.boq_version_id = version['id']
+                st.session_state.boq_version_id = version.get('id')
                 st.session_state.boq_pricing_level = pricing_level
                 
                 result = boq_gen.match_boq_items(df_boq, rates_df)
@@ -160,7 +200,7 @@ def render_boq_generator():
                 
                 st.success(f"✅ Matched {result['total_matched']} items, {result['total_unmatched']} unmatched")
                 st.rerun()
-    
+
     except Exception as e:
         st.error(f"Error reading file: {e}")
         return
@@ -213,27 +253,19 @@ def render_boq_generator():
         official_estimate = 0
         
         if boq_mode == "Formal BOQ (Link to Tender)":
-            # Get tenders
-            conn = sqlite3.connect(DB_PATH)
-            tenders = pd.read_sql_query("""
-                SELECT id, tender_id, tender_title, procuring_entity, official_estimate
-                FROM company_tenders
-                WHERE company_id = ? AND is_active = 1
-                ORDER BY created_at DESC
-            """, conn, params=[company_id])
-            conn.close()
+            # ✅ Get tenders using crud_tender method
+            tenders = db.get_company_tenders(company_id)
             
-            if tenders.empty:
+            if not tenders:
                 st.warning("⚠️ No tenders found. Please create a tender first or use Quick Estimate mode.")
                 is_quick_boq = True
-                st.rerun()
             else:
                 tender_options = ["-- Select Tender --"]
                 tender_map = {}
-                for _, row in tenders.iterrows():
-                    label = f"{row['tender_id']} - {row['tender_title'][:50]} (BDT {row['official_estimate']:,.3f})"
+                for tender in tenders:
+                    label = f"{tender.get('tender_id')} - {tender.get('tender_title', '')[:50]} (BDT {tender.get('official_estimate', 0):,.3f})"
                     tender_options.append(label)
-                    tender_map[label] = row['id']
+                    tender_map[label] = tender.get('id')
                 
                 selected_tender_label = st.selectbox(
                     "Select Tender",
@@ -244,13 +276,16 @@ def render_boq_generator():
                 if selected_tender_label and selected_tender_label != "-- Select Tender --":
                     tender_id = tender_map.get(selected_tender_label)
                     if tender_id:
-                        tender_row = tenders[tenders['id'] == tender_id].iloc[0]
-                        selected_tender_id = tender_row['tender_id']
-                        tender_title = tender_row['tender_title']
-                        procuring_entity = tender_row.get('procuring_entity', '')
-                        official_estimate = tender_row.get('official_estimate', 0)
-                        is_quick_boq = False
-                        st.success(f"✅ Linked to: {tender_title}")
+                        tender_row = next((t for t in tenders if t.get('id') == tender_id), None)
+                        if tender_row:
+                            selected_tender_id = tender_row.get('tender_id')
+                            tender_title = tender_row.get('tender_title', '')
+                            procuring_entity = tender_row.get('procuring_entity', '')
+                            official_estimate = tender_row.get('official_estimate', 0)
+                            is_quick_boq = False
+                            st.success(f"✅ Linked to: {tender_title}")
+                        else:
+                            is_quick_boq = True
                     else:
                         is_quick_boq = True
                 else:
@@ -296,6 +331,7 @@ def render_boq_generator():
                         tender_title = f"Quick BOQ {datetime.now().strftime('%Y-%m-%d')}"
                         procuring_entity = "Quick Estimate"
                     
+                    # ✅ Use BOQGenerator's create_boq (which uses crud_boq)
                     boq_id = boq_gen.create_boq(
                         user_id=user_id,
                         company_id=company_id,
@@ -309,30 +345,40 @@ def render_boq_generator():
                         is_quick_boq=is_quick_boq
                     )
                     
-                    boq_gen.add_boq_items(boq_id, result['matched'])
-                    
-                    st.success(f"✅ BOQ #{boq_id} saved successfully! ({'Quick' if is_quick_boq else 'Formal'})")
-                    st.session_state.saved_boq_id = boq_id
+                    if boq_id:
+                        # ✅ Add BOQ items using crud_boq
+                        boq_gen.add_boq_items(boq_id, result['matched'])
+                        
+                        st.success(f"✅ BOQ #{boq_id} saved successfully! ({'Quick' if is_quick_boq else 'Formal'})")
+                        st.session_state.saved_boq_id = boq_id
+                    else:
+                        st.error("Failed to save BOQ")
         
         with col3:
             if st.session_state.get('saved_boq_id'):
                 boq_id = st.session_state.saved_boq_id
                 if st.button("🔒 Lock BOQ as Final", use_container_width=True):
+                    # ✅ Use BOQGenerator's lock_boq (which uses crud_boq)
                     boq_gen.lock_boq(boq_id, user_id)
                     st.success("🔒 BOQ locked successfully!")
                     st.balloons()
                     
+                    # ✅ Get BOQ data using crud_boq
                     boq_data = boq_gen.get_boq_by_id(boq_id)
                     if boq_data:
-                        items = boq_data['items']
+                        items = boq_data.get('items', [])
                         matched = [dict(item) for item in items]
+                        boq_info = boq_data.get('boq', {})
+                        
                         excel_file = boq_gen.generate_boq_excel(
                             matched, [], 
-                            {'tender_id': boq_data['boq'].get('tender_id', 'N/A'),
-                             'tender_title': boq_data['boq'].get('tender_title', 'N/A'),
-                             'rate_source': boq_data['boq'].get('rate_source', 'N/A'),
-                             'selected_zone': boq_data['boq'].get('selected_zone', 'N/A')},
-                            boq_data['boq'].get('total_estimated_cost', 0)
+                            {
+                                'tender_id': boq_info.get('tender_id', 'N/A'),
+                                'tender_title': boq_info.get('tender_title', 'N/A'),
+                                'rate_source': boq_info.get('rate_source', 'N/A'),
+                                'selected_zone': boq_info.get('selected_zone', 'N/A')
+                            },
+                            boq_info.get('total_estimated_cost', 0)
                         )
                         
                         st.download_button(
@@ -347,45 +393,65 @@ def render_boq_generator():
         st.markdown("---")
         st.markdown("### 📋 BOQ History")
         
-        conn = sqlite3.connect(DB_PATH)
-        boq_history = pd.read_sql_query("""
-            SELECT 
-                id, tender_id, tender_title, item_count, total_estimated_cost,
-                rate_source, status, is_locked, is_quick_boq, generated_at
-            FROM boq_generation_history
-            WHERE company_id = ?
-            ORDER BY generated_at DESC
-            LIMIT 20
-        """, conn, params=[company_id])
-        conn.close()
+        # ✅ Get BOQ history using crud_boq
+        boq_history = db.get_company_boqs(company_id, limit=20)
         
-        if not boq_history.empty:
-            display_df = boq_history.copy()
-            display_df['is_locked'] = display_df['is_locked'].apply(lambda x: "🔒" if x else "📝")
-            display_df['type'] = display_df['is_quick_boq'].apply(lambda x: "⚡ Quick" if x else "📋 Formal")
-            display_df['total_estimated_cost'] = display_df['total_estimated_cost'].apply(
-                lambda x: f"BDT {x:,.2f}" if x else "N/A"
-            )
+        if boq_history:
+            display_data = []
+            for boq in boq_history:
+                display_data.append({
+                    'id': boq.get('id'),
+                    'tender_id': boq.get('tender_id', 'N/A'),
+                    'tender_title': boq.get('tender_title', '')[:50],
+                    'item_count': boq.get('item_count', 0),
+                    'total_estimated_cost': f"BDT {boq.get('total_estimated_cost', 0):,.2f}" if boq.get('total_estimated_cost') else "N/A",
+                    'status': boq.get('status', 'draft'),
+                    'is_locked': "🔒" if boq.get('is_locked') else "📝",
+                    'type': "⚡ Quick" if boq.get('is_quick_boq') else "📋 Formal",
+                    'generated_at': boq.get('generated_at', '')
+                })
             
             st.dataframe(
-                display_df[['id', 'tender_id', 'tender_title', 'item_count', 'total_estimated_cost', 'status', 'is_locked', 'type']],
+                pd.DataFrame(display_data),
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", width="small"),
+                    "tender_id": st.column_config.TextColumn("Tender ID", width="small"),
+                    "tender_title": st.column_config.TextColumn("Title", width="large"),
+                    "item_count": st.column_config.NumberColumn("Items", width="small"),
+                    "total_estimated_cost": st.column_config.TextColumn("Total Cost", width="medium"),
+                    "status": st.column_config.TextColumn("Status", width="small"),
+                    "is_locked": st.column_config.TextColumn("Lock", width="small"),
+                    "type": st.column_config.TextColumn("Type", width="small"),
+                    "generated_at": st.column_config.DatetimeColumn("Generated", width="medium")
+                }
             )
             
             # Unlock option for admins
             if user_role in ['admin', 'system_admin', 'company_admin']:
-                locked_boqs = boq_history[boq_history['is_locked'] == 1]
-                if not locked_boqs.empty:
+                locked_boqs = [b for b in boq_history if b.get('is_locked')]
+                if locked_boqs:
                     with st.expander("🔓 Admin: Unlock BOQ"):
                         boq_to_unlock = st.selectbox(
                             "Select Locked BOQ to Unlock",
-                            options=locked_boqs['id'].tolist(),
-                            format_func=lambda x: f"BOQ #{x} - {locked_boqs[locked_boqs['id']==x]['tender_id'].iloc[0]}"
+                            options=[b.get('id') for b in locked_boqs],
+                            format_func=lambda x: f"BOQ #{x} - {next((b.get('tender_id') for b in locked_boqs if b.get('id') == x), 'N/A')}"
                         )
                         if st.button("🔓 Unlock BOQ"):
+                            # Add unlock method to BOQGenerator or crud_boq
                             boq_gen.unlock_boq(boq_to_unlock, user_id)
                             st.success(f"✅ BOQ #{boq_to_unlock} unlocked!")
                             st.rerun()
         else:
             st.info("No BOQ history found.")
+
+
+# Add unlock method to BOQGenerator if not exists
+def _add_unlock_method():
+    """Helper to add unlock method if not exists"""
+    if not hasattr(BOQGenerator, 'unlock_boq'):
+        def unlock_boq(self, boq_id: int, user_id: int):
+            """Unlock a BOQ"""
+            return self.db.unlock_boq(boq_id, user_id)
+        BOQGenerator.unlock_boq = unlock_boq

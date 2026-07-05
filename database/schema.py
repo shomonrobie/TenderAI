@@ -3,19 +3,19 @@ import sqlite3
 import os
 import logging
 from database.crud_operations import DatabaseCRUD
-from migrations.v012_update_user_profile import MigrationV012
-from migrations.v013_tenant_rate_management import MigrationV013
-from migrations.v014_demo_data_framework import MigrationV014
-from migrations.v015_archive_framework import MigrationV015
-from migrations.v016_company_onboarding_wizard import MigrationV016
-from migrations.v017_add_step_data_column import MigrationV017
-from migrations.v018_add_custom_source_column import MigrationV018  # ✅ ADDED
-from migrations.v019_add_version_id_to_boq import MigrationV019  # ✅ ADDED
+# from migrations.v012_update_user_profile import MigrationV012
+# from migrations.v013_tenant_rate_management import MigrationV013
+# from migrations.v014_demo_data_framework import MigrationV014
+# from migrations.v015_archive_framework import MigrationV015
+# from migrations.v016_company_onboarding_wizard import MigrationV016
+# from migrations.v017_add_step_data_column import MigrationV017
+# from migrations.v018_add_custom_source_column import MigrationV018  # ✅ ADDED
+# from migrations.v019_add_version_id_to_boq import MigrationV019  # ✅ ADDED
 
-from migrations.v020_rename_cost_levels import MigrationV020
-from migrations.v022_company_config import MigrationV022
-from migrations.v023_add_quick_boq import MigrationV023  # ✅ ADD THIS
-
+# from migrations.v020_rename_cost_levels import MigrationV020
+# from migrations.v022_company_config import MigrationV022
+# from migrations.v023_add_quick_boq import MigrationV023  # ✅ ADD THIS
+from database.supabase_sql_wrapper import SupabaseSQLWrapper
 logger = logging.getLogger(__name__)
 
 class DatabaseSchema:
@@ -23,116 +23,219 @@ class DatabaseSchema:
     
     def __init__(self, db_path="data/tender_system.db"):
         self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
-    def get_connection(self):
-        """Get database connection with row_factory"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        
+        from database.connection import get_db_type, is_supabase, get_supabase_client
+        
+        self.db_type = get_db_type()
+        self._use_supabase = is_supabase()
+        self.supabase = get_supabase_client() if self._use_supabase else None
+        
+        # ADD THIS DEBUG
+        import traceback
+        print("=" * 60)
+        print(f"🔍 DatabaseSchema.__init__ called")
+        print(f"   db_type: {self.db_type}")
+        print(f"   _use_supabase: {self._use_supabase}")
+        print(f"   supabase: {self.supabase is not None}")
+        print("   Stack trace:")
+        traceback.print_stack()
+        print("=" * 60)
+        
+        if not self._use_supabase:
+            print(f"✅ DatabaseSchema: SQLite mode enabled at {db_path}")
+        else:
+            print(f"✅ DatabaseSchema: Supabase mode enabled")
 
+
+    def get_connection(self):
+        """Always return a connection that supports context manager protocol"""
+        from database.connection import get_connection as get_conn
+        conn = get_conn()
+        
+        print(f"🔍 get_connection: _use_supabase={self._use_supabase}, conn_type={type(conn)}")
+        
+        # For Supabase, wrap the client to support context manager
+        if self._use_supabase:
+            print(f"🔍 get_connection: Wrapping Supabase client")
+            
+            class SupabaseContextWrapper:
+                """Wrapper that makes Supabase client work with 'with' statements"""
+                
+                def __init__(self, client):
+                    self.client = client
+                    self._wrapper = None
+                    print(f"🔍 SupabaseContextWrapper created")
+                
+                def __enter__(self):
+                    print(f"🔍 SupabaseContextWrapper.__enter__ called")
+                    return self
+                
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    print(f"🔍 SupabaseContextWrapper.__exit__ called")
+                    pass
+                
+                def cursor(self):
+                    """Return a cursor wrapper"""
+                    print(f"🔍 SupabaseContextWrapper.cursor called")
+                    if self._wrapper is None:
+                        from database.supabase_sql_wrapper import SupabaseSQLWrapper
+                        self._wrapper = SupabaseSQLWrapper(self.client)
+                        print(f"🔍 Created new SupabaseSQLWrapper")
+                    return self._wrapper
+                
+                def execute(self, sql, params=None):
+                    print(f"🔍 SupabaseContextWrapper.execute called: {sql[:50]}...")
+                    cursor = self.cursor()
+                    return cursor.execute(sql, params)
+                
+                def fetchone(self):
+                    print(f"🔍 SupabaseContextWrapper.fetchone called")
+                    cursor = self.cursor()
+                    return cursor.fetchone()
+                
+                def fetchall(self):
+                    print(f"🔍 SupabaseContextWrapper.fetchall called")
+                    cursor = self.cursor()
+                    return cursor.fetchall()
+                
+                def commit(self):
+                    print(f"🔍 SupabaseContextWrapper.commit called (no-op)")
+                    return self
+                
+                def rollback(self):
+                    print(f"🔍 SupabaseContextWrapper.rollback called (no-op)")
+                    return self
+                
+                def close(self):
+                    print(f"🔍 SupabaseContextWrapper.close called (no-op)")
+                    return self
+                
+                def __getattr__(self, name):
+                    """Delegate any other calls to the wrapper"""
+                    print(f"🔍 Schema.py SupabaseContextWrapper.__getattr__: {name}")
+                    if self._wrapper is None:
+                        self.cursor()
+                    if hasattr(self._wrapper, name):
+                        return getattr(self._wrapper, name)
+                    if hasattr(self.client, name):
+                        return getattr(self.client, name)
+                    raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+            
+            return SupabaseContextWrapper(conn)
+        else:
+            # SQLite: return the connection directly
+            print(f"🔍 get_connection: Returning SQLite connection")
+            return conn
+        
     def create_all_tables(self):
         """Create ALL tables from all migrations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        self._create_all_tables()
+        if self._use_supabase:
+            return SupabaseSQLWrapper(self.get_connection())
+        else:
+            if conn is None:
+                conn = self.get_connection()
+            # If connection is closed, get_connection() will reopen it
+                conn.cursor()
+                self._create_all_tables()
 
-        self.run_migrations()
-        conn.commit()
-        conn.close()
-        print("✅ All tables created successfully")
-    
+                self.run_migrations()
+                conn.commit()
+                conn.close()
+                print("✅ All tables created successfully")
     def run_migrations(self):
-        """Run all pending migrations"""
-        db = DatabaseCRUD(self.db_path)
+        return
+    
+    # def run_migrations(self):
+    #     """Run all pending migrations"""
+    #     db = DatabaseCRUD(self.db_path)
         
-        # ========== Run v012 Migration ==========
-        migration_v012 = MigrationV012(db)
-        if not db.table_exists('social_links'):
-            print("🔄 Running v012 migration...")
-            migration_v012.up()
-        else:
-            print("✅ v012 migration already applied")
+    #     # ========== Run v012 Migration ==========
+    #     migration_v012 = MigrationV012(db)
+    #     if not db.table_exists('social_links'):
+    #         print("🔄 Running v012 migration...")
+    #         migration_v012.up()
+    #     else:
+    #         print("✅ v012 migration already applied")
         
-        # ========== Run v013 Migration ==========
-        migration_v013 = MigrationV013(db)
-        if not db.table_exists('tenant_rate_books'):
-            print("🔄 Running v013 migration...")
-            migration_v013.up()
-        else:
-            print("✅ v013 migration already applied")
+    #     # ========== Run v013 Migration ==========
+    #     migration_v013 = MigrationV013(db)
+    #     if not db.table_exists('tenant_rate_books'):
+    #         print("🔄 Running v013 migration...")
+    #         migration_v013.up()
+    #     else:
+    #         print("✅ v013 migration already applied")
         
-        # ========== Run v014 Migration ==========
-        migration_v014 = MigrationV014(db)
-        if not db.table_exists('demo_data_generation_log'):
-            print("🔄 Running v014 migration...")
-            migration_v014.up()
-        else:
-            print("✅ v014 migration already applied")
+    #     # ========== Run v014 Migration ==========
+    #     migration_v014 = MigrationV014(db)
+    #     if not db.table_exists('demo_data_generation_log'):
+    #         print("🔄 Running v014 migration...")
+    #         migration_v014.up()
+    #     else:
+    #         print("✅ v014 migration already applied")
         
-        # ========== Run v015 Migration ==========
-        migration_v015 = MigrationV015(db)
-        if not db.table_exists('archive_records'):
-            print("🔄 Running v015 migration...")
-            migration_v015.up()
-        else:
-            print("✅ v015 migration already applied")
+    #     # ========== Run v015 Migration ==========
+    #     migration_v015 = MigrationV015(db)
+    #     if not db.table_exists('archive_records'):
+    #         print("🔄 Running v015 migration...")
+    #         migration_v015.up()
+    #     else:
+    #         print("✅ v015 migration already applied")
         
-        # ========== Run v016 Migration ==========
-        migration_v016 = MigrationV016(db)
-        if not db.table_exists('onboarding_wizard_sessions'):
-            print("🔄 Running v016 migration...")
-            migration_v016.up()
-        else:
-            print("✅ v016 migration already applied")
+    #     # ========== Run v016 Migration ==========
+    #     migration_v016 = MigrationV016(db)
+    #     if not db.table_exists('onboarding_wizard_sessions'):
+    #         print("🔄 Running v016 migration...")
+    #         migration_v016.up()
+    #     else:
+    #         print("✅ v016 migration already applied")
 
-        # ========== Run v017 Migration ==========
-        migration_v017 = MigrationV017(db)
-        # ✅ Check for the column that v017 adds
-        if not db.column_exists('company_onboarding_status', 'step_data'):
-            print("🔄 Running v017 migration...")
-            migration_v017.up()
-        else:
-            print("✅ v017 migration already applied")
+    #     # ========== Run v017 Migration ==========
+    #     migration_v017 = MigrationV017(db)
+    #     # ✅ Check for the column that v017 adds
+    #     if not db.column_exists('company_onboarding_status', 'step_data'):
+    #         print("🔄 Running v017 migration...")
+    #         migration_v017.up()
+    #     else:
+    #         print("✅ v017 migration already applied")
 
-        # ========== Run v018 Migration ==========
-        migration_v018 = MigrationV018(db)
-        # ✅ Check for the column that v018 adds
-        if not db.column_exists('tenant_rate_books', 'custom_source'):
-            print("🔄 Running v018 migration...")
-            migration_v018.up()
-        else:
-            print("✅ v018 migration already applied")
-         # ========== Run v019 Migration ==========
-        migration_v019 = MigrationV019(db)
-        if not db.column_exists('boq_generation_history', 'rate_book_id'):
-            print("🔄 Running v019 migration...")
-            migration_v019.up()
-        else:
-            print("✅ v019 migration already applied")
-        # ========== Run v020 Migration ==========
-        migration_v020 = MigrationV020(db)
-        # ✅ FIX: Check for the table that v020 adds
-        if not db.table_exists('company_cost_profiles'):
-            print("🔄 Running v020 migration...")
-            migration_v020.up()
-        else:
-            print("✅ v020 migration already applied")
+    #     # ========== Run v018 Migration ==========
+    #     migration_v018 = MigrationV018(db)
+    #     # ✅ Check for the column that v018 adds
+    #     if not db.column_exists('tenant_rate_books', 'custom_source'):
+    #         print("🔄 Running v018 migration...")
+    #         migration_v018.up()
+    #     else:
+    #         print("✅ v018 migration already applied")
+    #      # ========== Run v019 Migration ==========
+    #     migration_v019 = MigrationV019(db)
+    #     if not db.column_exists('boq_generation_history', 'rate_book_id'):
+    #         print("🔄 Running v019 migration...")
+    #         migration_v019.up()
+    #     else:
+    #         print("✅ v019 migration already applied")
+    #     # ========== Run v020 Migration ==========
+    #     migration_v020 = MigrationV020(db)
+    #     # ✅ FIX: Check for the table that v020 adds
+    #     if not db.table_exists('company_cost_profiles'):
+    #         print("🔄 Running v020 migration...")
+    #         migration_v020.up()
+    #     else:
+    #         print("✅ v020 migration already applied")
 
-        migration_v022 = MigrationV022(db)
-        # ✅ FIX: Check for the table that v022 adds
-        if not db.table_exists('company_config'):
-            print("🔄 Running v022 migration...")
-            migration_v022.up()
-        else:
-            print("✅ v022 migration already applied")
-        # ========== Run v023 Migration ==========
-        migration_v023 = MigrationV023(db)
-        if not db.column_exists('boq_generation_history', 'is_quick_boq'):
-            print("🔄 Running v023 migration...")
-            migration_v023.up()
-        else:
-            print("✅ v023 migration already applied")
+    #     migration_v022 = MigrationV022(db)
+    #     # ✅ FIX: Check for the table that v022 adds
+    #     if not db.table_exists('company_config'):
+    #         print("🔄 Running v022 migration...")
+    #         migration_v022.up()
+    #     else:
+    #         print("✅ v022 migration already applied")
+    #     # ========== Run v023 Migration ==========
+    #     migration_v023 = MigrationV023(db)
+    #     if not db.column_exists('boq_generation_history', 'is_quick_boq'):
+    #         print("🔄 Running v023 migration...")
+    #         migration_v023.up()
+    #     else:
+    #         print("✅ v023 migration already applied")
 
      
     def insert_default_data(self):
@@ -1837,16 +1940,6 @@ class DatabaseSchema:
             )
         """)
         
-        # System config
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS system_config (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_by INTEGER,
-                FOREIGN KEY (updated_by) REFERENCES users(id)
-            )
-        """)
         
         # Schema migrations tracker
         cursor.execute("""

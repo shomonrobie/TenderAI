@@ -1,7 +1,8 @@
 # Add these to your module or create a new file: utils/db_utils.py
 
 import streamlit as st
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager, table_exists
+db = get_db_manager()
 
 
 def get_system_config(key, default=None):

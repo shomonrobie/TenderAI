@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
+
 
 def show():
     """Tender analysis history page"""
@@ -13,7 +13,7 @@ def show():
         <p>View all your past tender analyses</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    db = get_db_manager()
     # Get user's analyses
     analyses_df = db.get_user_analyses(
         st.session_state.user_id, 

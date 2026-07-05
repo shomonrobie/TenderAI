@@ -4,8 +4,7 @@ import streamlit as st
 from typing import Dict, List, Any, Optional
 from functools import wraps
 
-from database.unified_db_manager import UnifiedDatabaseManager
-db = UnifiedDatabaseManager()
+from database.unified_db_manager import get_db_manager
 
 # =============================================================================
 # ROLE DEFINITIONS AND PERMISSIONS
@@ -511,6 +510,11 @@ ROLE_PERMISSIONS: Dict[str, Dict[str, bool]] = {
 # NEW PERMISSION FUNCTIONS FOR RATE MANAGEMENT
 # =============================================================================
 
+def get_db():
+    """Get cached database manager instance"""
+    return get_db_manager()
+
+
 # ========== System Rate Permissions ==========
 def can_view_system_rates() -> bool:
     """Check if user can view system-level rates (PWD, LGED master)"""
@@ -628,14 +632,20 @@ def is_rate_admin() -> bool:
 
 
 # =============================================================================
-# RBAC MANAGER CLASS - REMAINS UNCHANGED
+# RBAC MANAGER CLASS - UPDATED TO USE CACHED DB
 # =============================================================================
 
 class RBACManager:
     """Role-Based Access Control Manager"""
     
     def __init__(self):
-        pass
+        self._db = None
+    
+    def _get_db(self):
+        """Get cached database manager"""
+        if self._db is None:
+            self._db = get_db_manager()
+        return self._db
     
     def get_current_user_role(self) -> str:
         """Get current user's role from session state (always fresh)"""
@@ -643,15 +653,15 @@ class RBACManager:
         
         if role == 'system_admin' and st.session_state.get('company_id'):
             try:
-                from database.unified_db_manager import db
                 user_id = st.session_state.get('user_id')
                 if user_id:
+                    db = self._get_db()
                     user = db.get_user_by_id(user_id)
                     if user and user.get('role') == 'company_admin':
                         st.session_state.user_role = 'company_admin'
                         return 'company_admin'
-            except:
-                pass
+            except Exception as e:
+                print(f"⚠️ Error checking role: {e}")
         
         return role
     
@@ -680,7 +690,7 @@ class RBACManager:
         user_id = st.session_state.get('user_id')
         if user_id:
             try:
-                from database.unified_db_manager import db
+                db = self._get_db()
                 user = db.get_user_by_id(user_id)
                 if user:
                     st.session_state.user_role = user.get('role', 'viewer')
@@ -985,13 +995,12 @@ def can_apply_bulk_changes() -> bool:
 
 def render_role_badge() -> None:
     """Render a badge showing current user's role"""
-    from modules.rbac import _rbac
-    
     role = _rbac.get_current_user_role()
     
     if role == 'system_admin' and st.session_state.get('company_id'):
         user_id = st.session_state.get('user_id')
         if user_id:
+            db = get_db_manager()
             user = db.get_user_by_id(user_id)
             if user and user.get('role') == 'company_admin':
                 role = 'company_admin'

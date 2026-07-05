@@ -419,27 +419,19 @@ def render_app_header():
     # 2. Create hidden native buttons (these handle the actual logic)
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("Toggle Theme", key="theme_toggle_btn"):
+        if st.button("Toggle Theme", key="theme_toggle_btn", help="Toggle between light and dark mode"):
             st.session_state.dark_mode = not st.session_state.get('dark_mode', False)
             st.rerun()
     with col2:
-        if st.button("Profile", key="profile_btn"):
+        if st.button("Profile", key="profile_btn", help="View and edit your profile settings"):
             st.session_state.page = "profile"
             st.rerun()
     with col3:
-        if st.button("Subscription", key="subscription_btn"):
+        if st.button("Subscription", key="subscription_btn", help="Manage your subscription plan"):
             st.session_state.page = "subscription"
             st.rerun()
     with col4:
-        # if st.button("Logout", key="logout_btn"):
-        #     st.session_state.dark_mode = False
-        #     for key in list(st.session_state.keys()):
-        #         if key not in ['dark_mode']:
-        #             st.session_state.pop(key, None)
-        #     st.session_state.logged_in = False
-        #     st.session_state.page = "home"
-        #     st.rerun()
-        if st.button("Logout", key="logout_btn"):
+        if st.button("Logout", key="logout_btn", help="Log out of your account"):
             print("=" * 60)
             print("🚪 LOGOUT BUTTON CLICKED")
             print("=" * 60)
@@ -496,6 +488,7 @@ def render_app_header():
             
             # 6. Rerun the app
             st.rerun()
+    
     # 3. Render custom interactive header using components.html
     # This bypasses Streamlit's markdown sanitizer which strips onclick events
     components.html(f"""
@@ -529,8 +522,40 @@ def render_app_header():
             transition: all 0.2s ease;
             min-width: 36px;
             display: flex; align-items: center; justify-content: center;
+            position: relative;
         }}
-        .header-btn:hover {{ background: rgba(255, 255, 255, 0.2); }}
+        .header-btn:hover {{ 
+            background: rgba(255, 255, 255, 0.2);
+        }}
+        /* Custom tooltip styling */
+        .header-btn[title]:hover::after {{
+            content: attr(title);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        /* Tooltip arrow */
+        .header-btn[title]:hover::before {{
+            content: '';
+            position: absolute;
+            bottom: calc(100% + 4px);
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            pointer-events: none;
+        }}
     </style>
     </head>
     <body>
@@ -540,10 +565,10 @@ def render_app_header():
             <h1>TenderAI - Bangladesh's First AI-Powered Tender Intelligence Platform</h1>
         </div>
         <div class="header-buttons">
-            <button class="header-btn" id="btn-theme">{theme_icon}</button>
-            <button class="header-btn" id="btn-profile">👤</button>
-            <button class="header-btn" id="btn-subscription">💳</button>
-            <button class="header-btn" id="btn-logout">🚪</button>
+            <button class="header-btn" id="btn-theme" title="Toggle theme (Dark/Light)">{theme_icon}</button>
+            <button class="header-btn" id="btn-profile" title="View and edit your profile">👤</button>
+            <button class="header-btn" id="btn-subscription" title="Manage your subscription plan">💳</button>
+            <button class="header-btn" id="btn-logout" title="Log out of your account">🚪</button>
         </div>
     </div>
     <script>
@@ -660,8 +685,6 @@ def render_footer():
     </div>
     """, unsafe_allow_html=True)
 
-
-def render_footer_bak():
     """Render footer with gradient matching login page"""
     try:
         from version import __version__, __version_date__

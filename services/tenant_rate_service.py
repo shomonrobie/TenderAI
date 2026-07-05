@@ -4,15 +4,16 @@ import json
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from database.tenant_rate_repository import TenantRateRepository
+from database.unified_db_manager import get_db_manager
 
 logger = logging.getLogger(__name__)
 
+
 class TenantRateService:
-    """Service layer for tenant rate management"""
+    """Service layer for tenant rate management - uses DatabaseCRUD directly"""
     
-    def __init__(self, repository: Optional[TenantRateRepository] = None):
-        self.repository = repository or TenantRateRepository()
+    def __init__(self, db=None):
+        self.db = db or get_db_manager()
     
     # ========== RATE BOOKS ==========
     
@@ -28,18 +29,22 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Create a new rate book"""
         try:
-            book_id = self.repository.create_rate_book({
+            book_id = self.db.create_rate_book({
                 'tenant_id': tenant_id,
                 'tenant_type': tenant_type,
                 'name': name,
                 'source_type': source_type,
                 'source_version_id': source_version_id,
                 'description': description,
-                'created_by': created_by
+                'created_by': created_by,
+                'is_active': True
             })
             
+            if not book_id:
+                return {'success': False, 'error': 'Failed to create rate book'}
+            
             # Create initial version
-            version_id = self.repository.create_rate_version({
+            version_id = self.db.create_rate_version({
                 'rate_book_id': book_id,
                 'version_name': 'Initial Version',
                 'effective_from': datetime.now().date().isoformat(),
@@ -66,13 +71,9 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Get all rate books for a tenant"""
         try:
-            books = self.repository.get_rate_books_by_tenant(
+            books = self.db.get_rate_books_by_tenant(
                 tenant_id, tenant_type, include_archived
             )
-            
-            # ✅ FIX: Ensure books is a list
-            if not isinstance(books, list):
-                books = []
             
             return {
                 'success': True,
@@ -88,7 +89,6 @@ class TenantRateService:
                 'books': [],
                 'count': 0
             }
-
     
     def clone_master_rates(
         self,
@@ -100,18 +100,25 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Clone master rates to a tenant rate book"""
         try:
-            if source_type == 'PWD':
-                result = self.repository.clone_pwd_master(book_id, version_id, filters)
-            elif source_type == 'LGED':
-                result = self.repository.clone_lged_master(book_id, version_id, filters)
-            else:
-                return {'success': False, 'error': f'Unknown source type: {source_type}'}
+            result = self.db.clone_master_to_company(
+                book_id=book_id,
+                source_type=source_type,
+                version_id=version_id,
+                user_id=user_id,
+                filters=filters
+            )
             
+            # Log the clone
             if result.get('success'):
-                # Audit the clone operation
-                self.repository.get_connection()
-                # We'll add audit in repository
-                
+                self.db.log_audit(
+                    rate_book_id=book_id,
+                    action='CLONE',
+                    field_name='master_rates',
+                    old_value='none',
+                    new_value=f'{source_type} v{version_id}',
+                    user_id=user_id
+                )
+            
             return result
             
         except Exception as e:
@@ -130,8 +137,7 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Create a new version of a rate book"""
         try:
-            # Copy all items from current version
-            version_id = self.repository.create_rate_version({
+            version_id = self.db.create_rate_version({
                 'rate_book_id': book_id,
                 'version_name': version_name,
                 'effective_from': effective_from,
@@ -139,28 +145,6 @@ class TenantRateService:
                 'notes': notes,
                 'created_by': created_by
             })
-            
-            # Get items from current version and copy pricing
-            current_version = self.repository.get_versions_for_book(book_id)
-            if current_version:
-                current_version_id = current_version[0]['id'] if current_version else None
-                
-                if current_version_id:
-                    items = self.repository.get_rate_items_by_book(book_id, current_version_id)
-                    
-                    for item in items:
-                        # Copy pricing to new version
-                        pricing = self.repository.get_item_pricing(item['id'], current_version_id)
-                        
-                        for level, prices in pricing.items():
-                            if prices:
-                                self.repository.update_pricing(
-                                    version_id,
-                                    item['id'],
-                                    level,
-                                    prices[0]['price'],
-                                    created_by
-                                )
             
             return {
                 'success': True,
@@ -175,7 +159,7 @@ class TenantRateService:
     def set_current_version(self, version_id: int) -> Dict[str, Any]:
         """Set a version as the current version"""
         try:
-            result = self.repository.set_current_version(version_id)
+            result = self.db.set_current_version(version_id)
             
             if result:
                 return {
@@ -200,14 +184,14 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Get items for a rate book with optional search"""
         try:
-            items = self.repository.get_rate_items_by_book(book_id, version_id, active_only)
+            items = self.db.get_rate_items_with_pricing(book_id, version_id)
             
             if search:
                 search_lower = search.lower()
                 items = [
                     item for item in items 
-                    if search_lower in item['item_code'].lower() 
-                    or search_lower in item['item_description'].lower()
+                    if search_lower in item.get('item_code', '').lower() 
+                    or search_lower in item.get('item_description', '').lower()
                 ]
             
             return {
@@ -230,15 +214,14 @@ class TenantRateService:
     ) -> Dict[str, Any]:
         """Update pricing for an item"""
         try:
-            # Validate pricing level
-            valid_levels = ['ECONOMY', 'MARKET', 'PREMIUM']
+            valid_levels = ['AGGRESSIVE', 'COMPETITIVE', 'STANDARD']
             if pricing_level.upper() not in valid_levels:
                 return {
                     'success': False,
                     'error': f'Invalid pricing level. Must be one of: {", ".join(valid_levels)}'
                 }
             
-            result = self.repository.update_pricing(
+            result = self.db.update_pricing(
                 version_id, item_id, pricing_level.upper(), price, user_id
             )
             
@@ -269,18 +252,18 @@ class TenantRateService:
             for update in updates:
                 result = self.update_pricing(
                     version_id,
-                    update['item_id'],
-                    update['pricing_level'],
-                    update['price'],
+                    update.get('item_id'),
+                    update.get('pricing_level', 'COMPETITIVE'),
+                    update.get('price', 0),
                     user_id
                 )
                 
-                if result['success']:
+                if result.get('success'):
                     successful += 1
                 else:
                     failed += 1
                     errors.append({
-                        'item_id': update['item_id'],
+                        'item_id': update.get('item_id'),
                         'error': result.get('error', 'Unknown error')
                     })
             
@@ -308,7 +291,7 @@ class TenantRateService:
         """Get audit log with pagination"""
         try:
             offset = (page - 1) * page_size
-            entries = self.repository.get_audit_log(book_id, user_id, page_size, offset)
+            entries = self.db.get_audit_log(book_id, user_id, page_size, offset)
             
             return {
                 'success': True,

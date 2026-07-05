@@ -1,7 +1,4 @@
-"""
-Competitor Master Management
-Maintain a master list of all competitors with intelligence features
-"""
+# modules/competitor_master.py - Refactored to use CompetitorCRUD
 
 import streamlit as st
 import pandas as pd
@@ -11,7 +8,7 @@ from datetime import datetime
 import json
 from typing import Dict, List, Optional, Tuple, Any
 
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 from modules.subscription_manager import check_subscription_access
 from modules.rbac import (
     rbac, can_view_tenders, can_create_tender, can_edit_tender,
@@ -19,12 +16,6 @@ from modules.rbac import (
     render_role_badge, render_protected_button, can_import_tender_data,
 )
 
-db = UnifiedDatabaseManager()
-
-
-# ============================================================================
-# MAIN RENDER FUNCTION
-# ============================================================================
 
 def render_competitor_master_page(db=None, subscription_manager=None):
     """Render competitor master management page"""
@@ -36,14 +27,18 @@ def render_competitor_master_page(db=None, subscription_manager=None):
     </div>
     """, unsafe_allow_html=True)
     
+    # ✅ Use cached db manager
+    if db is None:
+        db = get_db_manager()
+    
     # Subscription check
     company_id = st.session_state.get('company_id')
     user_id = st.session_state.get('user_id')
     has_access, plan, msg = check_subscription_access(company_id, user_id, subscription_manager)
     user_role = st.session_state.get('user_role', 'viewer')
-
+    
     can_edit = user_role in ['system_admin', 'admin', 'company_admin']
-
+    
     if not has_access:
         st.warning(msg)
         st.info("Upgrade to use Competitor Master.")
@@ -60,40 +55,34 @@ def render_competitor_master_page(db=None, subscription_manager=None):
     ])
     
     with tabs[0]:
-        render_competitor_list()  # Main dashboard with the UI you showed
+        render_competitor_list(db)
     
     with tabs[1]:
-        render_add_competitor_form()
+        render_add_competitor_form(db)
     
     with tabs[2]:
-        render_competitor_analytics()
+        render_competitor_analytics(db)
     
     with tabs[3]:
-        render_intelligence_tab()
+        render_intelligence_tab(db)
     
     with tabs[4]:
-        render_tracking_tab()
+        render_tracking_tab(db)
     
     with tabs[5]:
-        render_settings_tab(can_edit)  # ✅ FIXED: Pass can_edit parameter
+        render_settings_tab(db, can_edit)
 
 
 # ============================================================================
 # TAB 1: COMPETITOR LIST
 # ============================================================================
 
-
-def render_competitor_list():
-    """Display the main competitor dashboard with the UI shown"""
+def render_competitor_list(db):
+    """Display the main competitor dashboard"""
     
     company_id = st.session_state.get('company_id')
     
-    # ============================================================================
-    # HEADER SECTION WITH 4 KPI CARDS
-    # ============================================================================
-    st.markdown("### 📊 Competitor Intelligence Dashboard")
-    
-    # Get summary stats
+    # ✅ Use CRUD method
     competitors = db.get_competitor_master_list(company_id, active_only=True)
     
     if not competitors:
@@ -127,13 +116,10 @@ def render_competitor_list():
     
     st.divider()
     
-    # ============================================================================
-    # CHARTS SECTION
-    # ============================================================================
+    # Charts
     col1, col2 = st.columns(2)
     
     with col1:
-        # Bid Distribution Histogram
         if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
             st.markdown("#### Bid Distribution")
             fig = px.histogram(
@@ -149,7 +135,6 @@ def render_competitor_list():
             st.info("No bid data available for chart")
     
     with col2:
-        # Win Rate by Competitor Bar Chart
         if len(comp_df) > 0 and comp_df['total_bids'].sum() > 0:
             st.markdown("#### Win Rate by Competitor")
             comp_df['Win Rate'] = comp_df.apply(
@@ -172,9 +157,7 @@ def render_competitor_list():
     
     st.divider()
     
-    # ============================================================================
-    # COMPETITOR LIST TABLE WITH [🔍] DETAILS BUTTON
-    # ============================================================================
+    # Competitor List Table
     st.markdown("### 📋 Competitor List")
     
     # Search and Filter
@@ -214,7 +197,6 @@ def render_competitor_list():
     page_size = 10
     total_pages = (len(filtered_competitors) - 1) // page_size + 1 if filtered_competitors else 1
     
-    # Get current page from session state
     if 'competitor_page' not in st.session_state:
         st.session_state.competitor_page = 1
     
@@ -223,29 +205,22 @@ def render_competitor_list():
     end_idx = start_idx + page_size
     page_competitors = filtered_competitors[start_idx:end_idx]
     
-    # Display table with [🔍] button
+    # Display table
     if page_competitors:
-        # Header
         cols = st.columns([3, 2, 2, 2, 1])
         cols[0].write("**Competitor Name**")
         cols[1].write("**Type**")
         cols[2].write("**First Seen**")
         cols[3].write("**Last Seen**")
         cols[4].write("**Details**")
-        
         st.divider()
         
-        # Rows
         for comp in page_competitors:
             cols = st.columns([3, 2, 2, 2, 1])
             
-            # Competitor Name
             cols[0].write(f"**{comp.get('competitor_name', 'Unknown')}**")
-            
-            # Business Type
             cols[1].write(comp.get('business_type', 'N/A'))
             
-            # First Seen (fix date conversion)
             first_seen = comp.get('first_seen')
             if first_seen and isinstance(first_seen, str):
                 try:
@@ -253,12 +228,11 @@ def render_competitor_list():
                 except:
                     first_seen = 'N/A'
             elif first_seen:
-                first_seen = first_seen.strftime('%Y-%m-%d')
+                first_seen = first_seen.strftime('%Y-%m-%d') if hasattr(first_seen, 'strftime') else 'N/A'
             else:
                 first_seen = 'N/A'
             cols[2].write(first_seen)
             
-            # Last Seen (fix date conversion)
             last_seen = comp.get('last_seen')
             if last_seen and isinstance(last_seen, str):
                 try:
@@ -266,36 +240,26 @@ def render_competitor_list():
                 except:
                     last_seen = 'N/A'
             elif last_seen:
-                last_seen = last_seen.strftime('%Y-%m-%d')
+                last_seen = last_seen.strftime('%Y-%m-%d') if hasattr(last_seen, 'strftime') else 'N/A'
             else:
                 last_seen = 'N/A'
             cols[3].write(last_seen)
             
-            # [🔍] Details Button
             comp_id = comp.get('id')
-            if cols[4].button(
-                "🔍",
-                key=f"view_{comp_id}",
-                help=f"View full intelligence profile for {comp.get('competitor_name')}"
-            ):
-                # Navigate to competitor profile page
+            if cols[4].button("🔍", key=f"view_{comp_id}", help=f"View full intelligence profile for {comp.get('competitor_name')}"):
                 st.query_params.competitor_id = comp_id
                 st.session_state.page = "competitor_profile"
-
         
         # Pagination controls
         st.divider()
         col1, col2, col3 = st.columns([1, 3, 1])
-        
         with col1:
             if page > 1:
                 if st.button("◀ Previous"):
                     st.session_state.competitor_page = page - 1
                     st.rerun()
-        
         with col2:
             st.caption(f"Page {page} of {total_pages} | Showing {len(page_competitors)} of {len(filtered_competitors)} competitors")
-        
         with col3:
             if page < total_pages:
                 if st.button("Next ▶"):
@@ -304,11 +268,12 @@ def render_competitor_list():
     else:
         st.info("No competitors match your filters")
 
+
 # ============================================================================
 # TAB 2: ADD COMPETITOR
 # ============================================================================
 
-def render_add_competitor_form():
+def render_add_competitor_form(db):
     """Form to add new competitor to master list"""
     
     st.markdown("### Add New Competitor")
@@ -320,11 +285,8 @@ def render_add_competitor_form():
         with col1:
             competitor_name = st.text_input("Competitor Name*")
             business_type = st.selectbox("Business Type", [
-                "Construction Company", 
-                "Trading Company", 
-                "Joint Venture", 
-                "Individual", 
-                "Other"
+                "Construction Company", "Trading Company", 
+                "Joint Venture", "Individual", "Other"
             ])
             contact_person = st.text_input("Contact Person")
             phone = st.text_input("Phone Number")
@@ -338,14 +300,12 @@ def render_add_competitor_form():
             )
             notes = st.text_area("Additional Notes", height=68)
         
-        # Intelligence fields
         st.markdown("---")
         st.markdown("#### 🧠 Intelligence Fields")
         details = st.text_area(
             "Competitor Intelligence Notes",
             placeholder="e.g., Known strengths, weaknesses, past performance, market position...",
-            height=100,
-            help="Store qualitative intelligence about this competitor"
+            height=100
         )
         
         submitted = st.form_submit_button("💾 Add Competitor to Master List", use_container_width=True)
@@ -361,11 +321,11 @@ def render_add_competitor_form():
                     'phone': phone,
                     'email': email,
                     'address': address,
-                    'notes': notes,
-                    'preferred_strategy': preferred_strategy,
-                    'details': details
+                    'notes': notes + "\n" + details if details else notes,
+                    'preferred_strategy': preferred_strategy
                 }
                 
+                # ✅ Use CRUD method
                 comp_id = db.add_competitor_to_master(
                     st.session_state.company_id, 
                     competitor_data
@@ -382,11 +342,12 @@ def render_add_competitor_form():
 # TAB 3: ANALYTICS
 # ============================================================================
 
-def render_competitor_analytics():
+def render_competitor_analytics(db):
     """Display competitor analytics and insights"""
     
     st.markdown("### 📊 Competitor Analytics")
     
+    # ✅ Use CRUD method
     competitors = db.get_competitor_master_list(st.session_state.company_id)
     
     if not competitors:
@@ -395,12 +356,11 @@ def render_competitor_analytics():
     
     comp_df = pd.DataFrame(competitors)
     
-    # Calculate metrics
     comp_df['Win Rate'] = comp_df.apply(
         lambda x: x['total_wins'] / x['total_bids'] if x['total_bids'] > 0 else 0, axis=1
     )
     
-    # Top competitors by frequency
+    # Most frequent competitors
     st.markdown("#### Most Frequent Competitors")
     top_frequent = comp_df.nlargest(10, 'total_bids')[
         ['competitor_name', 'total_bids', 'Win Rate', 'avg_bid_ratio']
@@ -454,7 +414,7 @@ def render_competitor_analytics():
 # TAB 4: INTELLIGENCE
 # ============================================================================
 
-def render_intelligence_tab():
+def render_intelligence_tab(db):
     """Render the main intelligence dashboard"""
     
     st.markdown("### 🧠 Competitor Intelligence Dashboard")
@@ -465,7 +425,7 @@ def render_intelligence_tab():
         st.warning("Please login to view competitor intelligence")
         return
     
-    # Get all competitors with stats
+    # ✅ Use CRUD method
     competitors = db.get_competitor_master_list(company_id, active_only=True)
     
     if not competitors:
@@ -474,14 +434,11 @@ def render_intelligence_tab():
     
     comp_df = pd.DataFrame(competitors)
     
-    # ========================================================================
     # Intelligence Overview Cards
-    # ========================================================================
     st.markdown("#### 📊 Intelligence Overview")
     
     col1, col2, col3, col4 = st.columns(4)
     
-    # Calculate intelligence metrics
     total_competitors = len(comp_df)
     total_bids = comp_df['total_bids'].sum()
     total_wins = comp_df['total_wins'].sum()
@@ -515,19 +472,15 @@ def render_intelligence_tab():
     with col4:
         st.metric("🟣 Variable", variable_count)
     
-    # ========================================================================
     # Competitor Intelligence Table
-    # ========================================================================
     st.markdown("#### 📋 Competitor Intelligence Report")
     
-    # Prepare intelligence data with FIXED date handling
     intel_data = []
     for _, comp in comp_df.iterrows():
         total_bids_comp = comp.get('total_bids', 0)
         total_wins_comp = comp.get('total_wins', 0)
         win_rate_comp = (total_wins_comp / total_bids_comp * 100) if total_bids_comp > 0 else 0
         
-        # Determine behavior classification
         avg_ratio = comp.get('avg_bid_ratio', 0.92)
         if avg_ratio < 0.88:
             behavior = "Aggressive Bidder"
@@ -536,13 +489,11 @@ def render_intelligence_tab():
         else:
             behavior = "Conservative Bidder"
         
-        # FIXED: Calculate activity level with proper date handling
         first_seen = comp.get('first_seen')
         last_seen = comp.get('last_seen')
         active_months = None
         
         if first_seen and last_seen:
-            # Convert to datetime if they are strings
             if isinstance(first_seen, str):
                 try:
                     first_seen = datetime.strptime(first_seen, '%Y-%m-%d')
@@ -553,8 +504,6 @@ def render_intelligence_tab():
                     last_seen = datetime.strptime(last_seen, '%Y-%m-%d')
                 except ValueError:
                     last_seen = None
-            
-            # Calculate difference if both are valid datetime objects
             if first_seen and last_seen:
                 active_months = ((last_seen - first_seen).days / 30.44)
         
@@ -572,7 +521,6 @@ def render_intelligence_tab():
     
     intel_df = pd.DataFrame(intel_data)
     
-    # Display with color coding
     st.dataframe(
         intel_df[['Competitor', 'Strategy', 'Behavior', 'Bids', 'Win Rate', 'Avg Bid Ratio', 'Active Months']],
         use_container_width=True,
@@ -588,11 +536,8 @@ def render_intelligence_tab():
         }
     )
     
-    # ========================================================================
     # Quick Access to Intelligence Profiles
-    # ========================================================================
     st.markdown("#### 🔍 Quick Access to Full Intelligence Profiles")
-    
     top_competitors = intel_df.nlargest(5, 'Bids')
     
     if not top_competitors.empty:
@@ -609,26 +554,20 @@ def render_intelligence_tab():
                     ):
                         st.query_params.competitor_id = comp_id
                         st.session_state.page = "competitor_profile"
-
-        
-        st.caption("Showing top 5 competitors by bid frequency")
     
-    # ========================================================================
     # Market Intelligence Insights
-    # ========================================================================
     st.markdown("#### 📈 Market Intelligence Insights")
+    avg_ratio = comp_df['avg_bid_ratio'].mean()
     
     col1, col2 = st.columns(2)
-    
     with col1:
         st.markdown("**Market Positioning**")
-        if avg_ratio:
-            if avg_ratio < 0.89:
-                st.warning("🟢 Market is **highly competitive** - aggressive pricing is common")
-            elif avg_ratio < 0.93:
-                st.info("🟡 Market is **moderately competitive** - balanced approach recommended")
-            else:
-                st.success("🔵 Market is **less competitive** - room for better margins")
+        if avg_ratio and avg_ratio < 0.89:
+            st.warning("🟢 Market is **highly competitive** - aggressive pricing is common")
+        elif avg_ratio and avg_ratio < 0.93:
+            st.info("🟡 Market is **moderately competitive** - balanced approach recommended")
+        else:
+            st.success("🔵 Market is **less competitive** - room for better margins")
     
     with col2:
         st.markdown("**Recommendations**")
@@ -642,9 +581,7 @@ def render_intelligence_tab():
             st.write("• Opportunity for **margin improvement**")
             st.write("• Consider **differentiation** strategies")
     
-    # ========================================================================
     # Export Intelligence Data
-    # ========================================================================
     if st.button("📥 Export Intelligence Report", use_container_width=True):
         csv = intel_df.to_csv(index=False)
         st.download_button(
@@ -659,7 +596,8 @@ def render_intelligence_tab():
 # ============================================================================
 # TAB 5: TRACKING
 # ============================================================================
-def render_tracking_tab():
+
+def render_tracking_tab(db):
     """Render competitor tracking dashboard"""
     
     st.markdown("### 📊 Competitor Tracking")
@@ -670,9 +608,8 @@ def render_tracking_tab():
         st.warning("Please login to view competitor tracking")
         return
     
-    # Use the CompetitorTracker class
+    # ✅ Use CRUD methods
     from modules.competitor_tracking import CompetitorTracker
-    
     tracker = CompetitorTracker(company_id)
     insights = tracker.get_competitor_insights()
     
@@ -695,8 +632,6 @@ def render_tracking_tab():
     
     # Competitor list with tracking data
     competitors_data = insights['competitors']
-    
-    # Convert to DataFrame and handle dates
     competitors_df = pd.DataFrame(
         competitors_data,
         columns=['Name', 'Strategy', 'Appearances', 'Avg Bid Ratio', 'Wins', 'Last Seen']
@@ -706,7 +641,6 @@ def render_tracking_tab():
         competitors_df['Wins'] / competitors_df['Appearances'] * 100
     ).apply(lambda x: f"{x:.0f}%")
     
-    # Fix Last Seen date formatting
     def format_date(date_val):
         if date_val:
             if isinstance(date_val, str):
@@ -751,11 +685,12 @@ def render_tracking_tab():
         else:
             st.info("📊 Market is balanced - moderate approach recommended")
 
+
 # ============================================================================
 # TAB 6: SETTINGS
 # ============================================================================
 
-def render_settings_tab(can_edit: bool):
+def render_settings_tab(db, can_edit: bool):
     """Render competitor settings"""
     
     st.markdown("### ⚙️ Competitor Settings")
@@ -788,6 +723,7 @@ def render_settings_tab(can_edit: bool):
     with col1:
         if st.button("📥 Export All Competitor Data", use_container_width=True):
             company_id = st.session_state.get('company_id')
+            # ✅ Use CRUD method
             competitors = db.get_competitor_master_list(company_id, active_only=False)
             if competitors:
                 df = pd.DataFrame(competitors)
@@ -804,10 +740,8 @@ def render_settings_tab(can_edit: bool):
     with col2:
         if st.button("📊 Export Bid History", use_container_width=True):
             company_id = st.session_state.get('company_id')
-            history = db.query(
-                "SELECT * FROM competitor_bid_history WHERE company_id = ?",
-                (company_id,)
-            )
+            # ✅ Use CRUD method
+            history = db.get_competitor_bid_history(company_id, limit=1000)
             if history:
                 df = pd.DataFrame(history)
                 csv = df.to_csv(index=False)
@@ -824,6 +758,7 @@ def render_settings_tab(can_edit: bool):
         if st.button("🔄 Recalculate Stats", use_container_width=True):
             with st.spinner("Recalculating competitor statistics..."):
                 company_id = st.session_state.get('company_id')
+                # ✅ Use CRUD method
                 competitors = db.get_competitor_master_list(company_id, active_only=False)
                 for comp in competitors:
                     db.update_competitor_stats_from_bid(
@@ -842,13 +777,9 @@ def render_settings_tab(can_edit: bool):
         if st.button("🗑️ Clear All Competitor Data", type="secondary", use_container_width=True):
             if st.session_state.get('confirm_clear_competitors'):
                 company_id = st.session_state.get('company_id')
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM competitor_profiles WHERE company_id = ?", (company_id,))
-                cursor.execute("DELETE FROM competitor_bid_history WHERE company_id = ?", (company_id,))
-                cursor.execute("DELETE FROM competitor_master WHERE company_id = ?", (company_id,))
-                conn.commit()
-                conn.close()
+                db.execute("DELETE FROM competitor_profiles WHERE company_id = ?", (company_id,))
+                db.execute("DELETE FROM competitor_bid_history WHERE company_id = ?", (company_id,))
+                db.execute("DELETE FROM competitor_master WHERE company_id = ?", (company_id,))
                 st.success("✅ All competitor data cleared!")
                 st.session_state.confirm_clear_competitors = False
                 st.rerun()
@@ -862,38 +793,12 @@ def render_settings_tab(can_edit: bool):
 # ============================================================================
 
 def get_competitor_by_name(company_id: int, competitor_name: str) -> Optional[Dict]:
-    """Get competitor by name"""
-    return db.query_one(
-        "SELECT * FROM competitor_master WHERE company_id = ? AND competitor_name = ?",
-        (company_id, competitor_name)
-    )
+    """Get competitor by name - using CRUD"""
+    db = get_db_manager()
+    return db.get_competitor_by_name(company_id, competitor_name)
 
 
 def get_competitor_intelligence_summary(company_id: int) -> Dict[str, Any]:
-    """Get intelligence summary for a company"""
-    result = db.query_one("""
-        SELECT 
-            COUNT(*) as total_competitors,
-            SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_competitors,
-            SUM(total_bids) as total_bids,
-            SUM(total_wins) as total_wins,
-            AVG(avg_bid_ratio) as avg_market_ratio
-        FROM competitor_master
-        WHERE company_id = ?
-    """, (company_id,))
-    
-    if not result:
-        return {
-            'total_competitors': 0,
-            'active_competitors': 0,
-            'total_bids': 0,
-            'total_wins': 0,
-            'avg_market_ratio': 0.0,
-            'overall_win_rate': 0.0
-        }
-    
-    total_bids = result.get('total_bids', 0) or 0
-    total_wins = result.get('total_wins', 0) or 0
-    result['overall_win_rate'] = (total_wins / total_bids * 100) if total_bids > 0 else 0
-    
-    return result
+    """Get intelligence summary for a company - using CRUD"""
+    db = get_db_manager()
+    return db.get_competitor_intelligence_summary(company_id)

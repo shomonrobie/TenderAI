@@ -14,6 +14,9 @@ try:
 except ImportError:
     raise ImportError("pdfplumber is required. Install with: pip install pdfplumber")
 
+from database.unified_db_manager import get_db_manager
+from database.connection import get_db_type, is_supabase
+
 
 @dataclass
 class PWDRateItem:
@@ -69,31 +72,40 @@ class PWDRateParser:
             db_instance: Database manager instance (preferred)
             db_path: Path to SQLite database (legacy, use db_instance instead)
         """
-        self.db = db_instance
+        if db_instance is not None:
+            self.db = db_instance
+        else:
+            # Use cached DB manager
+            self.db = get_db_manager()
         
         # Legacy support for db_path
-        if db_path is None and db_instance is None:
-            from database.unified_db_manager import db
-            self.db = db
-        elif db_path:
+        if db_path:
             import warnings
             warnings.warn("db_path is deprecated. Use db_instance instead.", DeprecationWarning)
             self._legacy_db_path = db_path
+        
+        # Determine if using Supabase
+        self._use_supabase = is_supabase()
     
     def get_connection(self):
-        """Get database connection from unified manager."""
-        if self.db:
-            return self.db.get_connection()
-        elif hasattr(self, '_legacy_db_path'):
-            # Legacy fallback
-            db_dir = Path(self._legacy_db_path).parent
-            db_dir.mkdir(parents=True, exist_ok=True)
-            return sqlite3.connect(str(self._legacy_db_path))
-        else:
-            from database.unified_db_manager import db
-            return db.get_connection()
+        """Get database connection using the unified DB manager"""
+        return self.db.get_connection()
     
-    # ❌ REMOVED: init_database() - Tables already exist in unified manager
+    def get_cursor(self, conn=None):
+        """Get cursor from connection using the unified DB manager"""
+        return self.db.get_cursor(conn)
+    
+    def execute(self, sql: str, params: tuple = None) -> int:
+        """Execute SQL using the unified DB manager"""
+        return self.db.execute(sql, params)
+    
+    def query(self, sql: str, params: tuple = None) -> List[Dict]:
+        """Query database using the unified DB manager"""
+        return self.db.query(sql, params)
+    
+    def query_one(self, sql: str, params: tuple = None) -> Optional[Dict]:
+        """Query single record using the unified DB manager"""
+        return self.db.query_one(sql, params)
     
     def import_pdf(self, file_path: str, edition_year: int = 2022, 
                    dry_run: bool = False) -> ParseReport:
@@ -109,9 +121,6 @@ class PWDRateParser:
             ParseReport with statistics and any errors
         """
         report = ParseReport()
-        
-        conn = None if dry_run else self.get_connection()
-        cursor = None if dry_run else conn.cursor()
         
         try:
             with pdfplumber.open(file_path) as pdf:
@@ -130,10 +139,10 @@ class PWDRateParser:
                     })
                     
                     if tables and len(tables) > 0:
-                        self._process_tables(tables, edition_year, report, dry_run, cursor)
+                        self._process_tables(tables, edition_year, report, dry_run)
                     else:
                         # Fallback to raw line parsing
-                        self._parse_raw_lines(text, edition_year, report, dry_run, cursor)
+                        self._parse_raw_lines(text, edition_year, report, dry_run)
                         
         except Exception as e:
             report.status = "Failed"
@@ -141,14 +150,10 @@ class PWDRateParser:
             import traceback
             traceback.print_exc()
         
-        if not dry_run and conn:
-            conn.commit()
-            conn.close()
-        
         return report
     
     def _process_tables(self, tables: List, edition_year: int, 
-                        report: ParseReport, dry_run: bool, cursor):
+                        report: ParseReport, dry_run: bool):
         """Process extracted tables from PDF."""
         for table in tables:
             if not table or len(table) < 2:
@@ -207,12 +212,12 @@ class PWDRateParser:
                             rates[self.ZONE_SHORT_NAMES[idx]] = clean_rate
                             report.total_rates_found += 1
                 
-                if not dry_run and cursor and rates:
-                    self._save_to_database(cursor, pwd_code, parent_code, chapter_num,
+                if not dry_run and rates:
+                    self._save_to_database(pwd_code, parent_code, chapter_num,
                                           desc, unit, rates, edition_year)
     
     def _parse_raw_lines(self, text: str, edition_year: int, 
-                         report: ParseReport, dry_run: bool, cursor):
+                         report: ParseReport, dry_run: bool):
         """Fallback parser for raw text lines."""
         if not text:
             return
@@ -276,8 +281,8 @@ class PWDRateParser:
                     report.total_items_found += 1
                     report.total_rates_found += len(rates)
                     
-                    if not dry_run and cursor:
-                        self._save_to_database(cursor, pwd_code, parent_code, chapter_num,
+                    if not dry_run:
+                        self._save_to_database(pwd_code, parent_code, chapter_num,
                                               desc, unit, rates, edition_year)
     
     def _extract_unit(self, row_cells: List[str], code_col: Optional[int]) -> str:
@@ -338,14 +343,14 @@ class PWDRateParser:
         
         return None
     
-    def _save_to_database(self, cursor, pwd_code: str, parent_code: Optional[str], 
+    def _save_to_database(self, pwd_code: str, parent_code: Optional[str], 
                          chapter_num: str, description: str, unit: str, 
                          rates: Dict[str, float], edition_year: int):
-        """Save parsed data to unified database tables."""
+        """Save parsed data to unified database tables using the DB manager."""
         try:
             # Insert into pwd_parents (for parent items, 2-part codes)
             if parent_code is None or len(pwd_code.split('.')) == 2:
-                cursor.execute("""
+                self.execute("""
                     INSERT OR REPLACE INTO pwd_parents 
                     (pwd_code, description, chapter_number)
                     VALUES (?, ?, ?)
@@ -353,7 +358,7 @@ class PWDRateParser:
             
             # Insert into pwd_children (for child items, 3-part codes)
             if parent_code:
-                cursor.execute("""
+                self.execute("""
                     INSERT OR REPLACE INTO pwd_children 
                     (pwd_code, parent_code, description, unit, edition_year)
                     VALUES (?, ?, ?, ?, ?)
@@ -361,7 +366,7 @@ class PWDRateParser:
             
             # Insert rates into pwd_rates
             for zone_name, rate in rates.items():
-                cursor.execute("""
+                self.execute("""
                     INSERT OR REPLACE INTO pwd_rates 
                     (pwd_code, zone_name, unit_rate, edition_year)
                     VALUES (?, ?, ?, ?)
@@ -387,16 +392,14 @@ def import_pwd_rates(pdf_path: str, edition_year: int = 2022,
     Returns:
         ParseReport with import statistics
     """
-    from database.unified_db_manager import db
-    parser = PWDRateParser(db_instance=db)
+    parser = PWDRateParser()
     return parser.import_pdf(pdf_path, edition_year, dry_run)
 
 
 # Example usage
 if __name__ == "__main__":
     # Test the parser
-    from database.unified_db_manager import db
-    parser = PWDRateParser(db_instance=db)
+    parser = PWDRateParser()
     
     # Import PDF (replace with your file path)
     report = parser.import_pdf("PWD_RATE_SCHEDULE_2022_2026.pdf", edition_year=2022)

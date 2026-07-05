@@ -1,4 +1,4 @@
-# utils/otp_service.py
+# utils/otp_service.py - Refactored to use CRUD methods
 
 import random
 import string
@@ -12,15 +12,19 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from config.settings import Config
+from database.unified_db_manager import get_db_manager
 
 logger = logging.getLogger(__name__)
+print(f"SMTP_USER: {Config.SMTP_USER}")
+print(f"SMTP_PASSWORD length: {len(Config.SMTP_PASSWORD) if Config.SMTP_PASSWORD else 0}")
+print(f"SMTP_PASSWORD first 4 chars: {Config.SMTP_PASSWORD[:4] if Config.SMTP_PASSWORD else 'None'}")
 
 
 class OTPService:
     """Handle OTP generation, sending, and verification"""
     
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, db=None):
+        self.db = db or get_db_manager()
         self.config = Config
     
     def generate_otp(self, length: int = None) -> str:
@@ -31,7 +35,6 @@ class OTPService:
     def _send_sms_ssl_wireless(self, mobile_number: str, message: str) -> bool:
         """Send SMS via SSL Wireless (Bangladesh)"""
         try:
-            # Format mobile number (remove any +88 or 88 prefix)
             mobile = mobile_number
             if mobile.startswith('+88'):
                 mobile = mobile[3:]
@@ -116,6 +119,65 @@ class OTPService:
             logger.error(f"Email sending failed: {e}")
             return False
     
+    # utils/otp_service.py - Add this debug method
+
+    def test_email_connection(self):
+        """Test email connection and send a test email"""
+        print("🔍 TESTING EMAIL CONNECTION...")
+        print(f"   EMAIL_ENABLED: {self.config.EMAIL_ENABLED}")
+        print(f"   SMTP_HOST: {self.config.SMTP_HOST}")
+        print(f"   SMTP_PORT: {self.config.SMTP_PORT}")
+        print(f"   SMTP_USER: {self.config.SMTP_USER}")
+        print(f"   SMTP_FROM_EMAIL: {self.config.SMTP_FROM_EMAIL}")
+        
+        if not self.config.EMAIL_ENABLED:
+            print("❌ EMAIL_ENABLED is False")
+            return False, "Email is disabled in config"
+        
+        if not self.config.SMTP_USER or not self.config.SMTP_PASSWORD:
+            print("❌ SMTP credentials missing")
+            return False, "SMTP credentials missing"
+        
+        # Try to send a test email
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = f"{self.config.SMTP_FROM_NAME} <{self.config.SMTP_FROM_EMAIL}>"
+            msg['To'] = self.config.SMTP_USER  # Send to yourself
+            msg['Subject'] = "TenderAI - Test Email"
+            
+            body = """
+            <html>
+            <body>
+                <h2>✅ Test Email from TenderAI</h2>
+                <p>This is a test email to verify that the SMTP configuration is working.</p>
+                <p>If you receive this, email sending is properly configured!</p>
+            </body>
+            </html>
+            """
+            msg.attach(MIMEText(body, 'html'))
+            
+            print(f"🔍 Connecting to {self.config.SMTP_HOST}:{self.config.SMTP_PORT}...")
+            
+            with smtplib.SMTP(self.config.SMTP_HOST, self.config.SMTP_PORT) as server:
+                server.starttls()
+                print("🔍 TLS started")
+                
+                print(f"🔍 Logging in as {self.config.SMTP_USER}...")
+                server.login(self.config.SMTP_USER, self.config.SMTP_PASSWORD)
+                print("✅ Login successful")
+                
+                print(f"🔍 Sending email to {self.config.SMTP_USER}...")
+                server.send_message(msg)
+                print("✅ Email sent successfully!")
+                
+            return True, "Test email sent successfully!"
+            
+        except Exception as e:
+            print(f"❌ Test email failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False, f"Test email failed: {str(e)}"
+        
     def _send_email_test(self, email: str, subject: str, body: str) -> bool:
         """Test mode - just print to console"""
         print(f"\n{'='*50}")
@@ -128,10 +190,62 @@ class OTPService:
     def send_email(self, email: str, subject: str, body: str) -> bool:
         """Send email via configured provider"""
         
+        print(f"🔍 DEBUG: send_email called")
+        print(f"   EMAIL_ENABLED: {self.config.EMAIL_ENABLED}")
+        print(f"   DEBUG_OTP_PRINT: {self.config.DEBUG_OTP_PRINT}")
+        print(f"   SMTP_HOST: {self.config.SMTP_HOST}")
+        print(f"   SMTP_PORT: {self.config.SMTP_PORT}")
+        print(f"   SMTP_USER: {self.config.SMTP_USER}")
+        print(f"   SMTP_FROM_EMAIL: {self.config.SMTP_FROM_EMAIL}")
+        print(f"   Email: {email}")
+        print(f"   Subject: {subject}")
+        print(f"   Body length: {len(body)}")
+        
         if not self.config.EMAIL_ENABLED or self.config.DEBUG_OTP_PRINT:
+            print("🔍 DEBUG: Email disabled or debug mode - printing to console")
             return self._send_email_test(email, subject, body)
         
+        print("🔍 DEBUG: Attempting to send real email via SMTP...")
         return self._send_email_smtp(email, subject, body)
+
+    def test_gmail_connection(self):
+        """Test Gmail SMTP connection"""
+        print("🔍 Testing Gmail SMTP connection...")
+        print(f"   SMTP_USER: {self.config.SMTP_USER}")
+        print(f"   SMTP_PASSWORD: {'*' * len(self.config.SMTP_PASSWORD) if self.config.SMTP_PASSWORD else 'MISSING'}")
+        print(f"   SMTP_HOST: {self.config.SMTP_HOST}")
+        print(f"   SMTP_PORT: {self.config.SMTP_PORT}")
+        
+        if not self.config.SMTP_USER or not self.config.SMTP_PASSWORD:
+            print("❌ SMTP credentials missing!")
+            return False, "SMTP credentials missing"
+        
+        try:
+            import smtplib
+            print("🔍 Connecting to Gmail...")
+            
+            server = smtplib.SMTP(self.config.SMTP_HOST, self.config.SMTP_PORT)
+            server.set_debuglevel(1)  # Show detailed debug info
+            server.starttls()
+            print("🔍 Logging in...")
+            server.login(self.config.SMTP_USER, self.config.SMTP_PASSWORD)
+            print("✅ Login successful!")
+            server.quit()
+            
+            return True, "Gmail SMTP connection successful!"
+            
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"❌ Authentication Error: {e}")
+            print("   Possible causes:")
+            print("   1. Wrong email or password")
+            print("   2. 2-Step Verification not enabled")
+            print("   3. App Password not generated correctly")
+            print("   4. Email mismatch in config")
+            return False, f"Authentication failed: {e}"
+        except Exception as e:
+            print(f"❌ Connection Error: {e}")
+            return False, f"Connection failed: {e}"
+
     
     def send_verification_otp(self, contact_type: str, contact_value: str,
                           target_type: str, target_id: int,
@@ -155,23 +269,21 @@ class OTPService:
         
         expires_at = datetime.now() + timedelta(minutes=self.config.OTP_EXPIRY_MINUTES)
         
-        # Invalidate old unused OTPs for this contact
-        self.db.execute("""
-            UPDATE otp_verification
-            SET is_used = 1
-            WHERE contact_type = ? AND contact_value = ? AND purpose = ? AND is_used = 0
-        """, (contact_type, contact_value, purpose))
+        # Invalidate old unused OTPs
+        self.db.invalidate_old_otps(contact_type, contact_value, purpose)
         
-        # Store OTP in database
-        self.db.execute("""
-            INSERT INTO otp_verification 
-            (target_type, target_id, contact_type, contact_value, 
-            otp_code, purpose, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (target_type, target_id, contact_type, contact_value, 
-            otp_code, purpose, expires_at))
+        # Store OTP
+        otp_id = self.db.create_otp({
+            'target_type': target_type,
+            'target_id': target_id,
+            'contact_type': contact_type,
+            'contact_value': contact_value,
+            'otp_code': otp_code,
+            'purpose': purpose,
+            'expires_at': expires_at.isoformat()
+        })
         
-        print(f"🔍 DEBUG: OTP stored in database: {otp_code}")
+        print(f"🔍 DEBUG: OTP stored in database with ID: {otp_id}")
         
         # Send OTP via appropriate channel
         if contact_type == 'mobile':
@@ -180,39 +292,26 @@ class OTPService:
             channel = "SMS"
         else:
             subject = "TenderAI - Email Verification Code"
-            body = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Arial, sans-serif; }}
-                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
-                    .code {{ font-size: 32px; font-weight: bold; color: #4CAF50; text-align: center; padding: 20px; }}
-                    .footer {{ font-size: 12px; color: #666; text-align: center; margin-top: 20px; }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h2>TenderAI Email Verification</h2>
-                    </div>
-                    <p>Hello,</p>
-                    <p>Your verification code is:</p>
-                    <div class="code">{otp_code}</div>
-                    <p>This code is valid for {self.config.OTP_EXPIRY_MINUTES} minutes.</p>
-                    <p>If you didn't request this, please ignore this email.</p>
-                    <div class="footer">
-                        <p>Best regards,<br>TenderAI Team</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """
-            success = self.send_email(contact_value, subject, body)
-            channel = "Email"
+            body = self._generate_otp_email_body(otp_code)
+            
+            # ✅ Even in debug mode, try to send real email
+            # If DEBUG_OTP_PRINT is True, also print to console
+            if self.config.DEBUG_OTP_PRINT:
+                print(f"\n{'='*50}")
+                print(f"📧 EMAIL TO: {contact_value}")
+                print(f"📋 SUBJECT: {subject}")
+                print(f"📝 OTP CODE: {otp_code}")
+                print(f"{'='*50}\n")
+            
+            # ✅ Always try to send real email if EMAIL_ENABLED
+            if self.config.EMAIL_ENABLED:
+                success = self._send_email_smtp(contact_value, subject, body)
+                channel = "Email"
+            else:
+                success = True  # Console output counts as success in debug mode
+                channel = "Console"
         
-        print(f"🔍 DEBUG: Email send success: {success}")
+        print(f"🔍 DEBUG: {channel} send success: {success}")
         
         if success:
             logger.info(f"OTP sent via {channel} to {contact_value}")
@@ -221,85 +320,39 @@ class OTPService:
         else:
             logger.error(f"Failed to send OTP via {channel} to {contact_value}")
             return False, f"Failed to send {channel}. Please try again.", None
+
     
-    def send_verification_otp_bak(self, contact_type: str, contact_value: str,
-                              target_type: str, target_id: int,
-                              purpose: str = 'verification') -> Tuple[bool, str]:
-        """
-        Send OTP for verification
-        """
-        
-        # Validate contact value
-        if contact_type == 'mobile':
-            contact_value = self.normalize_mobile(contact_value)
-            if not self.validate_bangladesh_mobile(contact_value):
-                return False, "Invalid Bangladeshi mobile number"
-        
-        # Generate OTP
-        otp_code = self.generate_otp()
-        expires_at = datetime.now() + timedelta(minutes=self.config.OTP_EXPIRY_MINUTES)
-        
-        # Invalidate old unused OTPs for this contact
-        self.db.execute("""
-            UPDATE otp_verification
-            SET is_used = 1
-            WHERE contact_type = ? AND contact_value = ? AND purpose = ? AND is_used = 0
-        """, (contact_type, contact_value, purpose))
-        
-        # Store OTP in database
-        self.db.execute("""
-            INSERT INTO otp_verification 
-            (target_type, target_id, contact_type, contact_value, 
-             otp_code, purpose, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (target_type, target_id, contact_type, contact_value, 
-              otp_code, purpose, expires_at))
-        
-        # Send OTP via appropriate channel
-        if contact_type == 'mobile':
-            message = f"Your TenderAI verification code is: {otp_code}. Valid for {self.config.OTP_EXPIRY_MINUTES} minutes."
-            success = self.send_sms(contact_value, message)
-            channel = "SMS"
-        else:
-            subject = "TenderAI - Email Verification Code"
-            body = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body {{ font-family: Arial, sans-serif; }}
-                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
-                    .code {{ font-size: 32px; font-weight: bold; color: #4CAF50; text-align: center; padding: 20px; }}
-                    .footer {{ font-size: 12px; color: #666; text-align: center; margin-top: 20px; }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h2>TenderAI Email Verification</h2>
-                    </div>
-                    <p>Hello,</p>
-                    <p>Your verification code is:</p>
-                    <div class="code">{otp_code}</div>
-                    <p>This code is valid for {self.config.OTP_EXPIRY_MINUTES} minutes.</p>
-                    <p>If you didn't request this, please ignore this email.</p>
-                    <div class="footer">
-                        <p>Best regards,<br>TenderAI Team</p>
-                    </div>
+    def _generate_otp_email_body(self, otp_code: str) -> str:
+        """Generate HTML email body for OTP"""
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
+                .code {{ font-size: 32px; font-weight: bold; color: #4CAF50; text-align: center; padding: 20px; }}
+                .footer {{ font-size: 12px; color: #666; text-align: center; margin-top: 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h2>TenderAI Email Verification</h2>
                 </div>
-            </body>
-            </html>
-            """
-            success = self.send_email(contact_value, subject, body)
-            channel = "Email"
-        
-        if success:
-            logger.info(f"OTP sent via {channel} to {contact_value}")
-            return True, f"{channel} with OTP sent to {self.mask_contact(contact_value)}"
-        else:
-            logger.error(f"Failed to send OTP via {channel} to {contact_value}")
-            return False, f"Failed to send {channel}. Please try again."
+                <p>Hello,</p>
+                <p>Your verification code is:</p>
+                <div class="code">{otp_code}</div>
+                <p>This code is valid for {self.config.OTP_EXPIRY_MINUTES} minutes.</p>
+                <p>If you didn't request this, please ignore this email.</p>
+                <div class="footer">
+                    <p>Best regards,<br>TenderAI Team</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
     
     def verify_otp(self, contact_type: str, contact_value: str,
                    otp_code: str, purpose: str = 'verification') -> Tuple[bool, str, Optional[Dict]]:
@@ -307,43 +360,61 @@ class OTPService:
         Verify OTP code
         """
         
+        print(f"🔍 DEBUG: verify_otp called with contact_type={contact_type}, contact_value={contact_value}, otp_code={otp_code}, purpose={purpose}")
+        
         if contact_type == 'mobile':
             contact_value = self.normalize_mobile(contact_value)
         
-        # Find valid OTP
-        otp_record = self.db.query_one("""
-            SELECT * FROM otp_verification
-            WHERE contact_type = ? 
-              AND contact_value = ?
-              AND otp_code = ?
-              AND purpose = ?
-              AND is_used = 0
-              AND expires_at > CURRENT_TIMESTAMP
-              AND attempts < ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        """, (contact_type, contact_value, otp_code, purpose, self.config.OTP_MAX_ATTEMPTS))
+        # ✅ Find valid OTP using CRUD method
+        try:
+            otp_record = self.db.get_valid_otp(
+                contact_type, contact_value, otp_code, purpose,
+                self.config.OTP_MAX_ATTEMPTS
+            )
+            
+            print(f"🔍 DEBUG: Query executed, otp_record found: {otp_record is not None}")
+            if otp_record:
+                print(f"🔍 DEBUG: OTP record ID: {otp_record.get('id')}")
+            else:
+                print("🔍 DEBUG: No valid OTP record found")
+                
+                # Debug: Check what OTPs exist for this contact
+                check_record = self.db.get_latest_otp(contact_value, purpose)
+                if check_record:
+                    print(f"🔍 DEBUG: Latest OTP in DB: {check_record}")
+                    print(f"🔍 DEBUG: DB OTP code: {check_record.get('otp_code')}, User entered: {otp_code}")
+                    print(f"🔍 DEBUG: DB is_used: {check_record.get('is_used')}")
+                    print(f"🔍 DEBUG: DB expires_at: {check_record.get('expires_at')}")
+                    print(f"🔍 DEBUG: DB attempts: {check_record.get('attempts')}")
+            
+        except Exception as e:
+            print(f"🔍 DEBUG: Database query error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False, f"Database error: {str(e)}", None
         
         if not otp_record:
-            # Increment attempts for the latest OTP
-            self.db.execute("""
-                UPDATE otp_verification
-                SET attempts = attempts + 1
-                WHERE contact_type = ? AND contact_value = ? AND purpose = ? AND is_used = 0
-            """, (contact_type, contact_value, purpose))
+            # ✅ Increment attempts using CRUD method
+            try:
+                self.db.increment_otp_attempts(contact_type, contact_value, purpose)
+                print("🔍 DEBUG: Incremented attempts for latest OTP")
+            except Exception as e:
+                print(f"🔍 DEBUG: Error incrementing attempts: {e}")
             
             return False, "Invalid or expired OTP. Please request a new one.", None
         
-        # Mark OTP as used
-        self.db.execute("""
-            UPDATE otp_verification
-            SET is_used = 1, used_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (otp_record['id'],))
+        # ✅ Mark OTP as used using CRUD method
+        try:
+            self.db.mark_otp_used(otp_record['id'])
+            print(f"🔍 DEBUG: OTP marked as used: {otp_record['id']}")
+        except Exception as e:
+            print(f"🔍 DEBUG: Error marking OTP as used: {e}")
         
-        # Update verification status in target table
+        # ✅ Update verification status using CRUD method
         target_type = otp_record['target_type']
         target_id = otp_record['target_id']
+        
+        print(f"🔍 DEBUG: Updating verification for target_type={target_type}, target_id={target_id}")
         
         if contact_type == 'mobile':
             update_fields = {
@@ -359,21 +430,20 @@ class OTPService:
         # Update appropriate table
         table = 'users' if target_type == 'user' else 'companies'
         
-        set_clause = ', '.join([f"{k} = ?" for k in update_fields.keys()])
-        values = list(update_fields.values()) + [target_id]
+        try:
+            self.db.update_verification_status(table, target_id, update_fields)
+            print(f"🔍 DEBUG: Updated {table} table for id={target_id}")
+        except Exception as e:
+            print(f"🔍 DEBUG: Error updating {table}: {e}")
         
-        self.db.execute(f"""
-            UPDATE {table}
-            SET {set_clause}
-            WHERE id = ?
-        """, values)
-        
-        # Log verification
-        self.db.execute("""
-            INSERT INTO verification_history
-            (target_type, target_id, contact_type, contact_value, verification_method)
-            VALUES (?, ?, ?, ?, 'otp')
-        """, (target_type, target_id, contact_type, contact_value))
+        # ✅ Log verification using CRUD method
+        try:
+            self.db.log_verification_history(
+                target_type, target_id, contact_type, contact_value, 'otp'
+            )
+            print("🔍 DEBUG: Verification history logged")
+        except Exception as e:
+            print(f"🔍 DEBUG: Error logging verification history: {e}")
         
         return True, f"{contact_type.capitalize()} verified successfully!", dict(otp_record)
     
@@ -438,126 +508,3 @@ class OTPService:
         if len(contact) >= 8:
             return contact[:2] + '*' * (len(contact) - 4) + contact[-2:]
         return contact
-
-def verify_otp(self, contact_type: str, contact_value: str,
-               otp_code: str, purpose: str = 'verification') -> Tuple[bool, str, Optional[Dict]]:
-    """
-    Verify OTP code
-    """
-    
-    print(f"🔍 DEBUG: verify_otp called with contact_type={contact_type}, contact_value={contact_value}, otp_code={otp_code}, purpose={purpose}")
-    
-    if contact_type == 'mobile':
-        contact_value = self.normalize_mobile(contact_value)
-    
-    # Find valid OTP
-    try:
-        otp_record = self.db.query_one("""
-            SELECT * FROM otp_verification
-            WHERE contact_type = ? 
-              AND contact_value = ?
-              AND otp_code = ?
-              AND purpose = ?
-              AND is_used = 0
-              AND expires_at > CURRENT_TIMESTAMP
-              AND attempts < ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        """, (contact_type, contact_value, otp_code, purpose, self.config.OTP_MAX_ATTEMPTS))
-        
-        print(f"🔍 DEBUG: Query executed, otp_record found: {otp_record is not None}")
-        if otp_record:
-            print(f"🔍 DEBUG: OTP record ID: {otp_record.get('id')}")
-            print(f"🔍 DEBUG: OTP record data: {otp_record}")
-        else:
-            print("🔍 DEBUG: No valid OTP record found")
-            
-            # Debug: Check what OTPs exist for this contact
-            check_record = self.db.query_one("""
-                SELECT * FROM otp_verification
-                WHERE contact_value = ? AND purpose = ?
-                ORDER BY created_at DESC LIMIT 1
-            """, (contact_value, purpose))
-            if check_record:
-                print(f"🔍 DEBUG: Latest OTP in DB: {check_record}")
-                print(f"🔍 DEBUG: DB OTP code: {check_record.get('otp_code')}, User entered: {otp_code}")
-                print(f"🔍 DEBUG: DB is_used: {check_record.get('is_used')}")
-                print(f"🔍 DEBUG: DB expires_at: {check_record.get('expires_at')}")
-                print(f"🔍 DEBUG: DB attempts: {check_record.get('attempts')}")
-        
-    except Exception as e:
-        print(f"🔍 DEBUG: Database query error: {e}")
-        import traceback
-        traceback.print_exc()
-        return False, f"Database error: {str(e)}", None
-    
-    if not otp_record:
-        # Increment attempts for the latest OTP
-        try:
-            self.db.execute("""
-                UPDATE otp_verification
-                SET attempts = attempts + 1
-                WHERE contact_type = ? AND contact_value = ? AND purpose = ? AND is_used = 0
-            """, (contact_type, contact_value, purpose))
-            print("🔍 DEBUG: Incremented attempts for latest OTP")
-        except Exception as e:
-            print(f"🔍 DEBUG: Error incrementing attempts: {e}")
-        
-        return False, "Invalid or expired OTP. Please request a new one.", None
-    
-    # Mark OTP as used
-    try:
-        self.db.execute("""
-            UPDATE otp_verification
-            SET is_used = 1, used_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (otp_record['id'],))
-        print(f"🔍 DEBUG: OTP marked as used: {otp_record['id']}")
-    except Exception as e:
-        print(f"🔍 DEBUG: Error marking OTP as used: {e}")
-    
-    # Update verification status in target table
-    target_type = otp_record['target_type']
-    target_id = otp_record['target_id']
-    
-    print(f"🔍 DEBUG: Updating verification for target_type={target_type}, target_id={target_id}")
-    
-    if contact_type == 'mobile':
-        update_fields = {
-            'mobile_verified': 1,
-            'mobile_verified_at': datetime.now().isoformat()
-        }
-    else:
-        update_fields = {
-            'email_verified': 1,
-            'email_verified_at': datetime.now().isoformat()
-        }
-    
-    # Update appropriate table
-    table = 'users' if target_type == 'user' else 'companies'
-    
-    set_clause = ', '.join([f"{k} = ?" for k in update_fields.keys()])
-    values = list(update_fields.values()) + [target_id]
-    
-    try:
-        self.db.execute(f"""
-            UPDATE {table}
-            SET {set_clause}
-            WHERE id = ?
-        """, values)
-        print(f"🔍 DEBUG: Updated {table} table for id={target_id}")
-    except Exception as e:
-        print(f"🔍 DEBUG: Error updating {table}: {e}")
-    
-    # Log verification
-    try:
-        self.db.execute("""
-            INSERT INTO verification_history
-            (target_type, target_id, contact_type, contact_value, verification_method)
-            VALUES (?, ?, ?, ?, 'otp')
-        """, (target_type, target_id, contact_type, contact_value))
-        print("🔍 DEBUG: Verification history logged")
-    except Exception as e:
-        print(f"🔍 DEBUG: Error logging verification history: {e}")
-    
-    return True, f"{contact_type.capitalize()} verified successfully!", dict(otp_record)

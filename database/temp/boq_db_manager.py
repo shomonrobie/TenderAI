@@ -4,14 +4,14 @@ import pandas as pd
 from streamlit import secrets
 
 # Dynamically link to your existing database engine
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
-DB_PATH = db.db_path 
 
 def init_boq_subsystem_tables():
     """Builds relational structural scopes over your existing iTender tables."""
-    conn = sqlite3.connect(DB_PATH)
+    db = get_db_manager()
+
+    conn = db.get_connection()
     cursor = conn.cursor()
     
     # 1. Extend or track state for ingested e-GP Tenders

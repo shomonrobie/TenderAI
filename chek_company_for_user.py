@@ -1,11 +1,11 @@
 
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 
 # 1. Check Babui's company
 print("=" * 60)
 print("🔍 CHECKING BABUI COMPANY")
 print("=" * 60)
-
+db = get_db_manager()
 # Get Babui company by name
 babui = db.get_company_by_name('Babui')
 

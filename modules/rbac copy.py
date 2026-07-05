@@ -4,8 +4,17 @@ import streamlit as st
 from typing import Dict, List, Any, Optional
 from functools import wraps
 
-from database.unified_db_manager import UnifiedDatabaseManager
-db = UnifiedDatabaseManager()
+from database.unified_db_manager import get_db_manager
+
+# ✅ Get db instance at module level (but it will be cached)
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
 
 # =============================================================================
 # ROLE DEFINITIONS AND PERMISSIONS
@@ -623,9 +632,10 @@ class RBACManager:
         
         if role == 'system_admin' and st.session_state.get('company_id'):
             try:
-                from database.unified_db_manager import db
+                from database.unified_db_manager import get_db_manager
                 user_id = st.session_state.get('user_id')
                 if user_id:
+                    db = get_db()
                     user = db.get_user_by_id(user_id)
                     if user and user.get('role') == 'company_admin':
                         st.session_state.user_role = 'company_admin'
@@ -660,7 +670,7 @@ class RBACManager:
         user_id = st.session_state.get('user_id')
         if user_id:
             try:
-                from database.unified_db_manager import db
+                db = get_db()
                 user = db.get_user_by_id(user_id)
                 if user:
                     st.session_state.user_role = user.get('role', 'viewer')
@@ -955,6 +965,7 @@ def render_role_badge() -> None:
     if role == 'system_admin' and st.session_state.get('company_id'):
         user_id = st.session_state.get('user_id')
         if user_id:
+            db = get_db()
             user = db.get_user_by_id(user_id)
             if user and user.get('role') == 'company_admin':
                 role = 'company_admin'

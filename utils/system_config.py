@@ -3,9 +3,9 @@
 import json
 from datetime import datetime
 from typing import Any, Optional
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 
-
+db= get_db_manager()
 class SystemConfig:
     """System configuration manager with caching"""
     

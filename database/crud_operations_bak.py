@@ -1835,22 +1835,22 @@ class DatabaseCRUD:
             
             return roles
     
-    def update_role_permissions(self, role: str, permissions: List[str]) -> bool:
-        """Update permissions for a role"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    # def update_role_permissions(self, role: str, permissions: List[str]) -> bool:
+    #     """Update permissions for a role"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            # Delete existing permissions
-            cursor.execute("DELETE FROM role_permissions WHERE role = ?", (role,))
+    #         # Delete existing permissions
+    #         cursor.execute("DELETE FROM role_permissions WHERE role = ?", (role,))
             
-            # Insert new permissions
-            for permission in permissions:
-                cursor.execute("""
-                    INSERT INTO role_permissions (role, permission)
-                    VALUES (?, ?)
-                """, (role, permission))
+    #         # Insert new permissions
+    #         for permission in permissions:
+    #             cursor.execute("""
+    #                 INSERT INTO role_permissions (role, permission)
+    #                 VALUES (?, ?)
+    #             """, (role, permission))
             
-            return True
+    #         return True
     
     # ==================== PWD/LGED RATE METHODS ====================
     

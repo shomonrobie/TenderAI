@@ -1,8 +1,7 @@
 import streamlit as st
 import hashlib
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
 
 def show():
     """User profile page"""
@@ -13,7 +12,8 @@ def show():
         <p>Manage your account information</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    db = get_db_manager()
+
     # Get user data
     user = db.get_user_by_id(st.session_state.user_id)
     

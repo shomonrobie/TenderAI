@@ -1,11 +1,11 @@
 import streamlit as st
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
 
 def show():
     """User registration page"""
-    
+    db = get_db_manager()
+
     st.markdown("""
     <div class="main-header">
         <h1>📝 Create Account</h1>

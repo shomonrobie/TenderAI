@@ -22,10 +22,8 @@ from modules.pwd_data_manager import (
 from modules.subscription_ui import render_subscription_card
 from modules.subscription import get_plan
 
-from database.unified_db_manager import UnifiedDatabaseManager
-db = UnifiedDatabaseManager()
-
-DB_PATH = db.db_path
+from database.unified_db_manager import get_db_manager
+db = get_db_manager()
 
 
 def render_pwd_ingestion_panel():
@@ -377,22 +375,22 @@ def render_version_import(db_instance):
         st.success(f"✅ Version {version_name} imported successfully!")
 
 
-def render_version_history(db_instance):
-    """Display version history"""
+# def render_version_history(db_instance):
+#     """Display version history"""
     
-    versions = get_rate_versions(db_instance)
+#     versions = get_rate_versions(db_instance)
     
-    for version in versions:
-        with st.expander(f"{version['name']} ({version['year']})"):
-            st.write(f"**Effective Date:** {version['effective_date']}")
-            st.write(f"**Status:** {'✅ Active' if version['is_active'] else '📦 Archived'}")
-            st.write(f"**Imported:** {version['imported_at']}")
-            st.write(f"**Items:** {version['parent_count']} parents, {version['child_count']} children")
+#     for version in versions:
+#         with st.expander(f"{version['name']} ({version['year']})"):
+#             st.write(f"**Effective Date:** {version['effective_date']}")
+#             st.write(f"**Status:** {'✅ Active' if version['is_active'] else '📦 Archived'}")
+#             st.write(f"**Imported:** {version['imported_at']}")
+#             st.write(f"**Items:** {version['parent_count']} parents, {version['child_count']} children")
             
-            if version['is_active']:
-                if st.button("Archive", key=f"archive_{version['id']}"):
-                    archive_version(db_instance, version['id'])
-                    st.rerun()
+#             if version['is_active']:
+#                 if st.button("Archive", key=f"archive_{version['id']}"):
+#                     archive_version(db_instance, version['id'])
+#                     st.rerun()
 
 
 def render_version_migration(db_instance):
@@ -410,29 +408,8 @@ def show():
     """, unsafe_allow_html=True)
     
     # Get all users for stats
-    all_users_raw = db.get_all_users()
+    all_users = db.get_all_users()
     all_subs = db.get_all_subscriptions()
-    
-    # Convert to dictionary format
-    all_users = []
-    for u in all_users_raw:
-        if hasattr(u, 'keys'):
-            user_dict = dict(u)
-        elif isinstance(u, (tuple, list)):
-            if len(u) >= 10:
-                user_dict = {
-                    'id': u[0], 'username': u[1], 'email': u[2], 'full_name': u[3],
-                    'phone': u[4], 'role': u[5], 'is_active': u[6],
-                    'created_at': u[7], 'last_login': u[8], 'company_name': u[9],
-                    'is_approved': u[10] if len(u) > 10 else 1
-                }
-            else:
-                continue
-        elif isinstance(u, dict):
-            user_dict = u
-        else:
-            continue
-        all_users.append(user_dict)
     
     # Statistics in a row
     col1, col2, col3, col4 = st.columns(4)
@@ -441,24 +418,103 @@ def show():
         st.metric("Total Users", len(all_users))
     
     with col2:
-        active_users = len([u for u in all_users if u.get('is_active', 0) == 1]) if all_users else 0
+        active_users = len([u for u in all_users if u.get('is_active', False)]) if all_users else 0
         st.metric("Active Users", active_users)
     
     with col3:
-        companies = set([u.get('company_name', 'N/A') for u in all_users]) if all_users else set()
+        companies = set([u.get('company_name', 'N/A') for u in all_users if u.get('company_name') and u.get('company_name') != 'N/A']) if all_users else set()
         st.metric("Companies", len(companies))
     
     with col4:
-        paid_subs = len([s for s in all_subs if len(s) > 2 and s[2] not in ['free', 'trial']]) if all_subs else 0
-        #paid_subs = len([s for s in all_subs if s.get('plan') not in ['free', 'trial']]) if all_subs else 0
+        paid_subs = len([s for s in all_subs if s.get('plan') not in ['free', 'trial']]) if all_subs else 0
+        st.metric("Paid Subscriptions", paid_subs)
+    
+    st.markdown("---")
+    
+    # ✅ 3 Main Tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "👑 Overview",
+        "👥 Users & Roles",
+        "🏢 Companies",
+        "🏗️ Rate Import",
+        "📦 Version Management",
+        "⚙️ System Config"
+    ])
+    
+    # ========== TAB 1: OVERVIEW ==========
+    with tab1:
+        render_admin_overview(all_users, all_subs)
+    
+    # ========== TAB 2: USERS & ROLES ==========
+    with tab2:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 👑 System Users")
+            render_system_user_management()
+        
+        with col2:
+            st.markdown("#### 🔐 Role Management")
+            render_role_management_page()
+        
+        st.markdown("---")
+        st.markdown("#### 👥 All Users")
+        render_all_users(all_users)
+    
+    # ========== TAB 3: COMPANIES ==========
+    with tab3:
+        render_company_management()
+    
+    # ========== TAB 4: RATE IMPORT ==========
+    with tab4:
+        render_unified_import_wizard(db)
+    
+    # ========== TAB 5: VERSION MANAGEMENT ==========
+    with tab5:
+        render_unified_version_management()
+    
+    # ========== TAB 6: SYSTEM CONFIG ==========
+    with tab6:
+        render_system_configuration()
 
+
+def show_bak():
+    """Admin dashboard page with full system management"""
+    
+    st.markdown("""
+    <div class="main-header">
+        <h1>👑 Admin Dashboard</h1>
+        <p>System-wide administration and monitoring</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ✅ Use CRUD methods
+    all_users = db.get_all_users()
+    all_subs = db.get_all_subscriptions()
+    
+    # Statistics in a row
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Users", len(all_users))
+    
+    with col2:
+        active_users = len([u for u in all_users if u.get('is_active', False)]) if all_users else 0
+        st.metric("Active Users", active_users)
+    
+    with col3:
+        companies = set([u.get('company_name', 'N/A') for u in all_users if u.get('company_name') and u.get('company_name') != 'N/A']) if all_users else set()
+        st.metric("Companies", len(companies))
+    
+    with col4:
+        paid_subs = len([s for s in all_subs if s.get('plan') not in ['free', 'trial']]) if all_subs else 0
         st.metric("Paid Subscriptions", paid_subs)
     
     # Add a divider to separate metrics from tabs
     st.markdown("---")
     
-    # Tabs - now at full width below the metrics
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    # Tabs
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 Overview", 
         "👥 All Users", 
         "🏢 Companies", 
@@ -466,7 +522,7 @@ def show():
         "🔐 Role Management",
         "🏗️ Rate Import",    
         "📅 Version Management",
-        "🔄 Rollback Management",
+        # "🔄 Rollback Management",
         "📝 Manual Entry",
         "📊 Rate Viewer",
         "⚙️ System Config",
@@ -491,57 +547,90 @@ def show():
     with tab6:
         render_unified_import_wizard(db)
 
-    with tab7:
-        render_rollback_management(db)        
+    # with tab7:
+    #     render_rollback_management(db)        
     
-    with tab8:
+    with tab7:
         render_unified_version_management(db)
     
-    with tab9:
+    with tab8:
         render_rate_crud_forms(db)
 
-    with tab10:
+    with tab9:
         render_rate_viewer(db)
     
-    with tab11:
+    with tab10:
         render_system_configuration()
     
-    with tab12:
+    with tab11:
         render_subscription_plans_management()
 
+
+
 def render_admin_overview(all_users, all_subs):
-    """Render system overview with charts"""
+    """Render system overview with charts - Using CRUD methods"""
     st.markdown("### System Overview")
     
-    # User growth chart
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as count
-        FROM users
-        GROUP BY month
-        ORDER BY month DESC
-        LIMIT 6
-    """)
-    user_growth_data = cursor.fetchall()
-    conn.close()
+    # Get user growth data
+    try:
+        db = get_db_manager()
+        user_growth_data = db.get_user_growth(6)
+        
+        # Check if we have valid data
+        if user_growth_data and len(user_growth_data) > 0:
+            # Create DataFrame
+            user_growth = pd.DataFrame(user_growth_data)
+            
+            # Check if we have the required columns
+            if 'month' in user_growth.columns and 'count' in user_growth.columns:
+                # Convert count to numeric
+                user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
+                # Sort by month
+                user_growth = user_growth.sort_values('month')
+                # Display chart
+                st.line_chart(user_growth.set_index('month')['count'])
+            else:
+                # Try to fix columns
+                cols = user_growth.columns.tolist()
+                if len(cols) >= 2:
+                    # Rename columns
+                    rename_dict = {}
+                    for col in cols:
+                        if 'month' in col.lower() or 'date' in col.lower():
+                            rename_dict[col] = 'month'
+                        elif 'count' in col.lower() or 'total' in col.lower() or 'num' in col.lower():
+                            rename_dict[col] = 'count'
+                    
+                    if rename_dict:
+                        user_growth = user_growth.rename(columns=rename_dict)
+                        if 'month' in user_growth.columns and 'count' in user_growth.columns:
+                            user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
+                            user_growth = user_growth.sort_values('month')
+                            st.line_chart(user_growth.set_index('month')['count'])
+                        else:
+                            st.info("User growth data format is unexpected.")
+                    else:
+                        st.info("User growth data format is unexpected.")
+                else:
+                    st.info("Not enough data to display user growth chart.")
+        else:
+            st.info("No user growth data available yet. Data will appear as users register.")
+    except Exception as e:
+        st.warning(f"Could not load user growth chart: {str(e)}")
+        st.info("User growth data will appear as users register on the platform.")
     
-    if user_growth_data:
-        user_growth = pd.DataFrame(user_growth_data, columns=['Month', 'Users'])
-        user_growth = user_growth.iloc[::-1]
-        st.line_chart(user_growth.set_index('Month'))
-    else:
-        st.info("No user growth data available")
-    
+        
     # Plan distribution
     if all_subs:
         plan_counts = {}
         for sub in all_subs:
-            plan = sub[2] if len(sub) > 2 else 'free'
+            plan = sub.get('plan', 'free')
             plan_counts[plan] = plan_counts.get(plan, 0) + 1
         
         plan_df = pd.DataFrame(plan_counts.items(), columns=['Plan', 'Count'])
         st.bar_chart(plan_df.set_index('Plan'))
+    else:
+        st.info("No subscription data available")
     
     # Role distribution
     if all_users:
@@ -552,6 +641,10 @@ def render_admin_overview(all_users, all_subs):
         
         role_df = pd.DataFrame(role_counts.items(), columns=['Role', 'Count'])
         st.bar_chart(role_df.set_index('Role'))
+    else:
+        st.info("No user data available")
+
+
 
 
 def render_all_users(all_users):
@@ -1751,76 +1844,76 @@ def render_version_import(db_instance):
                 os.remove(temp_path)
 
 
-def render_version_history(db_instance):
-    """Display version history - UI only"""
+# def render_version_history(db_instance):
+#     """Display version history - UI only"""
     
-    from modules.pwd_data_manager import get_rate_versions, archive_version
+#     from modules.pwd_data_manager import get_rate_versions, archive_version
     
-    versions = get_rate_versions(db_instance)
+#     versions = get_rate_versions(db_instance)
     
-    if not versions:
-        st.info("No versions found. Import a PWD schedule first.")
-        return
+#     if not versions:
+#         st.info("No versions found. Import a PWD schedule first.")
+#         return
     
-    st.markdown("#### Version History")
+#     st.markdown("#### Version History")
     
-    for version in versions:
-        with st.expander(f"📌 {version['name']} ({version['year']})", expanded=False):
-            col1, col2 = st.columns(2)
+#     for version in versions:
+#         with st.expander(f"📌 {version['name']} ({version['year']})", expanded=False):
+#             col1, col2 = st.columns(2)
             
-            with col1:
-                st.write(f"**Effective Date:** {version['effective_date']}")
-                st.write(f"**Status:** {'✅ Active' if version['is_active'] else '📦 Archived'}")
-                st.write(f"**Imported:** {version['imported_at']}")
+#             with col1:
+#                 st.write(f"**Effective Date:** {version['effective_date']}")
+#                 st.write(f"**Status:** {'✅ Active' if version['is_active'] else '📦 Archived'}")
+#                 st.write(f"**Imported:** {version['imported_at']}")
             
-            with col2:
-                st.write(f"**Parent Items:** {version['parent_count']}")
-                st.write(f"**Child Items:** {version['child_count']}")
-                st.write(f"**Total Items:** {version['parent_count'] + version['child_count']}")
+#             with col2:
+#                 st.write(f"**Parent Items:** {version['parent_count']}")
+#                 st.write(f"**Child Items:** {version['child_count']}")
+#                 st.write(f"**Total Items:** {version['parent_count'] + version['child_count']}")
             
-            if version['is_active']:
-                if st.button("Archive", key=f"archive_{version['id']}"):
-                    if archive_version(db_instance, version['id']):
-                        st.success(f"Version {version['name']} archived")
-                        st.rerun()
-                    else:
-                        st.error("Failed to archive version")
+#             if version['is_active']:
+#                 if st.button("Archive", key=f"archive_{version['id']}"):
+#                     if archive_version(db_instance, version['id']):
+#                         st.success(f"Version {version['name']} archived")
+#                         st.rerun()
+#                     else:
+#                         st.error("Failed to archive version")
 
 
-def render_version_migration(db_instance):
-    """Migrate BOQ items to new version - UI only"""
+# def render_version_migration(db_instance):
+#     """Migrate BOQ items to new version - UI only"""
     
-    st.info("🔧 Migration Tool")
-    st.caption("Migrate BOQ items from one version to another")
+#     st.info("🔧 Migration Tool")
+#     st.caption("Migrate BOQ items from one version to another")
     
-    from modules.pwd_data_manager import get_rate_versions
+#     from modules.pwd_data_manager import get_rate_versions
     
-    versions = get_rate_versions(db_instance)
+#     versions = get_rate_versions(db_instance)
     
-    if len(versions) < 2:
-        st.warning("Need at least 2 versions to migrate")
-        return
+#     if len(versions) < 2:
+#         st.warning("Need at least 2 versions to migrate")
+#         return
     
-    col1, col2 = st.columns(2)
+#     col1, col2 = st.columns(2)
     
-    with col1:
-        source_version = st.selectbox(
-            "Source Version",
-            options=[f"{v['name']} ({v['year']})" for v in versions],
-            key="source_version"
-        )
+#     with col1:
+#         source_version = st.selectbox(
+#             "Source Version",
+#             options=[f"{v['name']} ({v['year']})" for v in versions],
+#             key="source_version"
+#         )
     
-    with col2:
-        target_version = st.selectbox(
-            "Target Version",
-            options=[f"{v['name']} ({v['year']})" for v in versions],
-            key="target_version"
-        )
+#     with col2:
+#         target_version = st.selectbox(
+#             "Target Version",
+#             options=[f"{v['name']} ({v['year']})" for v in versions],
+#             key="target_version"
+#         )
     
-    if st.button("🚀 Start Migration", type="primary"):
-        st.info("Migration feature - Copies BOQ items from source to target version")
-        # Add migration logic here
-        st.success("Migration completed successfully!")
+#     if st.button("🚀 Start Migration", type="primary"):
+#         st.info("Migration feature - Copies BOQ items from source to target version")
+#         # Add migration logic here
+#         st.success("Migration completed successfully!")
 
 def get_default_api_url() -> str:
     """Get default API URL based on environment"""

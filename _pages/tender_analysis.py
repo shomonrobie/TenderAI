@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
 
 def calculate_optimal_bid(official_estimate, competitor_bids=None, risk_tolerance='moderate'):
     """Calculate optimal bid based on inputs"""
@@ -75,7 +74,8 @@ def show():
         <p>AI-powered bid optimization for construction tenders</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    db = get_db_manager()
+
     # Check if user can perform analysis
     can_analyze, remaining = db.can_perform_analysis(st.session_state.user_id)
     

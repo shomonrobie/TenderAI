@@ -1,9 +1,10 @@
-# modules/rate_viewer.py - UPDATED to match your session state pattern
+# modules/rate_viewer.py - Refactored to use crud_rates.py
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Any, List
+from database.unified_db_manager import get_db_manager
 
 # Import RBAC functions
 from modules.rbac import (
@@ -18,41 +19,33 @@ from modules.rbac import (
     render_role_badge
 )
 
+
 class RateViewer:
     """Rate viewer dashboard with sorting, filtering, pagination, and search
     Supports both system master rates and tenant rate books with RBAC integration
     """
     
-    def __init__(self, db):
-        self.db = db
+    def __init__(self):
+        self.db = get_db_manager()
     
     def _is_user_logged_in(self) -> bool:
-        """Check if user is logged in using the same pattern as rate_crud_forms"""
-        # Check for user_id in session state (matches rate_crud_forms pattern)
+        """Check if user is logged in"""
         if 'user_id' in st.session_state and st.session_state.user_id:
             return True
-        
-        # Also check for user_role (matches rate_crud_forms pattern)
         if 'user_role' in st.session_state and st.session_state.user_role:
             return True
-        
-        # Fallback: check for user object
         if 'user' in st.session_state and st.session_state.user:
             return True
-        
         return False
     
     def _get_current_user(self) -> Dict[str, Any]:
-        """Get current user data using the same pattern as rate_crud_forms"""
+        """Get current user data"""
         user = {}
-        
-        # Get values from session state (matches rate_crud_forms pattern)
         user['id'] = st.session_state.get('user_id')
         user['username'] = st.session_state.get('username', 'unknown')
         user['role'] = st.session_state.get('user_role', 'viewer')
         user['company_id'] = st.session_state.get('company_id')
         
-        # Also try to get from user object if it exists
         if 'user' in st.session_state and st.session_state.user:
             user_obj = st.session_state.user
             if isinstance(user_obj, dict):
@@ -68,7 +61,6 @@ class RateViewer:
     def render(self):
         """Main rate viewer interface with RBAC-based access control"""
         
-        # ✅ Check if user is logged in using the same pattern as rate_crud_forms
         if not self._is_user_logged_in():
             st.warning("⚠️ Please log in to access rate viewer.")
             if st.button("Go to Login"):
@@ -76,10 +68,7 @@ class RateViewer:
                 st.rerun()
             return
         
-        # ✅ Get user data
         user = self._get_current_user()
-        
-        # Show role badge (uses user_role from session state)
         render_role_badge()
         
         st.markdown("""
@@ -89,17 +78,13 @@ class RateViewer:
         </div>
         """, unsafe_allow_html=True)
         
-        # Check permissions using RBAC (which reads from session state)
         can_view_system = can_view_system_rates()
         can_view_tenant = can_view_tenant_rates()
         
-        # Determine which tabs to show
         tabs_to_show = []
-        
         if can_view_system:
             tabs_to_show.append("🏗️ PWD Master")
             tabs_to_show.append("🛣️ LGED Master")
-        
         if can_view_tenant:
             tabs_to_show.append("📚 My Rate Books")
         
@@ -107,7 +92,6 @@ class RateViewer:
             st.warning("🔒 You don't have permission to view any rates.")
             return
         
-        # Create tabs
         tabs = st.tabs(tabs_to_show)
         tab_index = 0
         
@@ -127,15 +111,13 @@ class RateViewer:
             tab_index += 1
     
     # =========================================================================
-    # PWD MASTER RATES
+    # PWD MASTER RATES - Using RateCRUD
     # =========================================================================
     
     def _render_pwd_master(self):
         """Render PWD master rates with RBAC controls"""
-        
         st.markdown("### 🏗️ PWD Master Rates")
         
-        # Check if user can edit
         can_edit = can_edit_system_rates()
         can_export = can_export_system_rates()
         
@@ -144,7 +126,6 @@ class RateViewer:
         else:
             st.info("🔒 View-only access. Contact System Administrator for edit permissions.")
         
-        # Load data
         data = self._load_pwd_data()
         
         if data.empty:
@@ -153,25 +134,21 @@ class RateViewer:
                 st.button("📥 Import PWD Rates", key="import_pwd")
             return
         
-        # Render with filters and display
         self._render_pwd_rates(data, can_edit, can_export)
     
     def _render_pwd_rates(self, data: pd.DataFrame, can_edit: bool, can_export: bool):
         """Render PWD rates with full features"""
         
-        # Debug info
         if st.checkbox("Show Debug Info", key="pwd_debug"):
             st.write("Data types:")
             st.write(data.dtypes)
             st.write("Sample data:")
             st.dataframe(data.head())
         
-        # Filters section
         st.markdown("#### 🔍 Filters")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            # Chapter filter
             if 'chapter_number' in data.columns:
                 chapters = sorted(data['chapter_number'].dropna().unique())
                 selected_chapter = st.selectbox("Chapter", ["All"] + list(chapters), key="pwd_chapter")
@@ -179,7 +156,6 @@ class RateViewer:
                 selected_chapter = "All"
         
         with col2:
-            # Zone filter
             if 'zone_name' in data.columns:
                 zones = data['zone_name'].dropna().unique().tolist()
                 selected_zone = st.selectbox("Zone", ["All"] + zones, key="pwd_zone")
@@ -187,14 +163,11 @@ class RateViewer:
                 selected_zone = "All"
         
         with col3:
-            # Search by code or description
             search_term = st.text_input("Search", placeholder="Code or description...", key="pwd_search")
         
         with col4:
-            # Items per page
             items_per_page = st.selectbox("Items per page", [10, 25, 50, 100, 200], key="pwd_items")
         
-        # Apply filters
         filtered_data = data.copy()
         
         if selected_chapter != "All":
@@ -205,21 +178,17 @@ class RateViewer:
         
         if search_term:
             filtered_data = filtered_data[
-                filtered_data['pwd_code'].str.contains(search_term, case=False, na=False) |
-                filtered_data['specification_text'].str.contains(search_term, case=False, na=False)
+                filtered_data['pwd_code'].astype(str).str.contains(search_term, case=False, na=False) |
+                filtered_data['specification_text'].astype(str).str.contains(search_term, case=False, na=False)
             ]
         
-        # Ensure unit_rate is numeric
         filtered_data['unit_rate'] = pd.to_numeric(filtered_data['unit_rate'], errors='coerce')
-        
-        # Remove rows with NaN rates
         filtered_data = filtered_data.dropna(subset=['unit_rate'])
         
         if filtered_data.empty:
             st.warning("No data found matching the filters")
             return
         
-        # Pivot table for better display
         try:
             pivot_data = filtered_data.pivot_table(
                 index=['pwd_code', 'specification_text', 'measurement_unit'],
@@ -232,7 +201,6 @@ class RateViewer:
             st.dataframe(filtered_data, use_container_width=True, hide_index=True)
             return
         
-        # Rename columns
         pivot_data.columns.name = None
         pivot_data = pivot_data.rename(columns={
             'pwd_code': 'Item Code',
@@ -240,24 +208,19 @@ class RateViewer:
             'measurement_unit': 'Unit'
         })
         
-        # Fill NaN with empty string
         pivot_data = pivot_data.fillna('')
         
-        # Format rate columns
         rate_columns = ['Dhaka', 'Chattogram', 'Khulna', 'Rajshahi']
         for col in rate_columns:
             if col in pivot_data.columns:
                 pivot_data[col] = pivot_data[col].apply(lambda x: f"৳{x:,.2f}" if x and x != '' else '')
         
-        # Pagination
         total_items = len(pivot_data)
         total_pages = (total_items + items_per_page - 1) // items_per_page if total_items > 0 else 1
         
-        # Page navigation
         if 'pwd_page_num' not in st.session_state:
             st.session_state.pwd_page_num = 1
         
-        # Reset page if filters change
         current_filter = (selected_chapter, selected_zone, search_term)
         if st.session_state.get('pwd_last_filter') != current_filter:
             st.session_state.pwd_page_num = 1
@@ -277,14 +240,11 @@ class RateViewer:
                 st.session_state.pwd_page_num += 1
                 st.rerun()
         
-        # Slice data for current page
         start_idx = (st.session_state.pwd_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
         page_data = pivot_data.iloc[start_idx:end_idx]
         
-        # Display the dataframe with edit controls if user has permission
         if can_edit:
-            # Show editable data editor
             edited_data = st.data_editor(
                 page_data,
                 use_container_width=True,
@@ -292,33 +252,27 @@ class RateViewer:
                 key=f"pwd_editor_{st.session_state.pwd_page_num}"
             )
             
-            # Save changes button
             if st.button("💾 Save PWD Changes", key="save_pwd"):
                 self._save_pwd_changes(edited_data, data)
                 st.success("✅ PWD rates updated successfully!")
                 st.rerun()
         else:
-            # Read-only display
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
-        # Export options
         if can_export:
             self._render_export_options(pivot_data, "pwd_rates_export")
         
-        # Summary statistics
         with st.expander("📊 Summary Statistics", expanded=False):
             self._render_summary_stats(filtered_data, rate_columns)
     
     # =========================================================================
-    # LGED MASTER RATES
+    # LGED MASTER RATES - Using RateCRUD
     # =========================================================================
     
     def _render_lged_master(self):
         """Render LGED master rates with RBAC controls"""
-        
         st.markdown("### 🛣️ LGED Master Rates")
         
-        # Check if user can edit
         can_edit = can_edit_system_rates()
         can_export = can_export_system_rates()
         
@@ -327,7 +281,6 @@ class RateViewer:
         else:
             st.info("🔒 View-only access. Contact System Administrator for edit permissions.")
         
-        # Load data
         data = self._load_lged_data()
         
         if data.empty:
@@ -336,20 +289,17 @@ class RateViewer:
                 st.button("📥 Import LGED Rates", key="import_lged")
             return
         
-        # Render with filters and display
         self._render_lged_rates(data, can_edit, can_export)
     
     def _render_lged_rates(self, data: pd.DataFrame, can_edit: bool, can_export: bool):
         """Render LGED rates with full features"""
         
-        # Debug info
         if st.checkbox("Show Debug Info", key="lged_debug"):
             st.write("Data types:")
             st.write(data.dtypes)
             st.write("Sample data:")
             st.dataframe(data.head())
         
-        # Ensure unit_rate is numeric
         data['unit_rate'] = pd.to_numeric(data['unit_rate'], errors='coerce')
         data = data.dropna(subset=['unit_rate'])
         
@@ -357,15 +307,12 @@ class RateViewer:
             st.warning("No valid rate data found")
             return
         
-        # Get unique zone names
         zone_names = data['zone_name'].unique().tolist()
         
-        # Filters section
         st.markdown("#### 🔍 Filters")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            # Chapter filter
             if 'chapter_number' in data.columns:
                 chapters = sorted(data['chapter_number'].dropna().unique())
                 selected_chapter = st.selectbox("Chapter", ["All"] + list(chapters), key="lged_chapter")
@@ -381,7 +328,6 @@ class RateViewer:
         with col4:
             items_per_page = st.selectbox("Items per page", [10, 25, 50, 100, 200], key="lged_items")
         
-        # Apply filters
         filtered_data = data.copy()
         
         if selected_chapter != "All":
@@ -392,15 +338,14 @@ class RateViewer:
         
         if search_term:
             filtered_data = filtered_data[
-                filtered_data['code'].str.contains(search_term, case=False, na=False) |
-                filtered_data['description'].str.contains(search_term, case=False, na=False)
+                filtered_data['code'].astype(str).str.contains(search_term, case=False, na=False) |
+                filtered_data['description'].astype(str).str.contains(search_term, case=False, na=False)
             ]
         
         if filtered_data.empty:
             st.warning("No data found matching the filters")
             return
         
-        # Pivot table
         try:
             pivot_data = filtered_data.pivot_table(
                 index=['code', 'description', 'unit'],
@@ -413,7 +358,6 @@ class RateViewer:
             st.dataframe(filtered_data, use_container_width=True, hide_index=True)
             return
         
-        # Rename columns
         pivot_data.columns.name = None
         pivot_data = pivot_data.rename(columns={
             'code': 'Item Code',
@@ -421,21 +365,17 @@ class RateViewer:
             'unit': 'Unit'
         })
         
-        # Fill NaN with 0 and format
         for zone in zone_names:
             if zone in pivot_data.columns:
                 pivot_data[zone] = pd.to_numeric(pivot_data[zone], errors='coerce').fillna(0)
                 pivot_data[zone] = pivot_data[zone].apply(lambda x: f"৳{x:,.2f}" if x > 0 else '')
         
-        # Pagination
         total_items = len(pivot_data)
         total_pages = (total_items + items_per_page - 1) // items_per_page if total_items > 0 else 1
         
-        # Page navigation
         if 'lged_page_num' not in st.session_state:
             st.session_state.lged_page_num = 1
         
-        # Reset page if filters change
         current_filter = (selected_chapter, selected_zone, search_term)
         if st.session_state.get('lged_last_filter') != current_filter:
             st.session_state.lged_page_num = 1
@@ -455,12 +395,10 @@ class RateViewer:
                 st.session_state.lged_page_num += 1
                 st.rerun()
         
-        # Slice data for current page
         start_idx = (st.session_state.lged_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
         page_data = pivot_data.iloc[start_idx:end_idx]
         
-        # Display the dataframe with edit controls if user has permission
         if can_edit:
             edited_data = st.data_editor(
                 page_data,
@@ -476,24 +414,20 @@ class RateViewer:
         else:
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
-        # Export options
         if can_export:
             self._render_export_options(pivot_data, "lged_rates_export")
     
     # =========================================================================
-    # TENANT RATE BOOKS
+    # TENANT RATE BOOKS - Using RateCRUD
     # =========================================================================
     
     def _render_tenant_rate_books(self):
         """Render tenant rate books with RBAC controls"""
-        
         st.markdown("### 📚 My Rate Books")
         
-        # Check if user can edit
         can_edit = can_edit_tenant_rates()
         can_export = can_export_tenant_rates()
         
-        # ✅ Get tenant info using the same pattern as rate_crud_forms
         user_id = st.session_state.get('user_id')
         company_id = st.session_state.get('company_id')
         
@@ -504,52 +438,25 @@ class RateViewer:
         tenant_id = company_id or user_id
         tenant_type = 'company' if company_id else 'user'
         
-        # Load rate books
-        from services.tenant_rate_service import TenantRateService
-        service = TenantRateService()
-        
-        result = service.get_rate_books(tenant_id, tenant_type)
-        
-        # ✅ FIX: Check if result is a dict and has success key
-        if not isinstance(result, dict):
-            st.error(f"Unexpected response type: {type(result)}")
-            return
-        
-        if not result.get('success'):
-            st.error(result.get('error', 'Failed to load rate books'))
-            return
-        
-        books = result.get('books', [])
-        
-        # ✅ FIX: Ensure books is a list
-        if not isinstance(books, list):
-            st.error(f"Unexpected books type: {type(books)}")
-            return
+        # ✅ Use RateCRUD directly
+        books = self.db.get_rate_books_by_tenant(tenant_id, tenant_type)
         
         if not books:
             st.info("No rate books found. Create a rate book from the Rate Management page.")
-            
-            # Link to rate management
             if st.button("➕ Go to Rate Management", key="go_to_rate_management"):
                 st.session_state.page = "rate_management"
                 st.rerun()
             return
         
-        # ✅ FIX: Ensure book_options is built correctly
-        try:
-            book_options = {}
-            for b in books:
-                if isinstance(b, dict) and 'id' in b and 'name' in b:
-                    book_options[b['id']] = b['name']
-        except Exception as e:
-            st.error(f"Error processing rate books: {e}")
-            return
+        book_options = {}
+        for b in books:
+            if isinstance(b, dict) and 'id' in b and 'name' in b:
+                book_options[b['id']] = b['name']
         
         if not book_options:
             st.info("No valid rate books found.")
             return
         
-        # Select rate book
         selected_book_id = st.selectbox(
             "Select Rate Book",
             options=list(book_options.keys()),
@@ -560,7 +467,6 @@ class RateViewer:
         if not selected_book_id:
             return
         
-        # Get selected book
         selected_book = None
         for b in books:
             if isinstance(b, dict) and b.get('id') == selected_book_id:
@@ -571,7 +477,6 @@ class RateViewer:
             st.error("Selected rate book not found")
             return
         
-        # Show book info
         st.markdown(f"""
         **Source:** {selected_book.get('source_type', 'Unknown')}  
         **Status:** {'Active' if selected_book.get('is_active') else 'Inactive'}  
@@ -579,23 +484,13 @@ class RateViewer:
         **Versions:** {selected_book.get('version_count', 0)}
         """)
         
-        # Get versions
-        try:
-            versions = service.repository.get_versions_for_book(selected_book_id)
-        except Exception as e:
-            st.error(f"Error loading versions: {e}")
-            return
-        
-        # ✅ FIX: Ensure versions is a list
-        if not isinstance(versions, list):
-            st.error(f"Unexpected versions type: {type(versions)}")
-            return
+        # ✅ Get versions using RateCRUD
+        versions = self.db.get_versions_for_book(selected_book_id)
         
         if not versions:
             st.info("No versions found for this rate book")
             return
         
-        # Select version (default to current)
         version_options = {}
         current_version = None
         
@@ -613,7 +508,6 @@ class RateViewer:
             st.info("No valid versions found")
             return
         
-        # Auto-select current version
         if current_version:
             default_version_id = current_version.get('id')
         else:
@@ -634,35 +528,33 @@ class RateViewer:
         if not selected_version_id:
             return
         
-        # Get items with pricing
-        try:
-            items = service.repository.get_rate_items_by_book(selected_book_id, selected_version_id)
-        except Exception as e:
-            st.error(f"Error loading items: {e}")
-            return
-        
-        # ✅ FIX: Ensure items is a list
-        if not isinstance(items, list):
-            st.error(f"Unexpected items type: {type(items)}")
-            return
+        # ✅ Get items with pricing using RateCRUD
+        items = self.db.get_rate_items_with_pricing(selected_book_id, selected_version_id)
         
         if not items:
             st.info("No items found in this rate book")
             return
         
-        # Display items with pricing levels
         data = []
         for item in items:
             if not isinstance(item, dict):
                 continue
             pricing = item.get('pricing', {})
+            
+            def get_price(pricing_dict, level):
+                if isinstance(pricing_dict, dict):
+                    level_data = pricing_dict.get(level, {})
+                    if isinstance(level_data, dict):
+                        return level_data.get('price', '')
+                return ''
+            
             data.append({
                 'Item Code': item.get('item_code', ''),
                 'Description': item.get('item_description', ''),
                 'Unit': item.get('unit', ''),
-                'Economy': pricing.get('ECONOMY', {}).get('price', '') if isinstance(pricing.get('ECONOMY'), dict) else pricing.get('ECONOMY', ''),
-                'Market': pricing.get('MARKET', {}).get('price', '') if isinstance(pricing.get('MARKET'), dict) else pricing.get('MARKET', ''),
-                'Premium': pricing.get('PREMIUM', {}).get('price', '') if isinstance(pricing.get('PREMIUM'), dict) else pricing.get('PREMIUM', ''),
+                'Aggressive': get_price(pricing, 'AGGRESSIVE'),
+                'Competitive': get_price(pricing, 'COMPETITIVE'),
+                'Standard': get_price(pricing, 'STANDARD'),
             })
         
         if not data:
@@ -671,13 +563,11 @@ class RateViewer:
         
         df = pd.DataFrame(data)
         
-        # Pagination
         items_per_page = st.selectbox("Items per page", [10, 25, 50, 100, 200], key="tenant_items_per_page")
         
         total_items = len(df)
         total_pages = (total_items + items_per_page - 1) // items_per_page if total_items > 0 else 1
         
-        # Page navigation
         if 'tenant_page_num' not in st.session_state:
             st.session_state.tenant_page_num = 1
         
@@ -695,12 +585,10 @@ class RateViewer:
                 st.session_state.tenant_page_num += 1
                 st.rerun()
         
-        # Slice data
         start_idx = (st.session_state.tenant_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
         page_data = df.iloc[start_idx:end_idx]
         
-        # Display with edit controls
         if can_edit and not selected_book.get('is_archived', False):
             edited_df = st.data_editor(
                 page_data,
@@ -710,9 +598,9 @@ class RateViewer:
                     "Item Code": st.column_config.TextColumn("Item Code", width="small"),
                     "Description": st.column_config.TextColumn("Description", width="large"),
                     "Unit": st.column_config.TextColumn("Unit", width="small"),
-                    "Economy": st.column_config.NumberColumn("Economy (BDT)", format="%.2f"),
-                    "Market": st.column_config.NumberColumn("Market (BDT)", format="%.2f"),
-                    "Premium": st.column_config.NumberColumn("Premium (BDT)", format="%.2f"),
+                    "Aggressive": st.column_config.NumberColumn("Aggressive (BDT)", format="%.2f"),
+                    "Competitive": st.column_config.NumberColumn("Competitive (BDT)", format="%.2f"),
+                    "Standard": st.column_config.NumberColumn("Standard (BDT)", format="%.2f"),
                 },
                 key=f"tenant_editor_{selected_book_id}_{selected_version_id}_{st.session_state.tenant_page_num}"
             )
@@ -724,94 +612,126 @@ class RateViewer:
         else:
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
-        # Export
         if can_export:
             self._render_export_options(df, f"rate_book_{selected_book.get('name', 'unknown')}")
-
     
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
     
     def _load_pwd_data(self) -> pd.DataFrame:
-        """Load PWD data from database"""
+        """Load PWD data using RateCRUD"""
         try:
-            conn = self.db.get_connection()
-            query = """
-                SELECT 
-                    c.pwd_code,
-                    c.description as specification_text,
-                    c.unit as measurement_unit,
-                    p.chapter_number,
-                    r.zone_name,
-                    r.unit_rate
-                FROM pwd_children c
-                LEFT JOIN pwd_parents p ON c.parent_code = p.pwd_code
-                LEFT JOIN pwd_rates r ON c.pwd_code = r.pwd_code
-                ORDER BY c.pwd_code, r.zone_name
-            """
-            df = pd.read_sql_query(query, conn)
-            conn.close()
+            # ✅ Get children with correct column names
+            children = self.db.query("""
+                SELECT pwd_code, description, unit, parent_code
+                FROM pwd_children
+            """)
             
-            # Clean up
+            if not children:
+                return pd.DataFrame()
+            
+            # ✅ Get parents for chapter info
+            parents = self.db.query("""
+                SELECT pwd_code, chapter_number
+                FROM pwd_parents
+            """)
+            
+            # ✅ Get rates
+            rates = self.db.query("""
+                SELECT pwd_code, zone_name, unit_rate
+                FROM pwd_rates
+            """)
+            
+            df_children = pd.DataFrame(children)
+            df_parents = pd.DataFrame(parents) if parents else pd.DataFrame(columns=['pwd_code', 'chapter_number'])
+            df_rates = pd.DataFrame(rates) if rates else pd.DataFrame(columns=['pwd_code', 'zone_name', 'unit_rate'])
+            
+            # Merge in Pandas
+            df = df_children.merge(df_parents, left_on='parent_code', right_on='pwd_code', how='left', suffixes=('', '_parent'))
+            df = df.merge(df_rates, on='pwd_code', how='left')
+            
+            # ✅ Rename columns to match expected names
+            df = df.rename(columns={
+                'description': 'specification_text',
+                'unit': 'measurement_unit'
+            })
+            
             df = df.dropna(subset=['pwd_code'])
             df['unit_rate'] = pd.to_numeric(df['unit_rate'], errors='coerce')
             
-            return df
+            # ✅ Return with expected columns
+            columns_needed = ['pwd_code', 'specification_text', 'measurement_unit', 'chapter_number', 'zone_name', 'unit_rate']
+            for col in columns_needed:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            return df[columns_needed]
+            
         except Exception as e:
-            st.error(f"Error loading PWD data: {e}")
+            if "does not exist" in str(e).lower() or "undefined" in str(e).lower():
+                st.info("PWD master data table not found. Please import PWD data first.")
+            else:
+                st.error(f"Error loading PWD data: {e}")
             return pd.DataFrame()
+
     
     def _load_lged_data(self) -> pd.DataFrame:
-        """Load LGED data from database"""
+        """Load LGED data using RateCRUD"""
         try:
-            conn = self.db.get_connection()
+            # ✅ Get children
+            children = self.db.query("""
+                SELECT id, code, description, unit, parent_code
+                FROM lged_children
+            """)
             
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='lged_children'")
-            if not cursor.fetchone():
+            if not children:
                 return pd.DataFrame()
             
-            query = """
-                SELECT 
-                    c.code,
-                    c.description,
-                    c.unit,
-                    c.parent_code,
-                    r.zone_name,
-                    r.unit_rate
-                FROM lged_children c
-                LEFT JOIN lged_zone_rates r ON c.id = r.child_id
-                ORDER BY c.code, r.zone_name
-            """
-            df = pd.read_sql_query(query, conn)
-            conn.close()
+            # ✅ Get rates
+            rates = self.db.query("""
+                SELECT child_id, zone_name, unit_rate
+                FROM lged_zone_rates
+            """)
             
-            if df.empty:
-                return df
+            df_children = pd.DataFrame(children)
+            df_rates = pd.DataFrame(rates) if rates else pd.DataFrame(columns=['child_id', 'zone_name', 'unit_rate'])
             
-            # Extract chapter number from parent_code
+            # Merge in Pandas
+            df = df_children.merge(df_rates, left_on='id', right_on='child_id', how='left')
+            
+            # ✅ Extract chapter number from parent_code
             df['chapter_number'] = df['parent_code'].apply(
                 lambda x: str(x).split('.')[0] if x and '.' in str(x) else ''
             )
             
-            # Clean up
             df = df.dropna(subset=['code'])
             df['unit_rate'] = pd.to_numeric(df['unit_rate'], errors='coerce')
             
-            return df
+            # ✅ Return with expected columns
+            columns_needed = ['code', 'description', 'unit', 'parent_code', 'zone_name', 'unit_rate', 'chapter_number']
+            for col in columns_needed:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            return df[columns_needed]
+            
         except Exception as e:
-            st.error(f"Error loading LGED data: {e}")
+            if "does not exist" in str(e).lower() or "undefined" in str(e).lower():
+                st.info("LGED master data table not found. Please import LGED data first.")
+            else:
+                st.error(f"Error loading LGED data: {e}")
             return pd.DataFrame()
+
     
     def _save_pwd_changes(self, edited_data: pd.DataFrame, original_data: pd.DataFrame):
-        """Save PWD rate changes"""
-        # Implementation would update the database
+        """Save PWD rate changes - using RateCRUD"""
+        # Implementation would update the database via RateCRUD
         st.info("PWD save functionality implementation")
     
     def _save_lged_changes(self, edited_data: pd.DataFrame, original_data: pd.DataFrame):
-        """Save LGED rate changes"""
-        # Implementation would update the database
+        """Save LGED rate changes - using RateCRUD"""
+        # Implementation would update the database via RateCRUD
         st.info("LGED save functionality implementation")
     
     def _save_tenant_pricing_changes(
@@ -820,19 +740,15 @@ class RateViewer:
         original_items: List[Dict], 
         version_id: int
     ):
-        """Save tenant pricing changes"""
-        from services.tenant_rate_service import TenantRateService
-        service = TenantRateService()
+        """Save tenant pricing changes using RateCRUD"""
         
-        # ✅ Get user ID using the same pattern as rate_crud_forms
         user_id = st.session_state.get('user_id')
         
         if not user_id:
             st.error("⚠️ User not logged in. Cannot save changes.")
             return
         
-        # Map items by code
-        items_by_code = {item['item_code']: item for item in original_items}
+        items_by_code = {item.get('item_code'): item for item in original_items if item.get('item_code')}
         
         for _, row in edited_data.iterrows():
             item_code = row.get('Item Code')
@@ -840,14 +756,16 @@ class RateViewer:
                 continue
             
             item = items_by_code[item_code]
-            item_id = item['id']
+            item_id = item.get('id')
             
-            # Update each pricing level
-            for level in ['Economy', 'Market', 'Premium']:
+            if not item_id:
+                continue
+            
+            for level in ['Aggressive', 'Competitive', 'Standard']:
                 price = row.get(level)
                 if price is not None and price != '':
                     try:
-                        service.update_pricing(
+                        self.db.update_pricing(
                             version_id=version_id,
                             item_id=item_id,
                             pricing_level=level.upper(),
@@ -893,11 +811,10 @@ class RateViewer:
 
 
 # =========================================================================
-# CONVENIENCE FUNCTION - UPDATED
+# CONVENIENCE FUNCTION
 # =========================================================================
 
-def render_rate_viewer(db):
+def render_rate_viewer():
     """Convenience function to render rate viewer"""
-    # Create instance and render
-    viewer = RateViewer(db)
+    viewer = RateViewer()
     viewer.render()

@@ -8,11 +8,11 @@ import streamlit as st
 from typing import Dict, Tuple, Optional, List
 from functools import wraps
 
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 from modules.rbac import _rbac, ROLE_PERMISSIONS
 from modules.subscription_manager import SubscriptionManager, check_subscription_access, PLANS
 from modules.subscription import get_plans, get_plan, is_premium_plan
-
+db = get_db_manager()
 
 
 # =============================================================================

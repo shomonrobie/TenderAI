@@ -4,8 +4,8 @@ import streamlit as st
 import random
 import time
 from datetime import datetime, timedelta
-from database.unified_db_manager import db
-
+from database.unified_db_manager import get_db_manager
+db = get_db_manager()
 class LiveCounters:
     """Real-time counters for landing page with realistic Bangladesh market data"""
     

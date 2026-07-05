@@ -8,6 +8,9 @@ import logging
 logging.getLogger("watchdog").setLevel(logging.ERROR)
 logging.getLogger("watchdog.observers.inotify_buffer").setLevel(logging.ERROR)
 logging.getLogger("streamlit").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("hpack").setLevel(logging.WARNING)
 
 # Filter out noisy inotify messages
 class NoSpamFilter(logging.Filter):
@@ -171,16 +174,21 @@ logger = logging.getLogger(__name__)
 # 🗄️ DATABASE & MODULE IMPORTS
 # =============================================================================
 from datetime import datetime
-from database.unified_db_manager import UnifiedDatabaseManager
+
 from modules.auth import login_user, logout_user, is_admin, is_company_admin, authenticate_user, has_permission, get_current_user
 from modules.subscription import render_subscription_page, render_checkout
 from modules.user_management import render_user_management
 from modules.subscription_plans import ensure_default_plans
+from database.unified_db_manager import get_db_manager
+from database.connection import init_db_connection
 
+# Initialize database connection type
+init_db_connection("supabase")   # Change to "sqlite" if needed
+
+# Get cached database manager
+db = get_db_manager()
 # Initialize database
-db = UnifiedDatabaseManager()
-init_rbac()
-ensure_default_plans()
+
 
 # ========== START FLASK API FOR EXTENSION ==========
 try:
@@ -366,35 +374,33 @@ except ImportError:
     ADVANCED_OPTIMIZER_AVAILABLE = False
     debug_print("⚠️ Advanced optimizer not available - using fallback")
 
-# At the beginning of main.py, after imports
+
 def ensure_password_hashes():
-    """Fix password hashes on startup"""
-    import hashlib
-    import sqlite3
-    import os
-    
-    db_path = "data/tender_system.db"
-    if not os.path.exists(db_path):
-        return
-    
+    """Fix password hashes on startup using unified DB manager"""
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check if users table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-        if not cursor.fetchone():
-            conn.close()
+        # Check if we're in SQLite mode (this fix is only needed for SQLite)
+        if db.get_db_type() != "sqlite":
             return
         
-        # Check all users
-        cursor.execute("SELECT id, username, password FROM users")
-        users = cursor.fetchall()
+        # Use unified query
+        users = db.query("SELECT id, username, password FROM users")
         
+        if not users:
+            return
+            
         fixed = 0
-        for user_id, username, password in users:
-            # Check if SHA256
+        updates = []
+        
+        import hashlib
+        
+        for user in users:
+            user_id = user['id']
+            username = user['username']
+            password = user.get('password', '')
+            
+            # Check if it's already a proper SHA256 hash
             is_sha256 = len(password) == 64 and all(c in '0123456789abcdef' for c in password.lower())
+            
             if not is_sha256:
                 if username == 'admin':
                     new_hash = hashlib.sha256('admin123'.encode()).hexdigest()
@@ -403,15 +409,18 @@ def ensure_password_hashes():
                 else:
                     new_hash = hashlib.sha256('password123'.encode()).hexdigest()
                 
-                cursor.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user_id))
+                updates.append((new_hash, user_id))
                 fixed += 1
         
-        conn.commit()
-        conn.close()
-        if fixed > 0:
-            print(f"✅ Fixed {fixed} password hashes")
+        if updates:
+            # Batch update using unified execute
+            for new_hash, user_id in updates:
+                db.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user_id))
+            
+            print(f"✅ Fixed {fixed} password hashes on startup")
+            
     except Exception as e:
-        print(f"⚠️ Password fix error: {e}")
+        print(f"⚠️ Password hash fix error: {e}")
 
 # Custom CSS
 st.markdown("""
@@ -463,7 +472,26 @@ st.markdown("""
         }
     </style>
     """, unsafe_allow_html=True)
+os.makedirs("static/uploads/avatars", exist_ok=True)
+def serve_static_files():
+    """Serve static files from the static directory"""
+    static_dir = "static"
+    if not os.path.exists(static_dir):
+        os.makedirs(static_dir)
+    
+    # Create necessary subdirectories
+    os.makedirs(os.path.join(static_dir, "uploads", "avatars"), exist_ok=True)
 
+def startup_initializations():
+    """Run all startup tasks"""
+    ensure_password_hashes()
+    init_rbac()
+    ensure_default_plans()
+    init_theme()    
+    # Apply theme CSS
+    apply_theme()
+    
+    # Add any other startup tasks here
 
 def safe_markdown_vars(**kwargs) -> Dict[str, str]:
     """
@@ -1353,7 +1381,7 @@ def _render_authenticated_pages() -> None:
         PageRoutes.RATE_MANAGEMENT: lambda: render_rate_crud_forms(db),
         PageRoutes.IMPORT_WIZARD: lambda: render_unified_import_wizard(db),
         
-        PageRoutes.RATE_VIEWER: lambda: _import_and_call('modules.rate_viewer', 'render_rate_viewer', db),
+        PageRoutes.RATE_VIEWER: lambda: _import_and_call('modules.rate_viewer', 'render_rate_viewer'),
         PageRoutes.TENDER_FORM: lambda: _import_and_call('modules.tender_form', 'render_tender_form'),
 
         # Advanced modules (lazy import)
@@ -1373,7 +1401,7 @@ def _render_authenticated_pages() -> None:
         PageRoutes.BOQ_ADMIN_REPORT: lambda: _import_and_call('modules.boq_admin_report', 'render_boq_admin_report'),
         PageRoutes.BOQ_BID_OPTIMIZER: lambda: _import_and_call('modules.boq_bid_bridge', 'render_boq_bid_integration'),
         PageRoutes.BASIC_BID_OPTIMIZER: lambda: _import_and_call('modules.basic_bid_optimizer', 'render'),
-        PageRoutes.COMPANY_RATE_MANAGEMENT: lambda: render_company_rate_management(db),         
+        PageRoutes.COMPANY_RATE_MANAGEMENT: lambda: render_company_rate_management(),         
         PageRoutes.COMPANY_KNOWLEDGE: show_enhanced_company_dashboard,
         PageRoutes.AUTO_FILL_EXTENSION_ADMIN: show_extension_admin,
         PageRoutes.AUTO_FILL_EXTENSION_USAGE: show_extension_usage,
@@ -1551,22 +1579,20 @@ def main() -> None:
     Main application entry point with optimized routing.
     """
     import base64
+    from database.connection import init_db_connection
+
     import json
-    
+    startup_initializations()   # ← Call this early
     # Initialize theme
-    init_theme()
     
-    # Apply theme CSS
-    apply_theme()
-    
-    from migrations.add_chapter_number_to_pwd_children import run_migration
-    run_migration()
-    from migrations.add_is_active_to_tender_milestones import run_migration2
-    run_migration2()
-    ensure_database_schema()
-    ensure_password_hashes()
-    from migrations.v024_add_oauth_support import run_migration as run_oauth_migration
-    run_oauth_migration()
+    # from migrations.add_chapter_number_to_pwd_children import run_migration
+    # run_migration()
+    # from migrations.add_is_active_to_tender_milestones import run_migration2
+    # run_migration2()
+    # ensure_database_schema()
+    # ensure_password_hashes()
+    # from migrations.v024_add_oauth_support import run_migration as run_oauth_migration
+    # run_oauth_migration()
 
     # =========================================================================
     # FIRST: Check if user is already logged in - redirect immediately
@@ -1934,32 +1960,32 @@ def _handle_premium_feature(feature_func):
             st.session_state.page = "subscription"
             st.rerun()
 
-# main.py - Add at the top after imports
+# # main.py - Add at the top after imports
 
-def ensure_database_schema():
-    """Run database fix on startup if needed"""
-    import os
-    import sqlite3
+# def ensure_database_schema():
+#     """Run database fix on startup if needed"""
+#     import os
+#     import sqlite3
     
-    db_path = "data/tender_system.db"
-    if not os.path.exists(db_path):
-        return
+#     db_path = "data/tender_system.db"
+#     if not os.path.exists(db_path):
+#         return
     
-    try:
-        # Check if mobile_number column exists
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(users)")
-        columns = [col[1] for col in cursor.fetchall()]
-        conn.close()
+#     try:
+#         # Check if mobile_number column exists
+#         conn = sqlite3.connect(db_path)
+#         cursor = conn.cursor()
+#         cursor.execute("PRAGMA table_info(users)")
+#         columns = [col[1] for col in cursor.fetchall()]
+#         conn.close()
         
-        if 'mobile_number' not in columns:
-            # Run the fix script
-            import subprocess
-            subprocess.run(["python", "migrations/fix_db_final.py"], check=True)
-            print("✅ Database schema updated")
-    except Exception as e:
-        print(f"⚠️ Could not check/update schema: {e}")
+#         if 'mobile_number' not in columns:
+#             # Run the fix script
+#             import subprocess
+#             subprocess.run(["python", "migrations/fix_db_final.py"], check=True)
+#             print("✅ Database schema updated")
+#     except Exception as e:
+#         print(f"⚠️ Could not check/update schema: {e}")
 
 # Call this near the start of your app
 
@@ -2018,8 +2044,8 @@ def upgrade_admin_once():
 # =============================================================================
 if __name__ == "__main__":
     # ✅ Ensure imports are available
-    from database.unified_db_manager import UnifiedDatabaseManager
-    db = UnifiedDatabaseManager()
+    # from database.unified_db_manager import UnifiedDatabaseManager
+    # db = UnifiedDatabaseManager()
     
     debug_print("🎬 Starting TenderAI application...")
     #upgrade_admin_once()  # Ensure admin users are upgraded at startup (one-time check)

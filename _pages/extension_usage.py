@@ -3,9 +3,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
 
 def show():
     """Extension Usage Dashboard for Company Admins"""
@@ -22,7 +21,8 @@ def show():
         <p>Monitor and manage Chrome extension auto-fill usage for your company</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    db = get_db_manager()
+
     # Get usage stats
     conn = db.get_connection()
     

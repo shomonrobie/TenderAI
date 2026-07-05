@@ -1,3 +1,5 @@
+# modules/competitor_tracking.py - Refactored to use CompetitorCRUD
+
 """
 Competitor Profile Tracking System
 Tracks competitor behavior patterns over time for better predictions
@@ -7,13 +9,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 from modules.rbac import (
     rbac, can_view_tenders, can_edit_tender, can_export_data,
     render_role_badge, is_admin, is_company_admin, require_permission
 )
-
-db = UnifiedDatabaseManager()
 
 
 class CompetitorTracker:
@@ -21,256 +21,107 @@ class CompetitorTracker:
     
     def __init__(self, company_id):
         self.company_id = company_id
-        
+        self.db = get_db_manager()
+    
     def add_competitor_bid(self, competitor_name: str, tender_id: str, 
                            bid_amount: float, official_estimate: float,
                            was_winner: bool = False, bid_date: str = None):
         """Add a competitor bid record"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
         if not bid_date:
             bid_date = datetime.now().date()
         
         bid_ratio = bid_amount / official_estimate if official_estimate > 0 else 1.0
         
-        try:
-            # Add to bid history
-            cursor.execute("""
-                INSERT INTO competitor_bid_history 
-                (company_id, competitor_name, tender_id, bid_amount, official_estimate, 
-                 bid_ratio, was_winner, bid_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (self.company_id, competitor_name, tender_id, bid_amount, 
-                  official_estimate, bid_ratio, 1 if was_winner else 0, bid_date))
-            
-            # Update competitor profile
-            self._update_competitor_profile(competitor_name, bid_ratio, was_winner)
-            
-            conn.commit()
-            conn.close()
-            return True
-            
-        except Exception as e:
-            print(f"Error adding competitor bid: {e}")
-            conn.rollback()
-            conn.close()
-            return False
+        # ✅ Use CRUD method
+        return self.db.add_competitor_bid_history(self.company_id, {
+            'competitor_name': competitor_name,
+            'tender_id': tender_id,
+            'bid_amount': bid_amount,
+            'official_estimate': official_estimate,
+            'bid_ratio': bid_ratio,
+            'was_winner': was_winner,
+            'bid_date': bid_date.isoformat()
+        })
     
-    def update_competitor_profile(self, competitor_name, bid_amount, official_estimate, was_winner=False, tender_id=None):
+    def update_competitor_profile(self, competitor_name, bid_amount, official_estimate, 
+                                   was_winner=False, tender_id=None):
         """Update or create competitor profile with new bid data"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
         bid_ratio = bid_amount / official_estimate if official_estimate > 0 else 0
         
-        # Check if competitor exists
-        cursor.execute('''
-        SELECT id, total_appearances, wins_count, avg_bid_ratio, bid_std_dev
-        FROM competitor_profiles 
-        WHERE company_id = ? AND competitor_name = ?
-        ''', (self.company_id, competitor_name))
-        
-        existing = cursor.fetchone()
-        
-        if existing:
-            # Update existing profile
-            comp_id, total, wins, avg_ratio, std_dev = existing
-            new_total = total + 1
-            new_wins = wins + (1 if was_winner else 0)
-            
-            # Update rolling average
-            new_avg_ratio = (avg_ratio * total + bid_ratio) / new_total if new_total > 0 else bid_ratio
-            
-            # Update standard deviation
-            bids = self._get_competitor_bids(competitor_name)
-            bids.append(bid_ratio)
-            new_std_dev = float(np.std(bids)) if len(bids) > 1 else 0.0
-            
-            # Determine strategy based on bid ratios
-            if new_avg_ratio < 0.88:
-                strategy = "Aggressive"
-            elif new_avg_ratio < 0.92:
-                strategy = "Moderate"
-            else:
-                strategy = "Conservative"
-            
-            cursor.execute('''
-            UPDATE competitor_profiles 
-            SET total_appearances = ?, wins_count = ?, avg_bid_ratio = ?, 
-                bid_std_dev = ?, strategy = ?, last_seen = ?, updated_at = ?
-            WHERE id = ?
-            ''', (new_total, new_wins, new_avg_ratio, new_std_dev, strategy, 
-                  datetime.now().date(), datetime.now(), comp_id))
-        else:
-            # Create new profile
-            strategy = "Aggressive" if bid_ratio < 0.88 else "Moderate" if bid_ratio < 0.92 else "Conservative"
-            cursor.execute('''
-            INSERT INTO competitor_profiles 
-            (company_id, competitor_name, first_seen, last_seen, total_appearances, 
-             wins_count, avg_bid_ratio, bid_std_dev, strategy)
-            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
-            ''', (self.company_id, competitor_name, datetime.now().date(), 
-                  datetime.now().date(), 1 if was_winner else 0, bid_ratio, 0.0, strategy))
+        # ✅ Use CRUD to update stats
+        self.db.update_competitor_stats_from_bid(
+            self.company_id, 
+            competitor_name, 
+            bid_ratio, 
+            was_winner
+        )
         
         # Save bid history
         if tender_id:
-            cursor.execute('''
-            INSERT INTO competitor_bid_history 
-            (company_id, competitor_name, tender_id, bid_amount, official_estimate, 
-             bid_ratio, was_winner, bid_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (self.company_id, competitor_name, tender_id, bid_amount, 
-                  official_estimate, bid_ratio, was_winner, datetime.now().date()))
-        
-        conn.commit()
-        conn.close()
-    
-    def _get_competitor_bids(self, competitor_name):
-        """Get all bid ratios for a competitor"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-        SELECT bid_ratio FROM competitor_bid_history 
-        WHERE company_id = ? AND competitor_name = ?
-        ORDER BY bid_date DESC
-        ''', (self.company_id, competitor_name))
-        bids = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return bids
+            self.db.add_competitor_bid_history(self.company_id, {
+                'competitor_name': competitor_name,
+                'tender_id': tender_id,
+                'bid_amount': bid_amount,
+                'official_estimate': official_estimate,
+                'bid_ratio': bid_ratio,
+                'was_winner': was_winner,
+                'bid_date': datetime.now().date().isoformat()
+            })
     
     def get_competitor_insights(self):
         """Get aggregated competitor insights"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT competitor_name, strategy, total_appearances, avg_bid_ratio, 
-               wins_count, last_seen
-        FROM competitor_profiles 
-        WHERE company_id = ?
-        ORDER BY total_appearances DESC
-        ''', (self.company_id,))
-        
-        competitors = cursor.fetchall()
-        conn.close()
-        
-        if not competitors:
+        # ✅ Use CRUD method
+        insights = self.db.get_competitor_strategy_insights(self.company_id)
+        if not insights:
             return None
         
-        insights = {
-            'total_competitors': len(competitors),
-            'aggressive_count': len([c for c in competitors if c[1] == 'Aggressive']),
-            'moderate_count': len([c for c in competitors if c[1] == 'Moderate']),
-            'conservative_count': len([c for c in competitors if c[1] == 'Conservative']),
-            'competitors': competitors,
-            'avg_market_ratio': float(np.mean([c[3] for c in competitors])) if competitors else 0.90
-        }
+        # Get competitors with profiles
+        profiles = self.db.get_competitor_profiles(self.company_id)
         
-        return insights
+        competitors = []
+        for p in profiles:
+            competitors.append((
+                p.get('competitor_name'),
+                p.get('strategy'),
+                p.get('total_appearances', 0),
+                p.get('avg_bid_ratio', 0.92),
+                p.get('wins_count', 0),
+                p.get('last_seen')
+            ))
+        
+        return {
+            'total_competitors': len(profiles),
+            'aggressive_count': len([c for c in profiles if c.get('strategy') == 'Aggressive']),
+            'moderate_count': len([c for c in profiles if c.get('strategy') == 'Moderate']),
+            'conservative_count': len([c for c in profiles if c.get('strategy') == 'Conservative']),
+            'competitors': competitors,
+            'avg_market_ratio': np.mean([p.get('avg_bid_ratio', 0.92) for p in profiles]) if profiles else 0.90
+        }
     
     def predict_competitor_bid(self, competitor_name, official_estimate):
         """Predict what a specific competitor will bid"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        # ✅ Use CRUD method
+        prediction = self.db.get_competitor_predictions(
+            self.company_id, 
+            competitor_name, 
+            official_estimate
+        )
         
-        cursor.execute('''
-        SELECT avg_bid_ratio, bid_std_dev, strategy
-        FROM competitor_profiles 
-        WHERE company_id = ? AND competitor_name = ?
-        ''', (self.company_id, competitor_name))
-        
-        profile = cursor.fetchone()
-        conn.close()
-        
-        if profile:
-            avg_ratio, std_dev, strategy = profile
-            # Add some randomness based on their historical variance
-            random_factor = np.random.normal(0, std_dev * 0.5) if std_dev > 0 else 0
-            predicted_ratio = avg_ratio + random_factor
-            predicted_ratio = max(0.80, min(0.98, predicted_ratio))
-            return official_estimate * predicted_ratio, strategy
-        else:
-            # Default prediction for unknown competitor
-            return official_estimate * 0.90, "Unknown"
+        return prediction.get('predicted_bid'), prediction.get('strategy')
     
     def get_competitor_strategy_insights(self):
         """Get detailed competitor strategy insights"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT competitor_name, strategy, avg_bid_ratio, total_appearances, wins_count,
-               (wins_count * 1.0 / total_appearances) as win_rate
-        FROM competitor_profiles 
-        WHERE company_id = ? AND total_appearances >= 2
-        ORDER BY total_appearances DESC
-        ''', (self.company_id,))
-        
-        competitors = cursor.fetchall()
-        conn.close()
-        
-        if not competitors:
-            return None
-        
-        insights = {
-            'total_tracked': len(competitors),
-            'aggressive': [c for c in competitors if c[1] == 'Aggressive'],
-            'moderate': [c for c in competitors if c[1] == 'Moderate'],
-            'conservative': [c for c in competitors if c[1] == 'Conservative'],
-            'high_win_rate': [c for c in competitors if c[5] > 0.5],
-            'most_frequent': competitors[:5] if competitors else []
-        }
-        
-        # Calculate market aggression index
-        total_bids = sum(c[3] for c in competitors)
-        aggressive_bids = sum(c[3] for c in competitors if c[1] == 'Aggressive')
-        insights['market_aggression_index'] = aggressive_bids / total_bids if total_bids > 0 else 0.5
-        
-        return insights
+        # ✅ Use CRUD method
+        return self.db.get_competitor_strategy_insights(self.company_id)
     
     def predict_competitor_behavior(self, competitor_name, official_estimate):
         """Enhanced competitor behavior prediction"""
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT avg_bid_ratio, bid_std_dev, strategy, total_appearances, wins_count
-        FROM competitor_profiles 
-        WHERE company_id = ? AND competitor_name = ?
-        ''', (self.company_id, competitor_name))
-        
-        profile = cursor.fetchone()
-        conn.close()
-        
-        if not profile:
-            return {
-                'predicted_bid': official_estimate * 0.91,
-                'strategy': 'Unknown',
-                'confidence': 0.40,
-                'min_expected': official_estimate * 0.85,
-                'max_expected': official_estimate * 0.96
-            }
-        
-        avg_ratio, std_dev, strategy, appearances, wins = profile
-        
-        # Calculate confidence based on data points
-        confidence = min(0.95, 0.50 + (appearances * 0.03))
-        
-        # Predict with confidence interval
-        predicted_ratio = avg_ratio
-        min_ratio = max(0.75, avg_ratio - (std_dev * 1.5))
-        max_ratio = min(1.00, avg_ratio + (std_dev * 1.5))
-        
-        return {
-            'predicted_bid': official_estimate * predicted_ratio,
-            'strategy': strategy,
-            'confidence': confidence,
-            'appearances': appearances,
-            'win_rate': wins / appearances if appearances > 0 else 0,
-            'min_expected': official_estimate * min_ratio,
-            'max_expected': official_estimate * max_ratio
-        }
+        # ✅ Use CRUD method
+        return self.db.get_competitor_predictions(
+            self.company_id, 
+            competitor_name, 
+            official_estimate
+        )
 
 
 @require_permission('can_view_tenders')
@@ -284,9 +135,11 @@ def render_competitor_tracking_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # Render role badge
     render_role_badge()
     st.markdown("---")
+    
+    # ✅ Use cached db manager
+    db = get_db_manager()
     
     # Check premium access
     subscription = db.get_user_subscription(st.session_state.user_id)
@@ -328,7 +181,6 @@ def render_competitor_dashboard(can_edit: bool, can_export: bool):
     if not insights:
         st.info("📭 No competitor data yet. As you save analysis results, competitor profiles will be built automatically.")
         
-        # Show how to add competitor data
         with st.expander("ℹ️ How to track competitors", expanded=True):
             st.markdown("""
             **Competitor data is automatically collected when you:**
@@ -496,12 +348,10 @@ def render_competitor_settings(can_edit: bool):
         st.warning("⚠️ Danger Zone")
         if st.button("🗑️ Clear All Competitor Data", type="secondary", use_container_width=True):
             if st.session_state.get('confirm_clear_competitors'):
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM competitor_profiles WHERE company_id = ?", (st.session_state.company_id,))
-                cursor.execute("DELETE FROM competitor_bid_history WHERE company_id = ?", (st.session_state.company_id,))
-                conn.commit()
-                conn.close()
+                db = get_db_manager()
+                company_id = st.session_state.get('company_id')
+                db.execute("DELETE FROM competitor_profiles WHERE company_id = ?", (company_id,))
+                db.execute("DELETE FROM competitor_bid_history WHERE company_id = ?", (company_id,))
                 st.success("✅ All competitor data cleared!")
                 st.rerun()
             else:

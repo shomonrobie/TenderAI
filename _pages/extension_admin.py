@@ -2,62 +2,63 @@
 
 import streamlit as st
 import pandas as pd
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
+from database.crud_operations import DatabaseCRUD
 
 
-db = UnifiedDatabaseManager()
 
-
-def get_db_type():
-    """Detect database type from connection"""
-    try:
-        with db.get_connection() as conn:
-            # Try to detect SQLite
-            cursor = conn.cursor()
-            cursor.execute("SELECT sqlite_version()")
-            return 'sqlite'
-    except:
-        pass
+# def get_db_type():
+#     """Detect database type from connection"""
+#     try:
+#         with db.get_connection() as conn:
+#             # Try to detect SQLite
+#             cursor = conn.cursor()
+#             cursor.execute("SELECT sqlite_version()")
+#             return 'sqlite'
+#     except:
+#         pass
     
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT version()")
-            version = cursor.fetchone()[0]
-            if 'postgresql' in version.lower():
-                return 'postgresql'
-    except:
-        pass
+#     try:
+#         with db.get_connection() as conn:
+#             cursor = conn.cursor()
+#             cursor.execute("SELECT version()")
+#             version = cursor.fetchone()[0]
+#             if 'postgresql' in version.lower():
+#                 return 'postgresql'
+#     except:
+#         pass
     
-    return 'unknown'
+#     return 'unknown'
 
 
-def table_exists(table_name):
-    """Check if a table exists (database agnostic)"""
-    db_type = get_db_type()
+# def DatabaseCRUD.table_exists(table_name):
+#     """Check if a table exists (database agnostic)"""
+#     ddb = get_db_managerdb()
+
+#     db_type = get_db_type()
     
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
+#     with db.get_connection() as conn:
+#         cursor = conn.cursor()
         
-        if db_type == 'sqlite':
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table_name,)
-            )
-        elif db_type == 'postgresql':
-            cursor.execute("""
-                SELECT table_name FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = ?
-            """, (table_name,))
-        else:
-            # Try generic approach
-            try:
-                cursor.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
-                return True
-            except:
-                return False
+#         if db_type == 'sqlite':
+#             cursor.execute(
+#                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+#                 (table_name,)
+#             )
+#         elif db_type == 'postgresql':
+#             cursor.execute("""
+#                 SELECT table_name FROM information_schema.tables 
+#                 WHERE table_schema = 'public' AND table_name = ?
+#             """, (table_name,))
+#         else:
+#             # Try generic approach
+#             try:
+#                 cursor.execute(f"SELECT 1 FROM {table_name} LIMIT 1")
+#                 return True
+#             except:
+#                 return False
         
-        return cursor.fetchone() is not None
+#         return cursor.fetchone() is not None
 
 
 def show():
@@ -97,9 +98,9 @@ def show():
 def render_usage_analytics():
     """Render extension usage analytics"""
     st.markdown("### Extension Usage Analytics")
-    
+    db = get_db_manager()
     # Check if extension_auto_fill_log table exists
-    if not table_exists('extension_auto_fill_log'):
+    if not DatabaseCRUD.table_exists('extension_auto_fill_log'):
         st.info("No extension usage data yet. The extension will start tracking once installed and used.")
         return
     
@@ -155,9 +156,9 @@ def render_plan_configuration():
     st.markdown("### Plan Configuration")
     
     st.info("Configure how many auto-fills each subscription plan gets per month")
-    
+    db = get_db_manager()
     # Check if subscription_plans table exists
-    if not table_exists('subscription_plans'):
+    if not DatabaseCRUD.table_exists('subscription_plans'):
         st.warning("Subscription plans table not found. Using default limits.")
         plan_limits = {
             'free': 5,
@@ -190,7 +191,7 @@ def render_plan_configuration():
         new_enterprise = -1 if unlimited_enterprise else st.number_input("Enterprise Limit", min_value=0, max_value=1000, value=100)
         
         if st.button("💾 Save Plan Limits", type="primary"):
-            if table_exists('subscription_plans'):
+            if DatabaseCRUD.table_exists('subscription_plans'):
                 with db.get_connection() as conn:
                     cursor = conn.cursor()
                     try:
@@ -210,8 +211,8 @@ def render_plan_configuration():
 def render_company_limits():
     """Manage per-company extension limits"""
     st.markdown("### Company-Specific Limits")
-    
-    if not table_exists('companies'):
+    db = get_db_manager()
+    if not DatabaseCRUD.table_exists('companies'):
         st.error("Companies table not found.")
         return
     
@@ -240,7 +241,7 @@ def render_company_limits():
             for _, company in companies.iterrows():
                 with st.expander(f"🏢 {company['company_name']}"):
                     # Get current usage
-                    if table_exists('extension_auto_fill_log'):
+                    if DatabaseCRUD.table_exists('extension_auto_fill_log'):
                         with db.get_connection() as conn:
                             cursor = conn.cursor()
                             cursor.execute("""
@@ -273,8 +274,8 @@ def render_company_limits():
 def render_activity_log():
     """Render detailed activity log"""
     st.markdown("### Extension Activity Log")
-    
-    if not table_exists('extension_auto_fill_log'):
+    db = get_db_manager()
+    if not DatabaseCRUD.table_exists('extension_auto_fill_log'):
         st.info("No extension activity logged yet.")
         return
     
@@ -289,7 +290,7 @@ def render_activity_log():
     
     try:
         with db.get_connection() as conn:
-            if company_filter and table_exists('companies'):
+            if company_filter and DatabaseCRUD.table_exists('companies'):
                 # Get company ID first
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM companies WHERE company_name LIKE ?", (f"%{company_filter}%",))
@@ -346,7 +347,7 @@ def render_activity_log():
             logs['confidence_score'] = logs['confidence_score'].apply(lambda x: f"{x*100:.0f}%" if x else "N/A")
             
             # Get company names
-            if table_exists('companies') and len(logs) > 0:
+            if DatabaseCRUD.table_exists('companies') and len(logs) > 0:
                 company_ids = logs['company_id'].unique()
                 if len(company_ids) > 0:
                     placeholders = ','.join(['?'] * len(company_ids))

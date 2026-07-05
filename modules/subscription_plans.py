@@ -1,12 +1,21 @@
-# modules/subscription_plans.py
-"""
-Subscription Plans - Loaded from database with fallback defaults
-"""
+# modules/subscription_plans.py - Refactored to use get_db_manager()
 
 import streamlit as st
 from typing import Dict, List, Optional
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 from datetime import datetime, timedelta
+import traceback
+import json
+import os
+
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
 
 # Default plans (used only for initialization)
 DEFAULT_PLANS = [
@@ -121,61 +130,91 @@ DEFAULT_PLANS = [
     }
 ]
 
-
 # Cache for plans
 _plans_cache = None
 _plans_cache_time = None
 
 
+# Minimal debug logger
+def debug_log(msg, data=None):
+    """Debug logging function - can be disabled by setting DEBUG=false"""
+    if os.getenv("DEBUG", "false").lower() == "true":
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        print(f"🔍 [{timestamp}] {msg}")
+        if data is not None:
+            if isinstance(data, (dict, list)):
+                print(f"📊 Data: {json.dumps(data, indent=2, default=str)[:500]}")
+            else:
+                print(f"📊 Data: {data}")
+
+def check_plans_exist() -> bool:
+    """Check if plans exist in the database"""
+    try:
+        # ✅ Use query() instead of direct table access
+        result = db.query("SELECT plan_name FROM subscription_plans LIMIT 1")
+        return len(result) > 0
+    except Exception as e:
+        debug_log(f"⚠️ Error checking plans: {e}")
+        return False
+
+
+# modules/subscription_plans.py - Fixed ensure_default_plans
+
 def ensure_default_plans():
     """Ensure default plans exist in the database"""
     try:
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            
-            # Check if any plans exist
-            cursor.execute("SELECT COUNT(*) FROM subscription_plans")
-            count = cursor.fetchone()[0]
-            
-            if count == 0:
-                print("📊 Inserting default subscription plans...")
-                for plan in DEFAULT_PLANS:
-                    cursor.execute("""
-                        INSERT INTO subscription_plans (
-                            plan_name, plan_type, monthly_price, yearly_price,
-                            max_boq_generations, max_bid_optimizations, max_tender_analyses,
-                            max_users, extension_auto_fills,
-                            can_export_data, can_edit_rates, can_delete_rates,
-                            can_create_versions, can_manage_team, description
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        plan['plan_name'],
-                        plan['plan_type'],
-                        plan['monthly_price'],
-                        plan['yearly_price'],
-                        plan['max_boq_generations'],
-                        plan['max_bid_optimizations'],
-                        plan['max_tender_analyses'],
-                        plan['max_users'],
-                        plan['extension_auto_fills'],
-                        1 if plan['can_export_data'] else 0,
-                        1 if plan['can_edit_rates'] else 0,
-                        1 if plan['can_delete_rates'] else 0,
-                        1 if plan['can_create_versions'] else 0,
-                        1 if plan['can_manage_team'] else 0,
-                        plan['description']
-                    ))
-                conn.commit()
-                print(f"✅ Inserted {len(DEFAULT_PLANS)} default plans")
-                return True
-            else:
-                print(f"📊 {count} plans already exist in database")
-                return True
+        if check_plans_exist():
+            return True
+        
+        # Insert plans if none exist
+        for plan in DEFAULT_PLANS:
+            try:
+                # Check if plan already exists
+                existing = db.query_one(
+                    "SELECT id FROM subscription_plans WHERE plan_name = ?",
+                    (plan['plan_name'],)
+                )
+                if existing:
+                    continue
                 
+                # ✅ Use execute() for INSERT
+                db.execute("""
+                    INSERT INTO subscription_plans (
+                        plan_name, plan_type, monthly_price, yearly_price,
+                        max_boq_generations, max_bid_optimizations, max_tender_analyses,
+                        max_users, extension_auto_fills,
+                        can_export_data, can_edit_rates, can_delete_rates,
+                        can_create_versions, can_manage_team, description, is_active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    plan['plan_name'],
+                    plan['plan_type'],
+                    plan['monthly_price'],
+                    plan['yearly_price'],
+                    plan['max_boq_generations'],
+                    plan['max_bid_optimizations'],
+                    plan['max_tender_analyses'],
+                    plan['max_users'],
+                    plan['extension_auto_fills'],
+                    1 if plan['can_export_data'] else 0,
+                    1 if plan['can_edit_rates'] else 0,
+                    1 if plan['can_delete_rates'] else 0,
+                    1 if plan['can_create_versions'] else 0,
+                    1 if plan['can_manage_team'] else 0,
+                    plan['description'],
+                    1
+                ))
+                debug_log(f"✅ Inserted plan: {plan['plan_name']}")
+            except Exception as e:
+                debug_log(f"⚠️ Error inserting {plan['plan_name']}: {e}")
+        
+        return True
     except Exception as e:
-        print(f"⚠️ Error ensuring default plans: {e}")
+        debug_log(f"⚠️ Error ensuring plans: {e}")
         return False
 
+
+# modules/subscription_plans.py - Fixed get_plans_from_db
 
 def get_plans_from_db(force_refresh: bool = False) -> Dict[str, Dict]:
     """
@@ -191,76 +230,69 @@ def get_plans_from_db(force_refresh: bool = False) -> Dict[str, Dict]:
     
     # Return cached plans if not expired (5 minutes)
     if not force_refresh and _plans_cache is not None:
-        
         if _plans_cache_time and datetime.now() - _plans_cache_time < timedelta(minutes=5):
             return _plans_cache
-    
+    db = get_db()
+
     try:
-        # Ensure plans exist first
-        ensure_default_plans()
+        # ✅ Use query() which handles both SQLite and Supabase
+        rows = db.query("""
+            SELECT 
+                plan_name,
+                monthly_price,
+                yearly_price,
+                max_boq_generations,
+                max_bid_optimizations,
+                max_tender_analyses,
+                max_users,
+                extension_auto_fills,
+                can_export_data,
+                can_edit_rates,
+                can_delete_rates,
+                can_create_versions,
+                can_manage_team,
+                description,
+                is_active
+            FROM subscription_plans
+            WHERE is_active = 1
+            ORDER BY monthly_price
+        """)
         
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT 
-                    plan_name,
-                    monthly_price,
-                    yearly_price,
-                    max_boq_generations,
-                    max_bid_optimizations,
-                    max_tender_analyses,
-                    max_users,
-                    extension_auto_fills,
-                    can_export_data,
-                    can_edit_rates,
-                    can_delete_rates,
-                    can_create_versions,
-                    can_manage_team,
-                    description,
-                    is_active
-                FROM subscription_plans
-                WHERE is_active = 1
-                ORDER BY monthly_price
-            """)
-            
-            rows = cursor.fetchall()
-            
-            plans = {}
-            for row in rows:
-                plan_name = row['plan_name']
-                plans[plan_name] = {
-                    'name': plan_name.title(),
-                    'price_monthly': row['monthly_price'] or 0,
-                    'price_yearly': row['yearly_price'] or 0,
-                    'analyses_limit': row['max_tender_analyses'] or 5,
-                    'max_boq_generations': row['max_boq_generations'] or 5,
-                    'max_bid_optimizations': row['max_bid_optimizations'] or 5,
-                    'extension_auto_fills': row['extension_auto_fills'] or 5,
-                    'users_limit': row['max_users'] or 1,
-                    'can_export_data': bool(row['can_export_data']),
-                    'can_edit_rates': bool(row['can_edit_rates']),
-                    'can_delete_rates': bool(row['can_delete_rates']),
-                    'can_create_versions': bool(row['can_create_versions']),
-                    'can_manage_team': bool(row['can_manage_team']),
-                    'description': row['description'] or '',
-                    'is_active': bool(row['is_active']),
-                    'color': _get_plan_color(plan_name),
-                    'badge': _get_plan_badge(plan_name),
-                    'features': _get_plan_features(plan_name)
-                }
-            
-            _plans_cache = plans
-            _plans_cache_time = datetime.now()
-            
-            print(f"📊 Loaded {len(plans)} plans from database")
-            return plans
+        plans = {}
+        for row in rows:
+            plan_name = row['plan_name']
+            plans[plan_name] = {
+                'name': plan_name.title(),
+                'price_monthly': row['monthly_price'] or 0,
+                'price_yearly': row['yearly_price'] or 0,
+                'analyses_limit': row['max_tender_analyses'] or 5,
+                'max_boq_generations': row['max_boq_generations'] or 5,
+                'max_bid_optimizations': row['max_bid_optimizations'] or 5,
+                'extension_auto_fills': row['extension_auto_fills'] or 5,
+                'users_limit': row['max_users'] or 1,
+                'can_export_data': bool(row['can_export_data']),
+                'can_edit_rates': bool(row['can_edit_rates']),
+                'can_delete_rates': bool(row['can_delete_rates']),
+                'can_create_versions': bool(row['can_create_versions']),
+                'can_manage_team': bool(row['can_manage_team']),
+                'description': row['description'] or '',
+                'is_active': bool(row['is_active']),
+                'color': _get_plan_color(plan_name),
+                'badge': _get_plan_badge(plan_name),
+                'features': _get_plan_features(plan_name)
+            }
+        
+        _plans_cache = plans
+        _plans_cache_time = datetime.now()
+        
+        print(f"📊 Loaded {len(plans)} plans from database")
+        return plans
             
     except Exception as e:
-        print(f"⚠️ Error loading plans from database: {e}")
+        print(f"⚠️ subscription.py > Error loading plans from database: {e}")
         # Fallback to default plans
         return get_default_plans_dict()
-
-
+    
 def get_default_plans_dict() -> Dict[str, Dict]:
     """Convert DEFAULT_PLANS list to dict format"""
     plans = {}
@@ -288,9 +320,7 @@ def get_default_plans_dict() -> Dict[str, Dict]:
         }
     return plans
 
-
 def _get_plan_color(plan_name: str) -> str:
-    """Get color for plan"""
     colors = {
         'free': '#6c757d',
         'basic': '#3b82f6',
@@ -299,9 +329,7 @@ def _get_plan_color(plan_name: str) -> str:
     }
     return colors.get(plan_name, '#6c757d')
 
-
 def _get_plan_badge(plan_name: str) -> str:
-    """Get badge emoji for plan"""
     badges = {
         'free': '🆓',
         'basic': '📊',
@@ -310,9 +338,7 @@ def _get_plan_badge(plan_name: str) -> str:
     }
     return badges.get(plan_name, '📋')
 
-
 def _get_plan_features(plan_name: str) -> List[str]:
-    """Get features for plan"""
     features = {
         'free': [
             '5 analyses/month',
@@ -350,44 +376,35 @@ def _get_plan_features(plan_name: str) -> List[str]:
     }
     return features.get(plan_name, ['Basic features'])
 
-
 # =============================================================================
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 
-def get_plans(force_refresh: bool = False) -> Dict[str, Dict]:
-    """Get all plans (with caching)"""
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_plans_cached(force_refresh: bool = False) -> Dict[str, Dict]:
+    """Get all plans with caching (uses Streamlit's cache)"""
     return get_plans_from_db(force_refresh)
 
+def get_plans(force_refresh: bool = False) -> Dict[str, Dict]:
+    """Get all plans (with caching)"""
+    return get_plans_cached(force_refresh)
 
 def get_plan(plan_name: str) -> Dict:
     """Get a single plan by name"""
     plans = get_plans()
     return plans.get(plan_name, plans.get('free', {}))
 
-
 def is_premium_plan(plan_name: str) -> bool:
     """Check if a plan is premium (Professional or Enterprise)"""
     return plan_name in ['professional', 'enterprise']
-
 
 def get_plan_price(plan_name: str, yearly: bool = False) -> float:
     """Get plan price"""
     plan = get_plan(plan_name)
     return plan.get('price_yearly' if yearly else 'price_monthly', 0)
 
-
 def get_plan_limit(plan_name: str, limit_type: str) -> int:
-    """
-    Get a specific limit for a plan
-    
-    Args:
-        plan_name: Plan name
-        limit_type: 'analyses', 'boq', 'bid', 'users', 'extension'
-    
-    Returns:
-        Limit value (-1 for unlimited)
-    """
+    """Get a specific limit for a plan"""
     plan = get_plan(plan_name)
     
     limit_map = {
@@ -401,17 +418,18 @@ def get_plan_limit(plan_name: str, limit_type: str) -> int:
     key = limit_map.get(limit_type, 'analyses_limit')
     return plan.get(key, 5)
 
-
 def refresh_plans_cache():
     """Force refresh the plans cache"""
     global _plans_cache, _plans_cache_time
-    print("🔄 Refreshing plans cache...")
     _plans_cache = None
     _plans_cache_time = None
-    # Force reload
-    get_plans(force_refresh=True)
-    print("✅ Plans cache refreshed")
+    get_plans.cache_clear()  # Clear Streamlit cache
+    get_plans_cached.clear()  # Clear cached function
+    return get_plans(force_refresh=True)
 
+# =============================================================================
+# MODULE INITIALIZATION
+# =============================================================================
 
-
-
+# Pre-load plans when module is imported
+_initial_plans = get_plans()

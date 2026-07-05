@@ -6,8 +6,8 @@ from datetime import datetime
 
 from modules.rbac import can_view_dashboard, can_manage_team, can_export_data
 from modules.subscription_manager import check_subscription_and_permission
-from database.unified_db_manager import UnifiedDatabaseManager
-db = UnifiedDatabaseManager()
+from database.unified_db_manager import get_db_manager
+
 
 def show():
     """Enhanced Company Dashboard with Knowledge Repository"""
@@ -65,7 +65,7 @@ def show():
 def render_knowledge_dashboard(company_id):
     """Render knowledge repository dashboard"""
     st.markdown("### Knowledge Repository Overview")
-    
+    db = get_db_manager()
     # Get counts from enhanced_db
     conn = db.get_connection()
     cursor = conn.cursor()
@@ -122,7 +122,7 @@ def render_knowledge_dashboard(company_id):
 def render_company_profile(company_id):
     """Render company profile management"""
     st.markdown("### Company Profile")
-    
+    db = get_db_manager()
     profile = db.get_company_profile(company_id)
     
     with st.form("company_profile_form"):
@@ -169,7 +169,7 @@ def render_company_profile(company_id):
 def render_personnel_management(company_id):
     """Render personnel management"""
     st.markdown("### Personnel Management")
-    
+    db = get_db_manager()
     # Check permission for adding
     can_edit = st.session_state.user_role in ['admin', 'system_admin', 'company_admin', 'manager']
     
@@ -228,7 +228,7 @@ def render_personnel_management(company_id):
 def render_equipment_management(company_id):
     """Render equipment management"""
     st.markdown("### Equipment Inventory")
-    
+    db = get_db_manager()
     can_edit = st.session_state.user_role in ['admin', 'system_admin', 'company_admin', 'manager']
     
     if can_edit:
@@ -289,7 +289,7 @@ def render_equipment_management(company_id):
 def render_experience_management(company_id):
     """Render experience/projects"""
     st.markdown("### Project Experience")
-    
+    db = get_db_manager()
     can_edit = st.session_state.user_role in ['admin', 'system_admin', 'company_admin', 'manager', 'analyst']
     
     if can_edit:
@@ -338,7 +338,7 @@ def render_experience_management(company_id):
 def render_financial_management(company_id):
     """Render financial capacity"""
     st.markdown("### Financial Capacity")
-    
+    db = get_db_manager()
     can_edit = st.session_state.user_role in ['admin', 'system_admin', 'company_admin']
     
     if can_edit:
@@ -382,7 +382,7 @@ def render_financial_management(company_id):
 def render_document_management(company_id):
     """Render document management"""
     st.markdown("### Document Management")
-    
+    db = get_db_manager()
     can_upload = st.session_state.user_role in ['admin', 'system_admin', 'company_admin', 'manager', 'analyst', 'data_entry']
     
     if can_upload:
@@ -456,7 +456,7 @@ def render_document_management(company_id):
 def render_ai_search(company_id):
     """Render AI-powered search"""
     st.markdown("### 🔍 AI-Powered Knowledge Search")
-    
+    db = get_db_manager()
     st.caption("Search across all company data using semantic and keyword search")
     
     search_type = st.radio("Search Type", ["Keyword Search", "Semantic Search", "Hybrid Search"], horizontal=True)

@@ -1,4 +1,4 @@
-# profile_module.py
+# modules/profile_module.py
 
 import streamlit as st
 import re
@@ -7,8 +7,19 @@ import os
 from datetime import datetime
 from PIL import Image
 import io
-from database.unified_db_manager import UnifiedDatabaseManager
-db = UnifiedDatabaseManager()
+from database.unified_db_manager import get_db_manager
+import base64
+import traceback
+
+# ✅ Get db instance at module level (but it will be cached)
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
 
 def render_user_profile():
     """Render the user profile page with all features"""
@@ -19,7 +30,8 @@ def render_user_profile():
         return
     
     user_id = st.session_state.user_id
-    
+    db = get_db()
+
     # Get user data
     user = db.get_user_by_id(user_id)
     if not user:
@@ -145,7 +157,7 @@ def render_profile_information(user):
             elif not mobile_number:
                 st.error("Mobile number is required")
             else:
-                # Update user data
+                # Update user data using dictionary
                 updates = {
                     'full_name': full_name.strip(),
                     'email': email.strip(),
@@ -155,8 +167,10 @@ def render_profile_information(user):
                     'location': location.strip() if location else None,
                     'bio': bio.strip() if bio else None
                 }
-                
-                success = db.update_user(user.get('id'), **updates)
+                db = get_db()
+
+                # ✅ FIX: Pass as dictionary, not kwargs
+                success = db.update_user(user.get('id'), updates)
                 
                 if success:
                     # Log activity
@@ -222,6 +236,8 @@ def render_change_password(user_id):
         elif len(new_password) < 8:
             st.error("Password must be at least 8 characters long")
         else:
+            db = get_db()
+
             # Verify current password and update
             success, message = db.change_user_password(user_id, current_password, new_password)
             
@@ -231,6 +247,28 @@ def render_change_password(user_id):
                 st.balloons()
             else:
                 st.error(f"❌ {message}")
+
+# modules/profile_module.py - Debug version
+
+import streamlit as st
+import re
+import os
+from datetime import datetime
+from PIL import Image
+import io
+import base64
+import traceback
+from database.unified_db_manager import get_db_manager
+
+_db = None
+
+def get_db():
+    global _db
+    if _db is None:
+        _db = get_db_manager()
+    return _db
+
+# modules/profile_module.py - Fixed update with complete base64 data
 
 def render_profile_picture(user_id, user):
     """Render profile picture upload and management"""
@@ -245,12 +283,16 @@ def render_profile_picture(user_id, user):
         
         if avatar_url:
             try:
-                st.image(avatar_url, width=200, caption="Current Profile Picture")
-            except:
-                # If URL is invalid, show placeholder
-                st.image("https://ui-avatars.com/api/?name=" + user.get('full_name', 'User') + "&size=200", width=200)
+                if avatar_url.startswith('data:image'):
+                    st.image(avatar_url, width=200, caption="Current Profile Picture")
+                else:
+                    st.image(avatar_url, width=200, caption="Current Profile Picture")
+            except Exception as e:
+                st.warning(f"Could not load image: {e}")
+                name = user.get('full_name', 'User')
+                st.image(f"https://ui-avatars.com/api/?name={name}&size=200&background=6366f1&color=ffffff", 
+                        width=200, caption="No Profile Picture")
         else:
-            # Generate avatar from name
             name = user.get('full_name', 'User')
             st.image(f"https://ui-avatars.com/api/?name={name}&size=200&background=6366f1&color=ffffff", 
                     width=200, caption="No Profile Picture")
@@ -258,7 +300,6 @@ def render_profile_picture(user_id, user):
     with col2:
         st.markdown("#### Upload New Picture")
         
-        # File uploader
         uploaded_file = st.file_uploader(
             "Choose an image file",
             type=['jpg', 'jpeg', 'png', 'gif'],
@@ -266,48 +307,146 @@ def render_profile_picture(user_id, user):
         )
         
         if uploaded_file is not None:
-            # Check file size
             if uploaded_file.size > 5 * 1024 * 1024:
                 st.error("File size exceeds 5MB limit")
             else:
-                # Display preview
-                image = Image.open(uploaded_file)
-                st.image(image, width=150, caption="Preview")
-                
-                # Upload button
-                if st.button("📤 Upload Profile Picture", type="primary"):
-                    # Here you would upload to cloud storage or save locally
-                    # For this example, we'll save to a directory
-                    success, avatar_path = save_avatar_image(uploaded_file, user_id)
+                try:
+                    image = Image.open(uploaded_file)
+                    image.thumbnail((150, 150))
+                    st.image(image, width=150, caption="Preview")
                     
-                    if success:
-                        # Update user profile
-                        db.update_user(user_id, avatar_url=avatar_path)
-                        db.log_user_activity(user_id, 'avatar_update', 'Updated profile picture')
-                        st.success("✅ Profile picture updated successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to upload image")
+                    if st.button("📤 Upload Profile Picture", type="primary"):
+                        with st.spinner("Uploading..."):
+                            try:
+                                # ✅ Generate full base64 data
+                                success, avatar_data = save_avatar_image_complete(uploaded_file, user_id)
+                                
+                                if success and avatar_data:
+                                    db = get_db()
+                                    
+                                    # ✅ Use direct Supabase update with the full data
+                                    if db._use_supabase and db.supabase:
+                                        print(f"🔍 Updating avatar for user {user_id}")
+                                        print(f"🔍 Avatar data length: {len(avatar_data)}")
+                                        
+                                        response = db.supabase.table('users')\
+                                            .update({
+                                                'avatar_url': avatar_data,
+                                                'updated_at': datetime.now().isoformat()
+                                            })\
+                                            .eq('id', user_id)\
+                                            .execute()
+                                        
+                                        print(f"🔍 Response: {response}")
+                                        
+                                        if response.data:
+                                            # ✅ Verify the update
+                                            verified = db.query_one("SELECT avatar_url FROM users WHERE id = ?", (user_id,))
+                                            if verified and verified.get('avatar_url'):
+                                                db.log_user_activity(user_id, 'avatar_update', 'Updated profile picture')
+                                                st.success("✅ Profile picture updated successfully!")
+                                                st.balloons()
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ Avatar was not saved properly. Please try again.")
+                                        else:
+                                            st.error(f"❌ Failed to update avatar: {response}")
+                                    else:
+                                        # Fallback to update_user
+                                        updates = {'avatar_url': avatar_data}
+                                        success = db.update_user(user_id, updates)
+                                        if success:
+                                            st.success("✅ Profile picture updated successfully!")
+                                            st.balloons()
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Failed to update profile picture")
+                                else:
+                                    st.error("❌ Failed to process image")
+                            except Exception as e:
+                                print(f"❌ Error: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                st.error(f"❌ Error: {e}")
+                                
+                except Exception as e:
+                    st.error(f"Error processing image: {e}")
         
-        # Remove avatar option
         if avatar_url:
             if st.button("🗑️ Remove Profile Picture", type="secondary"):
-                success = db.update_user(user_id, avatar_url=None)
+                db = get_db()
+                if db._use_supabase and db.supabase:
+                    response = db.supabase.table('users')\
+                        .update({'avatar_url': None})\
+                        .eq('id', user_id)\
+                        .execute()
+                    success = bool(response.data)
+                else:
+                    success = db.update_user(user_id, {'avatar_url': None})
+                
                 if success:
-                    # Delete file if local
-                    if os.path.exists(avatar_url):
-                        os.remove(avatar_url)
                     db.log_user_activity(user_id, 'avatar_removed', 'Removed profile picture')
                     st.success("✅ Profile picture removed")
                     st.rerun()
                 else:
                     st.error("Failed to remove profile picture")
 
+
+def save_avatar_image_complete(uploaded_file, user_id):
+    """Save uploaded avatar as complete base64 - no truncation"""
+    try:
+        from PIL import Image
+        import base64
+        from io import BytesIO
+        
+        print("🔍 save_avatar_image_complete called")
+        
+        # Open and process image
+        image = Image.open(uploaded_file)
+        print(f"🔍 Image opened: {image.size}, {image.mode}")
+        
+        # Convert to RGB if necessary
+        if image.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+            image = background
+            print("🔍 Converted to RGB")
+        
+        # Resize
+        max_size = (300, 300)
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        print(f"🔍 Resized to {image.size}")
+        
+        # Save to bytes
+        buffered = BytesIO()
+        image.save(buffered, format="JPEG", quality=85, optimize=True)
+        print(f"🔍 Bytes size: {len(buffered.getvalue())}")
+        
+        # Convert to base64
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        print(f"🔍 Base64 length: {len(img_str)}")
+        
+        # Return complete data URL
+        avatar_data = f"data:image/jpeg;base64,{img_str}"
+        print(f"🔍 Complete data URL length: {len(avatar_data)}")
+        
+        return True, avatar_data
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, None
+    
+
 def render_social_media_links(user_id, social_links):
     """Render social media links management"""
     st.markdown("### 🔗 Social Media Links")
     st.markdown("Connect your social media accounts to your profile")
-    
+    db = get_db()
+
     # Add new social link
     with st.expander("➕ Add New Social Link", expanded=not social_links):
         col1, col2 = st.columns([1, 2])
@@ -413,25 +552,22 @@ def render_social_media_links(user_id, social_links):
                 with col3:
                     # Update and delete buttons
                     if st.button("💾 Update", key=f"update_{link_id}"):
+                        updates = {}
                         if new_url and new_url != url:
-                            # Update URL
-                            success = db.update_social_link(link_id, url=new_url)
+                            updates['url'] = new_url
+                        if new_status != bool(is_active):
+                            updates['is_active'] = 1 if new_status else 0
+                        
+                        if updates:
+                            success = db.update_social_link(link_id, updates)
                             if success:
-                                db.log_user_activity(user_id, 'social_link_updated', f'Updated {platform} URL')
+                                db.log_user_activity(user_id, 'social_link_updated', f'Updated {platform} link')
                                 st.success("✅ Link updated!")
                                 st.rerun()
                             else:
                                 st.error("Failed to update link")
-                        elif new_status != bool(is_active):
-                            # Update status
-                            success = db.update_social_link(link_id, is_active=1 if new_status else 0)
-                            if success:
-                                db.log_user_activity(user_id, 'social_link_status_changed', 
-                                                   f'Updated {platform} status to {"active" if new_status else "inactive"}')
-                                st.success("✅ Status updated!")
-                                st.rerun()
-                            else:
-                                st.error("Failed to update status")
+                        else:
+                            st.info("No changes to update")
                     
                     if st.button("🗑️ Remove", key=f"remove_{link_id}", type="secondary"):
                         success = db.delete_social_link(link_id)
@@ -448,6 +584,8 @@ def render_social_media_links(user_id, social_links):
 
 def render_activity_log(user_id):
     """Render user activity log"""
+    db = get_db()
+
     activities = db.get_user_activities(user_id, limit=20)
     
     if activities:
@@ -469,11 +607,20 @@ def render_activity_log(user_id):
             }
             
             icon = action_icons.get(action, '📌')
-            st.markdown(f"{icon} **{action.replace('_', ' ').title()}**: {details}")
+            
+            # ✅ Show more details for avatar updates
+            if action == 'avatar_update':
+                st.markdown(f"{icon} **Avatar Updated**: {details}")
+            else:
+                st.markdown(f"{icon} **{action.replace('_', ' ').title()}**: {details}")
+            
             st.caption(f"📅 {created_at[:19] if created_at else 'N/A'}")
             st.divider()
     else:
         st.info("No recent activity to display")
+
+
+
 
 # ========== HELPER FUNCTIONS ==========
 
@@ -519,83 +666,22 @@ def validate_password_strength(password):
     else:
         return score, "🔴 Weak password - please make it stronger", "#dc3545"
 
-def save_avatar_image(uploaded_file, user_id):
-    """Save uploaded avatar image to disk"""
-    try:
-        # Create uploads directory if it doesn't exist
-        upload_dir = "static/uploads/avatars"
-        os.makedirs(upload_dir, exist_ok=True)
-        
-        # Generate filename
-        file_extension = uploaded_file.name.split('.')[-1]
-        filename = f"user_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}"
-        filepath = os.path.join(upload_dir, filename)
-        
-        # Save file
-        with open(filepath, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        return True, filepath
-    
-    except Exception as e:
-        print(f"Error saving avatar: {e}")
-        return False, None
 
-# ========== DATABASE FUNCTIONS ==========
 
-def db_get_user_by_id(user_id):
+# ========== USER FUNCTIONS ==========
+
+def db_get_user_by_id(user_id: int):
     """Get user by ID with all profile data"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT * FROM users WHERE id = ?
-    """, (user_id,))
-    
-    user = cursor.fetchone()
-    conn.close()
-    
-    return user if user else None
+    db = get_db()
+    return db.query_one("SELECT * FROM users WHERE id = ?", (user_id,))
 
-def db_get_user_social_links(user_id):
-    """Get all social links for a user"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT * FROM social_links WHERE user_id = ? ORDER BY platform
-    """, (user_id,))
-    
-    links = cursor.fetchall()
-    conn.close()
-    
-    return links
 
-def db_add_social_link(user_id, platform, url, is_public=True):
-    """Add a new social link"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def db_update_user(user_id: int, **kwargs):
+    """Update user information"""
+    db = get_db()
     
     try:
-        cursor.execute("""
-            INSERT INTO social_links (user_id, platform, url, is_public)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, platform, url, is_public))
-        
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error adding social link: {e}")
-        return False
-    finally:
-        conn.close()
-
-def db_update_social_link(link_id, **kwargs):
-    """Update a social link"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
+        # Build update query
         updates = []
         values = []
         
@@ -603,141 +689,221 @@ def db_update_social_link(link_id, **kwargs):
             updates.append(f"{key} = ?")
             values.append(value)
         
-        if updates:
-            values.append(link_id)
-            query = f"""
-                UPDATE social_links 
-                SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            """
-            cursor.execute(query, values)
-            conn.commit()
+        if not updates:
+            return True
         
+        values.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+        
+        db.execute(query, tuple(values))
         return True
+        
     except Exception as e:
-        print(f"Error updating social link: {e}")
+        print(f"Error updating user: {e}")
         return False
-    finally:
-        conn.close()
 
-def db_delete_social_link(link_id):
-    """Delete a social link"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("DELETE FROM social_links WHERE id = ?", (link_id,))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error deleting social link: {e}")
-        return False
-    finally:
-        conn.close()
 
-def db_change_user_password(user_id, current_password, new_password):
+def db_change_user_password(user_id: int, current_password: str, new_password: str):
     """Change user password with verification"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
     
     try:
         # Get current password hash
-        cursor.execute("SELECT password FROM users WHERE id = ?", (user_id,))
-        result = cursor.fetchone()
+        result = db.query_one("SELECT password FROM users WHERE id = ?", (user_id,))
         
         if not result:
             return False, "User not found"
         
-        stored_hash = result[0]
+        stored_hash = result.get('password')
         
         # Verify current password
-        # Note: Assuming password is stored as hash. You'll need to implement proper password hashing
-        # Here we're using a simple check for demonstration
         if stored_hash != hash_password(current_password):
             return False, "Current password is incorrect"
         
         # Update password
         new_hash = hash_password(new_password)
-        cursor.execute("""
-            UPDATE users SET password = ? WHERE id = ?
-        """, (new_hash, user_id))
+        db.execute("UPDATE users SET password = ? WHERE id = ?", (new_hash, user_id))
         
-        conn.commit()
         return True, "Password changed successfully"
     
     except Exception as e:
         print(f"Error changing password: {e}")
         return False, "Failed to change password"
-    finally:
-        conn.close()
 
-def hash_password(password):
+
+def hash_password(password: str) -> str:
     """Simple password hashing (replace with proper hashing)"""
     import hashlib
     return hashlib.sha256(password.encode()).hexdigest()
 
-def db_log_user_activity(user_id, action, details):
-    """Log user activity"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+
+# ========== SOCIAL LINKS FUNCTIONS ==========
+
+def db_get_user_social_links(user_id: int):
+    """Get all social links for a user"""
+    db = get_db()
+    return db.query(
+        "SELECT * FROM social_links WHERE user_id = ? ORDER BY platform",
+        (user_id,)
+    )
+
+
+def db_add_social_link(user_id: int, platform: str, url: str, is_public: bool = True):
+    """Add a new social link"""
+    db = get_db()
     
     try:
-        cursor.execute("""
-            INSERT INTO user_activity_log (user_id, action, details)
-            VALUES (?, ?, ?)
-        """, (user_id, action, details))
-        
-        conn.commit()
+        db.execute("""
+            INSERT INTO social_links (user_id, platform, url, is_public, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, platform, url, is_public, datetime.now().isoformat()))
         return True
+        
     except Exception as e:
-        print(f"Error logging activity: {e}")
+        print(f"Error adding social link: {e}")
         return False
-    finally:
-        conn.close()
 
-def db_get_user_activities(user_id, limit=20):
-    """Get user activity log"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT * FROM user_activity_log 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT ?
-    """, (user_id, limit))
-    
-    activities = cursor.fetchall()
-    conn.close()
-    
-    return activities
 
-def db_update_user(user_id, **kwargs):
-    """Update user information"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def db_update_social_link(link_id: int, **kwargs):
+    """Update a social link"""
+    db = get_db()
     
     try:
         updates = []
         values = []
         
         for key, value in kwargs.items():
-            updates.append(f"{key} = ?")
-            values.append(value)
+            if key in ['platform', 'url', 'is_public']:
+                updates.append(f"{key} = ?")
+                values.append(value)
         
-        if updates:
-            values.append(user_id)
-            query = f"""
-                UPDATE users 
-                SET {', '.join(updates)} 
-                WHERE id = ?
-            """
-            cursor.execute(query, values)
-            conn.commit()
+        if not updates:
+            return True
         
+        values.append(link_id)
+        query = f"""
+            UPDATE social_links 
+            SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        """
+        
+        db.execute(query, tuple(values))
         return True
+        
     except Exception as e:
-        print(f"Error updating user: {e}")
+        print(f"Error updating social link: {e}")
         return False
-    finally:
-        conn.close()
+
+
+def db_delete_social_link(link_id: int):
+    """Delete a social link"""
+    db = get_db()
+    
+    try:
+        db.execute("DELETE FROM social_links WHERE id = ?", (link_id,))
+        return True
+        
+    except Exception as e:
+        print(f"Error deleting social link: {e}")
+        return False
+
+
+# ========== ACTIVITY LOG FUNCTIONS ==========
+
+def db_log_user_activity(user_id: int, action: str, details: str):
+    """Log user activity"""
+    db = get_db()
+    
+    try:
+        db.execute("""
+            INSERT INTO user_activity_log (user_id, action, details, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, action, details, datetime.now().isoformat()))
+        return True
+        
+    except Exception as e:
+        print(f"Error logging activity: {e}")
+        return False
+
+
+def db_get_user_activities(user_id: int, limit: int = 20):
+    """Get user activity log"""
+    db = get_db()
+    return db.query("""
+        SELECT * FROM user_activity_log 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT ?
+    """, (user_id, limit))
+
+
+# ========== CONVENIENCE FUNCTION ==========
+
+def get_user_profile_data(user_id: int):
+    """Get complete user profile data including social links"""
+    db = get_db()
+    
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return None
+    
+    social_links = db_get_user_social_links(user_id)
+    
+    return {
+        'user': user,
+        'social_links': social_links
+    }
+
+
+# ========== STREAMLIT RENDER FUNCTIONS ==========
+
+def render_user_avatar(user, size: int = 100):
+    """Render user avatar with fallback"""
+    if user and user.get('avatar_url'):
+        st.image(user['avatar_url'], width=size)
+    else:
+        # Show initials as fallback
+        name = user.get('full_name', '') or user.get('username', 'U')
+        initials = ''.join([word[0] for word in name.split()[:2]])
+        st.markdown(f"""
+        <div style="
+            width: {size}px; 
+            height: {size}px; 
+            border-radius: 50%; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            color: white; 
+            font-size: {size//2}px; 
+            font-weight: bold;
+        ">
+            {initials}
+        </div>
+        """, unsafe_allow_html=True)
+
+def save_avatar_image_base64(uploaded_file, user_id):
+    """Save avatar as base64 in database - for Streamlit Cloud compatibility"""
+    try:
+        import base64
+        from io import BytesIO
+        
+        # Open and process image
+        image = Image.open(uploaded_file)
+        
+        # Resize
+        max_size = (300, 300)
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        # Convert to base64
+        buffered = BytesIO()
+        image.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Return data URL
+        avatar_data = f"data:image/png;base64,{img_str}"
+        return True, avatar_data
+        
+    except Exception as e:
+        print(f"Error saving avatar as base64: {e}")
+        return False, None        

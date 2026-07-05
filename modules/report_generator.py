@@ -1409,5 +1409,5 @@ def generate_unified_report(analysis_record, comparison, user_info, format='both
     return generate_enhanced_report(analysis_record, comparison, user_info, format)
         
 
-print("=== report_generator.py loaded ===")
-print(f"Available functions: {[x for x in dir() if not x.startswith('_')]}")
+# print("=== report_generator.py loaded ===")
+# print(f"Available functions: {[x for x in dir() if not x.startswith('_')]}")

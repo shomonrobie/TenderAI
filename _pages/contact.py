@@ -1,7 +1,6 @@
 import streamlit as st
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
-db = UnifiedDatabaseManager()
 
 def show():
     st.markdown("""
@@ -10,7 +9,7 @@ def show():
         <p>We'd love to hear from you</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    db = get_db_manager()
     col1, col2 = st.columns(2)
     
     with col1:

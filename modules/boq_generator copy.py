@@ -7,8 +7,8 @@ from datetime import datetime, date
 from io import BytesIO
 import re
 from utils.currency_transformer import number_to_bangladesh_taka_words, number_to_bangladesh_taka_words_simple
-from database.unified_db_manager import db
-
+from database.unified_db_manager import get_db_manager
+db = get_db_manager()
 DB_PATH = db.db_path
 
 class BOQGenerator:

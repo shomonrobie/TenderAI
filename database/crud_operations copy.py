@@ -1205,15 +1205,14 @@ class DatabaseCRUD:
                 
                 return df
             return pd.DataFrame()
-    
+    # In crud_operations.py - Fix the stats query
+
     def get_company_stats(self, company_id: int) -> Dict:
-        """Get analysis statistics for a company"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
-            
-            # Get user IDs for this company
-            cursor.execute("SELECT id FROM users WHERE company_id = ?", (company_id,))
-            user_ids = [row['id'] for row in cursor.fetchall()]
+        """Get company stats - simplified for Supabase"""
+        try:
+            # Get user IDs
+            users = self.query("SELECT id FROM users WHERE company_id = ?", (company_id,))
+            user_ids = [u['id'] for u in users] if users else []
             
             stats = {
                 'total_analyses': 0,
@@ -1227,30 +1226,53 @@ class DatabaseCRUD:
             if not user_ids:
                 return stats
             
-            placeholders = ','.join('?' * len(user_ids))
+            placeholders = ','.join(['?' for _ in user_ids])
             
-            # Get analysis stats
-            cursor.execute(f"""
-                SELECT COUNT(*) as total, AVG(confidence_score) as avg_conf,
-                    SUM(CASE WHEN bid_status = 'won' THEN 1 ELSE 0 END) as wins,
-                    COUNT(CASE WHEN bid_status IS NOT NULL THEN 1 END) as total_bids
-                FROM tender_analyses
+            # ✅ Use separate queries instead of CASE
+            # Total analyses
+            total_result = self.query_one(f"""
+                SELECT COUNT(*) as total FROM tender_analyses
                 WHERE user_id IN ({placeholders})
-            """, user_ids)
+            """, tuple(user_ids))
+            stats['total_analyses'] = total_result['total'] if total_result else 0
             
-            row = cursor.fetchone()
+            # Average confidence
+            avg_result = self.query_one(f"""
+                SELECT AVG(confidence_score) as avg FROM tender_analyses
+                WHERE user_id IN ({placeholders}) AND confidence_score IS NOT NULL
+            """, tuple(user_ids))
+            stats['avg_confidence'] = avg_result['avg'] if avg_result and avg_result['avg'] else 0
             
-            if row:
-                stats['total_analyses'] = row['total'] or 0
-                stats['avg_confidence'] = row['avg_conf'] or 0
-                stats['total_bids'] = row['total_bids'] or 0
-                stats['total_wins'] = row['wins'] or 0
-                
-                if stats['total_bids'] > 0:
-                    stats['win_rate'] = (stats['total_wins'] / stats['total_bids']) * 100
+            # Total bids (non-null bid_status)
+            bids_result = self.query_one(f"""
+                SELECT COUNT(*) as total FROM tender_analyses
+                WHERE user_id IN ({placeholders}) AND bid_status IS NOT NULL
+            """, tuple(user_ids))
+            stats['total_bids'] = bids_result['total'] if bids_result else 0
+            
+            # Wins
+            wins_result = self.query_one(f"""
+                SELECT COUNT(*) as total FROM tender_analyses
+                WHERE user_id IN ({placeholders}) AND bid_status = 'won'
+            """, tuple(user_ids))
+            stats['total_wins'] = wins_result['total'] if wins_result else 0
+            
+            if stats['total_bids'] > 0:
+                stats['win_rate'] = (stats['total_wins'] / stats['total_bids']) * 100
             
             return stats
-
+            
+        except Exception as e:
+            print(f"⚠️ Error getting company stats: {e}")
+            return {
+                'total_analyses': 0,
+                'avg_confidence': 0,
+                'total_users': 0,
+                'win_rate': 0,
+                'total_bids': 0,
+                'total_wins': 0
+            }
+        
     
     def toggle_favorite_analysis(self, analysis_id: int, user_id: int) -> bool:
         """Toggle favorite status of an analysis"""
@@ -2159,17 +2181,17 @@ class DatabaseCRUD:
     
     # ==================== ROLE/PERMISSION METHODS ====================
     
-    def get_role_permissions(self, role: str) -> List[str]:
-        """Get permissions for a role"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
-            cursor.execute("""
-                SELECT permission
-                FROM role_permissions
-                WHERE role = ?
-            """, (role,))
+    # def get_role_permissions(self, role: str) -> List[str]:
+    #     """Get permissions for a role"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
+    #         cursor.execute("""
+    #             SELECT permission
+    #             FROM role_permissions
+    #             WHERE role = ?
+    #         """, (role,))
             
-            return [row['permission'] for row in cursor.fetchall()]
+    #         return [row['permission'] for row in cursor.fetchall()]
     
     def get_all_roles(self) -> List[Dict]:
         """Get all roles with their permissions"""

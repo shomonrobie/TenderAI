@@ -242,7 +242,7 @@ python
 import json
 import re
 from datetime import datetime
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 
 def parse_and_store_tender_opening_report(pdf_text: str, company_id: int = 1):
     """
@@ -1778,7 +1778,7 @@ python
 # contribution_manager.py
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 
 class ContributionManager:
     """Manages user contributions and tiered discounts"""
@@ -2481,7 +2481,7 @@ python
 import streamlit as st
 from datetime import datetime
 from typing import Dict, List, Optional
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 
 class PDFTenderProcessor:
     """Process user-uploaded tender opening report PDFs"""

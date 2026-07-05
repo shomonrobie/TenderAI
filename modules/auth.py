@@ -13,23 +13,34 @@ import logging
 from typing import Optional, Dict
 import secrets
 import bcrypt
+from typing import Optional, Dict, List, Any, Tuple
+from utils.otp_service import OTPService
 
 logger = logging.getLogger(__name__)
 db = UnifiedDatabaseManager()
 
+def save_session_to_url(remember_me: bool = False):
+    """Save session to URL for persistence"""
+    try:
+        if remember_me:
+            import hashlib
+            import time
+            
+            user_id = st.session_state.get('user_id')
+            username = st.session_state.get('username')
+            expiry = int(time.time()) + (30 * 24 * 60 * 60)  # 30 days
+            
+            token = f"{user_id}:{username}:{expiry}"
+            
+            st.query_params.user_id = str(user_id)
+            st.query_params.username = username
+            st.query_params.expiry = str(expiry)
+            st.query_params.token = hashlib.sha256(token.encode()).hexdigest()[:16]
+            
+            print(f"✅ Session saved for user: {username}")
+    except Exception as e:
+        print(f"⚠️ Could not save session: {e}")
 
-def save_session_to_url(remember_me=False):
-    """Save session to URL parameters for persistence"""
-    if not remember_me:
-        return
-    
-    if st.session_state.get('logged_in', False):
-        # ✅ Save to URL parameters
-        st.query_params['user_id'] = str(st.session_state.user_id)
-        st.query_params['username'] = st.session_state.username
-        st.query_params['expiry'] = str(int(time.time()) + 30 * 24 * 3600)
-        print(f"✅ Session saved to URL for user: {st.session_state.username}")
-        print(f"   Params: {dict(st.query_params)}")  # Debug
 
 
 # modules/auth.py - Update restore_session_from_url
@@ -91,7 +102,8 @@ def restore_session_from_url():
             st.session_state.mobile_verified = user.get('mobile_verified', False)
             st.session_state.email_verified = user.get('email_verified', False)
             st.session_state.remember_me = True
-            
+            st.session_state.two_factor_verified = True  # Session already verified
+
             # Get company name
             if st.session_state.company_id:
                 company = db.get_company_by_id(st.session_state.company_id)
@@ -131,12 +143,111 @@ def clear_session_url():
     st.query_params.clear()
 
 # modules/auth.py
-
 def login_user(user_data: Dict, password: str = None, remember_me: bool = False) -> bool:
-    """Login user and set session state"""
+    """Login user - with global 2FA"""
     if not user_data:
         return False
     
+    try:
+        user_id = user_data.get('id')
+        email = user_data.get('email')
+         # ✅ Check if already logged in
+        if st.session_state.get('logged_in', False) and st.session_state.get('user_id') == user_id:
+            print(f"✅ User {user_id} already logged in")
+            return True
+        
+        # ✅ Check if 2FA already verified
+        if st.session_state.get('two_factor_verified', False):
+            print(f"✅ 2FA already verified for user {user_id}")
+            return _complete_login(user_data, remember_me)
+        
+        # ✅ Check if we're in 2FA flow
+        if st.session_state.get('verification_step') == '2fa_otp':
+            print(f"⏳ 2FA flow in progress for user {user_id}")
+            return True
+        
+        
+        # ✅ Store pending login info and send OTP
+        st.session_state.pending_2fa_user_id = user_id
+        st.session_state.pending_2fa_user_data = user_data
+        st.session_state.pending_2fa_remember_me = remember_me
+        st.session_state.verification_step = '2fa_otp'
+        
+        # Send OTP
+        otp_service = OTPService(db)
+        success, message, otp_code = otp_service.send_verification_otp(
+            contact_type='email',
+            contact_value=email,
+            target_type='user',
+            target_id=user_id,
+            purpose='2fa_login'
+        )
+        
+        if success:
+            st.session_state._2fa_otp_sent = True
+            st.session_state._2fa_otp_code = otp_code
+            st.session_state._2fa_contact = email
+            print(f"✅ 2FA OTP sent to: {email}")
+            return True  # Will show 2FA verification screen
+        else:
+            st.error(f"Failed to send verification code: {message}")
+            return False
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        traceback.print_exc()
+        return False
+
+def verify_2fa_otp(otp_code: str) -> Tuple[bool, str]:
+    """
+    Verify 2FA OTP and complete login
+    """
+    try:
+        user_id = st.session_state.get('pending_2fa_user_id')
+        if not user_id:
+            return False, "Session expired. Please login again."
+        
+        user_data = st.session_state.get('pending_2fa_user_data', {})
+        email = user_data.get('email')
+        
+        otp_service = OTPService(db)
+        success, message, _ = otp_service.verify_otp(
+            contact_type='email',
+            contact_value=email,
+            otp_code=otp_code,
+            purpose='2fa_login'
+        )
+        
+        if success:
+            # Mark 2FA as verified in session
+            st.session_state.two_factor_verified = True
+            
+            # Mark in database
+            db.execute("""
+                UPDATE users 
+                SET two_factor_verified = TRUE,
+                    two_factor_verified_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (user_id,))
+            
+            # Complete login
+            remember_me = st.session_state.get('pending_2fa_remember_me', False)
+            _complete_login(user_data, remember_me)
+            
+            # Clear pending state
+            _clear_pending_2fa_state()
+            
+            return True, "Verification successful!"
+        else:
+            return False, message
+            
+    except Exception as e:
+        logger.error(f"2FA verification error: {e}")
+        traceback.print_exc()
+        return False, f"Verification failed: {str(e)}"
+
+def _complete_login(user_data: Dict, remember_me: bool = False) -> bool:
+    """Complete the login process"""
     try:
         st.session_state.logged_in = True
         st.session_state.user_id = user_data.get('id')
@@ -149,8 +260,9 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         st.session_state.mobile_verified = user_data.get('mobile_verified', False)
         st.session_state.email_verified = user_data.get('email_verified', False)
         st.session_state.account_type = 'company' if user_data.get('company_id') else 'individual'
+        st.session_state.two_factor_verified = True
         
-        print(f"✅ Login - Role set to: {st.session_state.user_role}")
+        print(f"✅ Login - Role: {st.session_state.user_role}")
         print(f"✅ Login - Company ID: {st.session_state.company_id}")
 
         # Fetch company name
@@ -167,11 +279,11 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
             st.session_state.subscription_plan = 'free'
         st.session_state.subscription_status = 'active'
         
-        # ✅ Refresh RBAC role cache
+        # Refresh RBAC
         from modules.rbac import _rbac
         _rbac.refresh_role()
         
-        # ✅ Save to URL if remember_me is checked
+        # Save to URL if remember_me
         if remember_me:
             save_session_to_url(remember_me)
         
@@ -179,10 +291,55 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         return True
         
     except Exception as e:
-        logger.error(f"Login error: {e}")
+        logger.error(f"Login completion error: {e}")
         traceback.print_exc()
         return False
 
+
+def _clear_pending_2fa_state():
+    """Clear pending 2FA session state"""
+    keys_to_clear = [
+        'pending_2fa_user_id',
+        'pending_2fa_user_data',
+        'pending_2fa_remember_me',
+        '_2fa_otp_sent',
+        '_2fa_otp_code',
+        '_2fa_contact'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.session_state.verification_step = None
+
+
+def resend_2fa_otp() -> Tuple[bool, str]:
+    """Resend 2FA OTP"""
+    try:
+        user_id = st.session_state.get('pending_2fa_user_id')
+        if not user_id:
+            return False, "Session expired. Please login again."
+        
+        user_data = st.session_state.get('pending_2fa_user_data', {})
+        email = user_data.get('email')
+        
+        otp_service = OTPService(db)
+        success, message, otp_code = otp_service.resend_otp(
+            contact_type='email',
+            contact_value=email,
+            target_type='user',
+            target_id=user_id,
+            purpose='2fa_login'
+        )
+        
+        if success:
+            st.session_state._2fa_otp_code = otp_code
+            return True, "New verification code sent!"
+        else:
+            return False, message
+            
+    except Exception as e:
+        logger.error(f"Resend 2FA OTP error: {e}")
+        return False, str(e)
 
 # modules/auth.py - Add this function
 
@@ -246,36 +403,6 @@ def logout_user():
         import traceback
         traceback.print_exc()
         return False
-    
-def logout_user_bak():
-    """Logout current user and clear URL params"""
-    clear_session_url()
-    
-    keys_to_clear = [
-        'logged_in', 'user_id', 'username', 'user_email', 'user_mobile',
-        'full_name', 'user_role', 'company_id', 'company_name',
-        'subscription_plan', 'subscription_status', 'mobile_verified',
-        'email_verified', 'account_type', 'remember_me'
-    ]
-    
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-    
-    # Also clear any pending states
-    if 'show_2fa' in st.session_state:
-        del st.session_state.show_2fa
-    if 'pending_2fa' in st.session_state:
-        del st.session_state.pending_2fa
-    if 'verification_step' in st.session_state:
-        del st.session_state.verification_step
-    if 'pending_registration' in st.session_state:
-        del st.session_state.pending_registration
-    
-    st.session_state.logged_in = False
-    st.session_state.page = 'home'
-    logger.info("User logged out")
-    return True
 
 
 def authenticate_user(username_or_email: str, password: str) -> Optional[Dict]:

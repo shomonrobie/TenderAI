@@ -1,4 +1,4 @@
-# modules/pwd_import_wizard.py
+# modules/pwd_import_wizard.py - Fully Refactored to use SystemRateCRUD
 
 import streamlit as st
 import pandas as pd
@@ -6,18 +6,15 @@ import os
 import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from utils.currency_transformer import number_to_bangladesh_taka_words
-from database.unified_db_manager import UnifiedDatabaseManager
-from typing import List, Union, Dict, Callable, Optional
-import sqlite3
-db = UnifiedDatabaseManager()
-DB_PATH = db.db_path
+
+from database.unified_db_manager import get_db_manager
+
 
 class PWDImportWizard:
     """PWD Rate Schedule Import Wizard for Excel files with chapter-based replacement"""
     
-    def __init__(self, db_instance):
-        self.db = db_instance
+    def __init__(self, db_instance=None):
+        self.db = db_instance or get_db_manager()  # ✅ Use cached db manager
         self.rollback_manager = None
     
     def render(self):
@@ -77,6 +74,11 @@ class PWDImportWizard:
             self._step5_rollback()
         elif st.session_state.pwd_wizard_step == 6:
             self._step6_complete()
+    
+    # =========================================================
+    # STEP 1: UPLOAD
+    # =========================================================
+    
     def _step1_upload(self):
         """Step 1: Upload Excel file with Chapter selection"""
         st.markdown("### Step 1: Upload Excel File")
@@ -118,32 +120,28 @@ class PWDImportWizard:
             st.markdown("---")
             st.markdown("### 📚 Chapter Selection")
 
-            # === IMPROVED & SIMPLIFIED CHAPTER FETCH ===
-            pwd_chapters_df = self._get_pwd_chapters_safe()
+            # ✅ Use SystemRateCRUD for chapters
+            chapters = self.db.get_pwd_chapters_dict()
 
-            if pwd_chapters_df is None or pwd_chapters_df.empty:
+            if not chapters:
                 st.error("❌ No chapters found in database. Please add chapters first.")
-                st.info("Run `check_pwd_page.py` to verify the data exists.")
+                st.info("Go to **Rate Management → Chapters** tab to add PWD chapters.")
                 return
 
-            st.success(f"✅ Loaded {len(pwd_chapters_df)} chapters successfully")
+            st.success(f"✅ Loaded {len(chapters)} chapters successfully")
 
             chapter_options = []
-            for _, row in pwd_chapters_df.iterrows():
-                ch_num = str(row.get('chapter_number', '')).strip()
-                ch_name = str(row.get('chapter_name', '')).strip()
-
+            for ch in chapters:
+                ch_num = str(ch.get('chapter_number', '')).strip()
+                ch_name = str(ch.get('chapter_name', '')).strip()
                 if (ch_num and ch_name and 
                     ch_num.lower() not in ['nan', 'none', 'null', ''] and
                     ch_name.lower() not in ['nan', 'none', 'null', 'chapter_name']):
-                    
                     chapter_options.append(f"{ch_num} - {ch_name}")
 
             if not chapter_options:
-                st.error("❌ Still no valid chapters")
+                st.error("❌ No valid chapters found")
                 return
-
-            st.success(f"✅ Loaded {len(chapter_options)} valid chapters")
 
             selected_chapter_option = st.selectbox(
                 "Select Chapter (Required)",
@@ -175,227 +173,13 @@ class PWDImportWizard:
                             st.error("No data extracted from Excel file")
                 except Exception as e:
                     st.error(f"Error: {e}")
-
-    # ==================== FIXED HELPER ====================
     
-    def _get_pwd_chapters_safe(self) -> Optional[pd.DataFrame]:
-        """Safely fetch PWD chapters - using raw SQLite to avoid pandas issues"""
-        try:
-            # Try pandas first
-            df = self.db.get_pwd_chapters()
-            
-            st.info(f"Raw from pandas: {df.shape if df is not None else 'None'}")
-
-            # If pandas gives garbage (all headers), use raw SQLite instead
-            if df is None or df.empty or df.iloc[0].astype(str).str.contains('chapter_number').any():
-                st.warning("Pandas returned bad data → Falling back to raw SQLite")
-
-                conn = None
-                try:
-                    # Use the same connection logic as check_pwd_page.py
-                    conn = sqlite3.connect(self.db.db_path)   # or whatever your db path is
-                    cursor = conn.cursor()
-                    
-                    cursor.execute("""
-                        SELECT chapter_number, chapter_name, description 
-                        FROM pwd_chapters 
-                        ORDER BY CAST(chapter_number AS INTEGER)
-                    """)
-                    rows = cursor.fetchall()
-                    
-                    # Convert to DataFrame manually
-                    df = pd.DataFrame(rows, columns=['chapter_number', 'chapter_name', 'description'])
-                    st.success(f"✅ Fetched {len(df)} rows using raw SQLite")
-                    
-                except Exception as e:
-                    st.error(f"Raw SQLite fallback failed: {e}")
-                    return None
-                finally:
-                    if conn:
-                        conn.close()
-
-            # Now clean the DataFrame
-            df = df.copy()
-            df['chapter_number'] = df['chapter_number'].astype(str).str.strip()
-            df['chapter_name']   = df['chapter_name'].astype(str).str.strip()
-            df['description']    = df['description'].astype(str).str.strip()
-
-            # Remove any rows that are literally the header
-            df = df[
-                ~df['chapter_number'].str.contains('chapter_number', case=False, na=False)
-            ].reset_index(drop=True)
-
-            st.info(f"✅ After cleaning: {len(df)} valid chapters")
-
-            if len(df) > 0:
-                st.write("**Final data preview:**")
-                st.dataframe(df.head(5))
-            else:
-                st.dataframe(df)
-
-            return df
-
-        except Exception as e:
-            st.error(f"Error fetching chapters: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-            return None    
-    
-    def _step1_upload_x(self):
-        """Step 1: Upload Excel file with Chapter selection"""
-        
-        st.markdown("### Step 1: Upload Excel File")
-        st.caption("Upload a PWD Excel file with rate data")
-        
-        uploaded_file = st.file_uploader(
-            "📄 **Select PWD Excel File**",
-            type=["xlsx", "xls"],
-            help="Upload Excel file in PWD format with Item No., Description, Unit, and Zone rates",
-            key="pwd_excel_upload"
-        )
-        
-        if uploaded_file:
-            # Save temp file
-            temp_path = f"temp_pwd_excel_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            
-            # Preview the file
-            try:
-                preview_df = pd.read_excel(temp_path, nrows=5)
-                st.markdown("#### 📋 File Preview")
-                st.dataframe(preview_df, use_container_width=True)
-                st.success(f"✅ File loaded: {uploaded_file.name}")
-                
-                st.session_state.pwd_excel_temp_path = temp_path
-                st.session_state.pwd_excel_filename = uploaded_file.name
-                
-            except Exception as e:
-                st.error(f"Error reading file: {e}")
-                return
-            
-            st.markdown("---")
-            
-            # Configuration
-            st.markdown("### ⚙️ Import Configuration")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                edition_year = st.number_input(
-                    "📅 Edition Year",
-                    min_value=2020,
-                    max_value=2030,
-                    value=2022,
-                    key="pwd_edition_year"
-                )
-            
-            with col2:
-                version_name = st.text_input(
-                    "📌 Version Name",
-                    value=f"PWD Schedule {edition_year}",
-                    key="pwd_version_name"
-                )
-            
-            # Chapter Selection
-            st.markdown("---")
-            st.markdown("### 📚 Chapter Selection")
-            st.caption("PWD rates are organized by chapters (e.g., 01, 02, 03...)")
-            
-            # Get chapters from database
-            try:
-                pwd_chapters_df = db.get_pwd_chapters()
-                
-                # FIX: Remove header rows if they exist
-                if not pwd_chapters_df.empty:
-                    # Check if the first row contains column headers as data
-                    first_row = pwd_chapters_df.iloc[0]
-                    if (str(first_row.get('chapter_number', '')).strip() == 'chapter_number' or
-                        str(first_row.get('chapter_name', '')).strip() == 'chapter_name'):
-                        # Remove the header row
-                        pwd_chapters_df = pwd_chapters_df.iloc[1:].reset_index(drop=True)
-                        st.info("🔄 Removed header row from chapter data")
-                
-                if pwd_chapters_df.empty:
-                    st.warning("⚠️ No PWD chapters found in database.")
-                    st.info("💡 Please add chapters in Rate Management first.")
-                    return
-                    
-            except Exception as e:
-                st.error(f"❌ Error fetching chapters: {e}")
-                import traceback
-                st.error(traceback.format_exc())
-                return
-            
-            # Create chapter options
-            chapter_options = []
-            for _, row in pwd_chapters_df.iterrows():
-                try:
-                    chapter_num = str(row.get('chapter_number', '')).strip()
-                    chapter_name = str(row.get('chapter_name', '')).strip()
-                    
-                    # Skip invalid entries
-                    if (not chapter_num or chapter_num in ['nan', 'None', 'chapter_number'] or
-                        not chapter_name or chapter_name in ['nan', 'None', 'chapter_name']):
-                        continue
-                        
-                    chapter_options.append(f"{chapter_num} - {chapter_name}")
-                except Exception:
-                    continue
-            
-            if not chapter_options:
-                st.warning("⚠️ No valid chapter options found")
-                st.info("Please ensure chapters have both chapter_number and chapter_name")
-                return
-            
-            # Chapter selection
-            selected_chapter_option = st.selectbox(
-                "Select Chapter (Required)",
-                options=chapter_options,
-                key="pwd_chapter_select",
-                help="Select which chapter these items belong to"
-            )
-            
-            if selected_chapter_option:
-                # Extract chapter number
-                try:
-                    chapter_num = selected_chapter_option.split(" - ")[0].strip()
-                    
-                    # Keep leading zeros if present
-                    if chapter_num.isdigit():
-                        chapter_num = chapter_num.zfill(2)
-                    
-                    st.info(f"""
-                    **Selected Configuration:**
-                    - Edition Year: {edition_year}
-                    - Version Name: {version_name}
-                    - Chapter: {chapter_num}
-                    """)
-                    
-                    st.session_state.pwd_excel_config = {
-                        'edition_year': edition_year,
-                        'version_name': version_name,
-                        'chapter_num': chapter_num,
-                        'temp_path': temp_path,
-                        'filename': uploaded_file.name
-                    }
-                    
-                    st.markdown("---")
-                    
-                    if st.button("➡️ Next: Extract & Map Data", type="primary", use_container_width=True):
-                        with st.spinner("Extracting data from Excel..."):
-                            extracted_items = self._extract_excel_data(temp_path, chapter_num)
-                            
-                            if extracted_items:
-                                st.session_state.pwd_excel_data = extracted_items
-                                st.session_state.pwd_wizard_step = 2
-                                st.rerun()
-                            else:
-                                st.error("No data extracted from Excel file")
-                except Exception as e:
-                    st.error(f"Error processing selection: {e}")
+    # =========================================================
+    # EXCEL EXTRACTION
+    # =========================================================
     
     def _extract_excel_data(self, file_path: str, chapter_num: str) -> List[Dict[str, Any]]:
-        """Extract data from PWD Excel file - Simplified version"""
+        """Extract data from PWD Excel file"""
         import re
         
         df = pd.read_excel(file_path, sheet_name=0, header=None, dtype=str)
@@ -428,40 +212,32 @@ class PWDImportWizard:
         for idx in range(header_row_idx + 1, len(df)):
             row = df.iloc[idx]
             
-            # Get the item code
             item_code = str(row[0]) if pd.notna(row[0]) else ''
             item_code = item_code.strip()
             
-            # Skip empty rows
             if not item_code or item_code == 'nan':
                 continue
             
-            # Skip date patterns
             if re.match(r'^\d{4}-\d{2}-\d{2}', item_code):
                 continue
             
-            # Skip single digit separators
             if item_code in ['1', '2', '3', '4', '5', '6', '7', '8', '9'] and '.' not in item_code:
                 continue
             
-            # Accept all other rows (PWD codes always have dots)
             if '.' not in item_code:
                 continue
             
-            # Get description
             description = str(row[1]) if pd.notna(row[1]) else ''
             description = description.strip()
             if description == 'nan':
                 description = ''
             description = ' '.join(description.split())
             
-            # Get unit
             unit = str(row[2]) if pd.notna(row[2]) else ''
             unit = unit.strip()
             if unit == 'nan':
                 unit = ''
             
-            # Get zone rates (columns 3-6 for PWD)
             zone_a = get_rate_value(row[3]) if len(row) > 3 else None
             zone_b = get_rate_value(row[4]) if len(row) > 4 else None
             zone_c = get_rate_value(row[5]) if len(row) > 5 else None
@@ -469,7 +245,6 @@ class PWDImportWizard:
             
             has_rates = any([zone_a, zone_b, zone_c, zone_d])
             
-            # Determine parent code
             parent_code = None
             if '.' in item_code:
                 parts = item_code.split('.')
@@ -496,8 +271,12 @@ class PWDImportWizard:
         
         return extracted_items
     
+    # =========================================================
+    # STEP 2: MAP DATA
+    # =========================================================
+    
     def _step2_map_data(self):
-        """Step 2: Map Excel columns with parent assignment options"""
+        """Step 2: Map Data Fields & Define Relationships"""
         
         st.markdown("### Step 2: Map Data Fields & Define Relationships")
         st.caption("Verify extracted data and define parent-child relationships")
@@ -512,13 +291,9 @@ class PWDImportWizard:
                 st.rerun()
             return
         
-        # Create DataFrame for display
         df = pd.DataFrame(extracted_items)
-        
-        # Add a temporary ID for each row
         df['temp_id'] = range(len(df))
         
-        # Determine items with rates
         def has_rates(row):
             return any([
                 pd.notna(row.get('zone_a')) and row.get('zone_a', 0) > 0,
@@ -528,12 +303,9 @@ class PWDImportWizard:
             ])
         
         df['has_rates'] = df.apply(has_rates, axis=1)
-        
-        # Separate items with and without rates
         items_with_rates = df[df['has_rates'] == True].copy()
         items_without_rates = df[df['has_rates'] == False].copy()
         
-        # Display summary
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Items", len(df))
@@ -542,14 +314,11 @@ class PWDImportWizard:
         with col3:
             st.metric("Parent Headers", len(items_without_rates))
         
-        # Show preview
         with st.expander("📋 View Extracted Data Preview", expanded=False):
             preview_df = df[['item_code', 'description', 'unit', 'zone_a', 'zone_b', 'zone_c', 'zone_d', 'has_rates']].head(10)
             st.dataframe(preview_df, use_container_width=True)
         
         st.markdown("---")
-        
-        # Parent assignment method
         st.markdown("### 🔗 Define Parent-Child Relationships")
         
         relationship_method = st.radio(
@@ -615,7 +384,6 @@ class PWDImportWizard:
             st.info("✏️ **Manual Assignment Mode:** Select parent for each child item.")
             
             if items_without_rates.empty:
-                st.warning("No potential parents found.")
                 parent_options = [("", "None (Root Level)")]
             else:
                 parent_options = [("", "None (Root Level)")]
@@ -797,6 +565,10 @@ class PWDImportWizard:
                 st.session_state.pwd_wizard_step = 3
                 st.rerun()
     
+    # =========================================================
+    # STEP 3: REVIEW & EDIT
+    # =========================================================
+    
     def _step3_review_edit(self):
         """Step 3: Review and edit extracted data with export option"""
         
@@ -813,17 +585,14 @@ class PWDImportWizard:
                 st.rerun()
             return
         
-        # Convert to DataFrame for editing
         df = pd.DataFrame(extracted_items)
         
-        # Ensure all expected columns exist
         expected_cols = ['item_code', 'description', 'unit', 'zone_a', 'zone_b', 'zone_c', 'zone_d', 
                         'parent_code', 'has_rates', 'dot_count']
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = None
         
-        # Calculate has_rates if missing
         if 'has_rates' not in df.columns:
             df['has_rates'] = df.apply(
                 lambda row: any([
@@ -834,23 +603,17 @@ class PWDImportWizard:
                 ]), axis=1
             )
         
-        # Calculate dot_count if missing
         if 'dot_count' not in df.columns:
             df['dot_count'] = df['item_code'].apply(lambda x: str(x).count('.') if pd.notna(x) else 0)
         
-        # Determine parent/child status (for display only)
         df['is_parent'] = (~df['has_rates']) & (df['dot_count'] >= 1)
         df['is_child'] = df['has_rates']
         
-        # Reorder columns for better readability
         display_cols = ['item_code', 'description', 'unit', 'parent_code', 'zone_a', 'zone_b', 'zone_c', 'zone_d', 
                         'has_rates', 'is_parent', 'is_child', 'dot_count']
         df = df[[c for c in display_cols if c in df.columns]]
-        
-        # Sort by item_code for logical grouping
         df = df.sort_values('item_code').reset_index(drop=True)
         
-        # Show editable table
         st.markdown("#### 📝 Editable Data Table")
         st.caption("💡 Tip: Set 'parent_code' to establish parent-child relationships (e.g., '01.1' for '01.1.1')")
         
@@ -876,10 +639,8 @@ class PWDImportWizard:
             }
         )
         
-        # Save edited data
         st.session_state.pwd_excel_edited_df = edited_df
         
-        # Statistics
         st.markdown("---")
         st.markdown("#### 📊 Data Statistics")
         
@@ -896,7 +657,6 @@ class PWDImportWizard:
         col4.metric("Child Items", children_with_parents)
         col5.metric("Leaf Items", leaf_items)
         
-        # Export Options
         st.markdown("---")
         st.markdown("#### 💾 Export Data for Verification")
         
@@ -944,7 +704,6 @@ class PWDImportWizard:
                 key="pwd_export_json"
             )
         
-        # Show parent-child relationship summary
         st.markdown("---")
         st.markdown("#### 🔗 Parent-Child Relationship Summary")
         
@@ -969,7 +728,6 @@ class PWDImportWizard:
         
         with col2:
             if st.button("➡️ Next: Validate", type="primary", use_container_width=True):
-                # Basic validation
                 errors = []
                 duplicates = edited_df[edited_df['item_code'].duplicated()]
                 if not duplicates.empty:
@@ -982,6 +740,10 @@ class PWDImportWizard:
                 
                 st.session_state.pwd_wizard_step = 4
                 st.rerun()
+    
+    # =========================================================
+    # STEP 4: VALIDATE
+    # =========================================================
     
     def _step4_validate(self):
         """Step 4: Validate and confirm with chapter-based replacement"""
@@ -998,13 +760,15 @@ class PWDImportWizard:
                 st.rerun()
             return
         
-        # Calculate statistics
         total_items = len(edited_df)
         items_with_rates = len(edited_df[edited_df['has_rates'] == True])
         parents = len(edited_df[(edited_df['has_rates'] == False) & (edited_df['dot_count'] >= 1)])
         
-        # Get existing versions
-        versions_df = self._get_version_history(config['edition_year'])
+        # ✅ Use SystemRateCRUD for version history
+        versions = self.db.get_rate_versions_dict('PWD')
+        versions_df = pd.DataFrame(versions) if versions else pd.DataFrame()
+        if not versions_df.empty and 'edition_year' in versions_df.columns:
+            versions_df = versions_df[versions_df['edition_year'] == config['edition_year']]
         
         st.markdown("### 🔄 Import Mode Selection")
         
@@ -1031,7 +795,10 @@ class PWDImportWizard:
                 import_mode = "new_version"
             else:
                 st.info(f"📊 Existing versions for PWD {config['edition_year']}:")
-                st.dataframe(versions_df[['version_number', 'is_active', 'created_at', 'total_items']], 
+                display_df = versions_df.copy()
+                if 'is_active' in display_df.columns:
+                    display_df['is_active'] = display_df['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
+                st.dataframe(display_df[['version_number', 'is_active', 'created_at', 'total_items']], 
                             use_container_width=True, hide_index=True)
                 
                 version_options = []
@@ -1076,7 +843,6 @@ class PWDImportWizard:
                     key="confirm_pwd_chapter_update"
                 )
         
-        # Summary
         st.markdown("---")
         st.markdown("#### 📋 Data to be Saved")
         
@@ -1114,86 +880,32 @@ class PWDImportWizard:
             button_disabled = import_mode == "update_chapter" and not confirm_update
             if st.button("💾 **Import to Database**", type="primary", use_container_width=True, disabled=button_disabled):
                 
-                # Build hierarchy with correct field names
-                hierarchy = {
-                    'parents': [],
-                    'children': []
-                }
-                
-                # Track parent codes to avoid duplicates
-                parent_codes = set()
-                
-                for _, row in edited_df.iterrows():
-                    if row['has_rates']:
-                        # This is a child item (has rates)
-                        rates = {}
-                        if pd.notna(row.get('zone_a')) and row['zone_a']:
-                            rates['Zone-A'] = row['zone_a']
-                        if pd.notna(row.get('zone_b')) and row['zone_b']:
-                            rates['Zone-B'] = row['zone_b']
-                        if pd.notna(row.get('zone_c')) and row['zone_c']:
-                            rates['Zone-C'] = row['zone_c']
-                        if pd.notna(row.get('zone_d')) and row['zone_d']:
-                            rates['Zone-D'] = row['zone_d']
-                        
-                        parent_code = row.get('parent_code') if pd.notna(row.get('parent_code')) and row.get('parent_code') != '' else None
-                        
-                        # Add to children list
-                        hierarchy['children'].append({
-                            'pwd_code': row['item_code'],
-                            'parent_code': parent_code,
-                            'description': row.get('description', '') if pd.notna(row.get('description')) else '',
-                            'unit': row.get('unit', '') if pd.notna(row.get('unit')) else '',
-                            'rates': rates
-                        })
-                        
-                        # Track parent for potential missing parent creation
-                        if parent_code:
-                            parent_codes.add(parent_code)
-                    else:
-                        # This is a parent item (no rates)
-                        hierarchy['parents'].append({
-                            'code': row['item_code'],
-                            'description': row.get('description', '') if pd.notna(row.get('description')) else '',
-                            'chapter': config['chapter_num']
-                        })
-                        parent_codes.add(row['item_code'])
-                
-                # Add any missing parent items (parents referenced by children but not in parents list)
-                # This handles cases where parent items are not explicitly in the Excel file
-                for parent_code in parent_codes:
-                    if not any(p['code'] == parent_code for p in hierarchy['parents']):
-                        hierarchy['parents'].append({
-                            'code': parent_code,
-                            'description': f"Parent {parent_code}",
-                            'chapter': config['chapter_num']
-                        })
+                hierarchy = self._build_hierarchy_from_df(edited_df, config['chapter_num'])
                 
                 with st.spinner("Saving to database..."):
                     if import_mode == "update_chapter" and version_id:
-                        result = self._update_pwd_chapter(hierarchy, version_id, config['edition_year'], 
-                                                        config['chapter_num'], notes)
+                        # ✅ Use SystemRateCRUD for chapter update
+                        result = self._update_pwd_chapter(
+                            hierarchy, version_id, config['edition_year'], 
+                            config['chapter_num'], notes
+                        )
                     else:
-                        # Use enhanced save method with selected chapters
-                        selected_chapters = {
-                            config['chapter_num']: {
-                                'name': f"Chapter {config['chapter_num']}",
-                                'description': ''
-                            }
-                        }
-                        
+                        # ✅ Use SystemRateCRUD for new version
                         try:
                             result_version_id = self.db.save_pwd_hierarchy_enhanced(
-                                hierarchy,
-                                config['version_name'],
-                                config['edition_year'],
-                                selected_chapters=selected_chapters
+                                hierarchy=hierarchy,
+                                version_name=config['version_name'],
+                                edition_year=config['edition_year'],
+                                effective_date=datetime.now().date(),
+                                selected_chapters={config['chapter_num']: {'name': f"Chapter {config['chapter_num']}"}}
                             )
-                            result = {'success': True, 'version_id': result_version_id, 'message': "Import successful"}
+                            result = {
+                                'success': True, 
+                                'version_id': result_version_id, 
+                                'message': "Import successful"
+                            }
                         except Exception as e:
                             result = {'success': False, 'message': str(e)}
-                            import traceback
-                            st.code(traceback.format_exc())
                     
                     if result.get('success'):
                         st.success("✅ Data imported successfully!")
@@ -1202,6 +914,81 @@ class PWDImportWizard:
                         st.rerun()
                     else:
                         st.error(f"❌ Import failed: {result.get('message', 'Unknown error')}")
+    
+    def _build_hierarchy_from_df(self, df, chapter_num):
+        """Build hierarchy from DataFrame"""
+        hierarchy = {
+            'parents': [],
+            'children': []
+        }
+        
+        parent_codes = set()
+        
+        for _, row in df.iterrows():
+            if row.get('has_rates', False):
+                rates = {}
+                if pd.notna(row.get('zone_a')) and row.get('zone_a'):
+                    rates['Zone-A'] = row['zone_a']
+                if pd.notna(row.get('zone_b')) and row.get('zone_b'):
+                    rates['Zone-B'] = row['zone_b']
+                if pd.notna(row.get('zone_c')) and row.get('zone_c'):
+                    rates['Zone-C'] = row['zone_c']
+                if pd.notna(row.get('zone_d')) and row.get('zone_d'):
+                    rates['Zone-D'] = row['zone_d']
+                
+                parent_code = row.get('parent_code') if pd.notna(row.get('parent_code')) and row.get('parent_code') != '' else None
+                
+                hierarchy['children'].append({
+                    'pwd_code': row['item_code'],
+                    'parent_code': parent_code,
+                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
+                    'unit': row.get('unit', '') if pd.notna(row.get('unit')) else '',
+                    'rates': rates
+                })
+                
+                if parent_code:
+                    parent_codes.add(parent_code)
+            else:
+                hierarchy['parents'].append({
+                    'code': row['item_code'],
+                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
+                    'chapter': chapter_num
+                })
+                parent_codes.add(row['item_code'])
+        
+        for parent_code in parent_codes:
+            if not any(p['code'] == parent_code for p in hierarchy['parents']):
+                hierarchy['parents'].append({
+                    'code': parent_code,
+                    'description': f"Parent {parent_code}",
+                    'chapter': chapter_num
+                })
+        
+        return hierarchy
+    
+    def _update_pwd_chapter(self, hierarchy, version_id, edition_year, chapter_num, notes=""):
+        """Update ONLY one chapter in an existing version using SystemRateCRUD"""
+        try:
+            # ✅ Use SystemRateCRUD method
+            result = self.db.update_pwd_chapter(
+                version_id=version_id,
+                chapter_num=chapter_num,
+                hierarchy=hierarchy,
+                edition_year=edition_year,
+                notes=notes,
+                updated_by=st.session_state.get('username', 'admin')
+            )
+            
+            return result
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {'success': False, 'message': str(e)}
+    
+    # =========================================================
+    # STEP 5: ROLLBACK
+    # =========================================================
     
     def _step5_rollback(self):
         """Step 5: Rollback options"""
@@ -1222,6 +1009,10 @@ class PWDImportWizard:
             if st.button("➡️ Complete Import", type="primary", use_container_width=True):
                 st.session_state.pwd_wizard_step = 6
                 st.rerun()
+    
+    # =========================================================
+    # STEP 6: COMPLETE
+    # =========================================================
     
     def _step6_complete(self):
         """Step 6: Completion"""
@@ -1255,221 +1046,11 @@ class PWDImportWizard:
                 st.session_state.pwd_wizard_step = 1
                 st.session_state.pwd_excel_data = None
                 st.rerun()
-    
-    def _get_version_history(self, edition_year: int) -> pd.DataFrame:
-        """Get version history for PWD"""
-        try:
-            conn = self.db.get_connection()
-            df = pd.read_sql_query("""
-                SELECT id, version_number, version_name, is_active, created_at,
-                       total_parents + total_children as total_items
-                FROM rate_versions 
-                WHERE source = 'PWD' AND edition_year = ?
-                ORDER BY version_number DESC
-            """, conn, params=[edition_year])
-            conn.close()
-            return df
-        except:
-            return pd.DataFrame()
-    
-    def _update_pwd_chapter(self, hierarchy, version_id, edition_year, chapter_num, notes=""):
-        """Update ONLY one chapter in an existing version"""
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-
-            print(f"🔄 Updating Chapter {chapter_num} in Version {version_id}")
-
-            # === AGGRESSIVE CLEANUP - Remove only this chapter's data ===
-            # Delete rates
-            cursor.execute("""
-                DELETE FROM pwd_rates 
-                WHERE version_id = ? 
-                AND pwd_code IN (
-                    SELECT pwd_code FROM pwd_children 
-                    WHERE version_id = ? AND chapter_number = ?
-                )
-            """, (version_id, version_id, chapter_num))
-
-            # Delete children
-            cursor.execute("""
-                DELETE FROM pwd_children 
-                WHERE version_id = ? AND chapter_number = ?
-            """, (version_id, chapter_num))
-
-            # Delete parents
-            cursor.execute("""
-                DELETE FROM pwd_parents 
-                WHERE version_id = ? AND chapter_number = ?
-            """, (version_id, chapter_num))
-
-            conn.commit()  # Important: commit deletes first
-
-            # === INSERT / REPLACE NEW DATA ===
-            parents_saved = 0
-            children_saved = 0
-            rates_saved = 0
-
-            # Save Parents
-            for parent in hierarchy.get('parents', []):
-                cursor.execute("""
-                    INSERT OR REPLACE INTO pwd_parents 
-                    (pwd_code, description, chapter_number, version_id)
-                    VALUES (?, ?, ?, ?)
-                """, (
-                    parent['code'], 
-                    parent.get('description', ''), 
-                    chapter_num, 
-                    version_id
-                ))
-                parents_saved += 1
-
-            # Save Children + Rates
-            for child in hierarchy.get('children', []):
-                code = child.get('pwd_code') or child.get('code')
-                if not code:
-                    continue
-
-                parent_code = child.get('parent_code')
-                if not parent_code:
-                    parent_code = code  # self-reference for items without parent
-
-                # Insert child
-                cursor.execute("""
-                    INSERT OR REPLACE INTO pwd_children (
-                        pwd_code, parent_code, description, unit,
-                        edition_year, version_id, chapter_number
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    code,
-                    parent_code,
-                    child.get('description', ''),
-                    child.get('unit', ''),
-                    edition_year,
-                    version_id,
-                    chapter_num
-                ))
-                children_saved += 1
-
-                # Insert rates
-                for zone, rate in child.get('rates', {}).items():
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO pwd_rates 
-                        (pwd_code, zone_name, unit_rate, edition_year, version_id)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (code, zone, float(rate), edition_year, version_id))
-                    rates_saved += 1
-
-            conn.commit()
-            conn.close()
-
-            print(f"✅ Successfully updated Chapter {chapter_num} | "
-                  f"Parents: {parents_saved}, Children: {children_saved}, Rates: {rates_saved}")
-
-            return {
-                'success': True,
-                'message': f"Chapter {chapter_num} updated successfully in Version {version_id}",
-                'stats': {
-                    'parents': parents_saved,
-                    'children': children_saved,
-                    'rates': rates_saved
-                }
-            }
-
-        except Exception as e:
-            if 'conn' in locals():
-                conn.rollback()
-                conn.close()
-            import traceback
-            traceback.print_exc()
-            return {'success': False, 'message': str(e)}
-        
-       
-    def _update_pwd_chapter_bak(self, hierarchy, version_id, edition_year, chapter_num, notes):
-        """Update a specific chapter in an existing PWD version"""
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            
-            # Clear existing data for this chapter using chapter_number
-            # Delete rates for children in this chapter
-            cursor.execute("""
-                DELETE FROM pwd_rates 
-                WHERE pwd_code IN (
-                    SELECT pwd_code FROM pwd_children 
-                    WHERE version_id = ? AND parent_code IN (
-                        SELECT pwd_code FROM pwd_parents 
-                        WHERE version_id = ? AND chapter_number = ?
-                    )
-                )
-            """, (version_id, version_id, chapter_num))
-            
-            # Delete children in this chapter
-            cursor.execute("""
-                DELETE FROM pwd_children 
-                WHERE version_id = ? AND parent_code IN (
-                    SELECT pwd_code FROM pwd_parents 
-                    WHERE version_id = ? AND chapter_number = ?
-                )
-            """, (version_id, version_id, chapter_num))
-            
-            # Delete parents in this chapter
-            cursor.execute("""
-                DELETE FROM pwd_parents 
-                WHERE version_id = ? AND chapter_number = ?
-            """, (version_id, chapter_num))
-            
-            # Save parents
-            parents_saved = 0
-            for parent in hierarchy.get('parents', []):
-                cursor.execute("""
-                    INSERT INTO pwd_parents (pwd_code, description, chapter_number, version_id)
-                    VALUES (?, ?, ?, ?)
-                """, (parent['code'], parent.get('description', ''), chapter_num, version_id))
-                parents_saved += 1
-            
-            # Save children - handle NOT NULL constraint on parent_code
-            children_saved = 0
-            rates_saved = 0
-            
-            for child in hierarchy.get('children', []):
-                # IMPORTANT: parent_code cannot be NULL. Use empty string or the actual parent code
-                parent_code = child.get('parent_code')
-                if parent_code is None or parent_code == '':
-                    # For leaf items, use the item's own code as parent_code to satisfy NOT NULL
-                    # Or use an empty string if your database allows it
-                    parent_code = ''  # or child['pwd_code']
-                
-                cursor.execute("""
-                    INSERT INTO pwd_children (
-                        pwd_code, parent_code, description, unit, 
-                        edition_year, version_id
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """, (child['pwd_code'], parent_code, child.get('description', ''), 
-                    child.get('unit', ''), edition_year, version_id))
-                children_saved += 1
-                
-                for zone, rate in child.get('rates', {}).items():
-                    cursor.execute("""
-                        INSERT INTO pwd_rates (pwd_code, zone_name, unit_rate, edition_year, version_id)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (child['pwd_code'], zone, rate, edition_year, version_id))
-                    rates_saved += 1
-            
-            conn.commit()
-            conn.close()
-            
-            print(f"✅ Updated PWD chapter {chapter_num}: {parents_saved} parents, {children_saved} children, {rates_saved} rates")
-            
-            return {'success': True, 'message': f"Updated Chapter {chapter_num}"}
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {'success': False, 'message': str(e)}
 
 
-def render_pwd_import_wizard(db):
+def render_pwd_import_wizard(db=None):
     """Convenience function to render PWD import wizard"""
+    if db is None:
+        db = get_db_manager()
     wizard = PWDImportWizard(db)
     wizard.render()

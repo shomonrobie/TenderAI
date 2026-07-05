@@ -6,6 +6,7 @@ import io
 import json
 import base64
 from datetime import datetime
+from database.unified_db_manager import get_db_manager
 
 def show():
     """Extension Download Page - Only for registered users"""
@@ -120,9 +121,7 @@ def show():
     # Show current usage
     st.markdown("---")
     st.markdown("### 📊 Your Current Usage")
-    
-    from database.unified_db_manager import UnifiedDatabaseManager
-    db = UnifiedDatabaseManager()
+    db = get_db_manager()
     
     sub = db.get_company_subscription(company_id)
     plan = sub.get('plan', 'free')
@@ -170,8 +169,7 @@ def show():
 def get_system_api_url():
     """Get the system-wide API URL configuration"""
     try:
-        from database.unified_db_manager import db
-        
+        db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
         
@@ -199,9 +197,9 @@ def get_system_api_url():
 
 def save_system_api_url(api_url):
     """Save the system-wide API URL configuration (admin only)"""
+    db = get_db_manager()
     try:
-        from database.unified_db_manager import UnifiedDatabaseManager
-        db = UnifiedDatabaseManager()
+        
         conn = db.get_connection()
         cursor = conn.cursor()
         
@@ -1164,7 +1162,6 @@ checkAuth();
 def log_extension_download(user_id, company_id, username):
     """Log extension download for analytics"""
     try:
-        from database.unified_db_manager import db
         
         conn = db.get_connection()
         cursor = conn.cursor()

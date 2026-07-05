@@ -18,7 +18,7 @@ if env_file.exists():
 # =============================================================================
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / 'data'
-DB_PATH = DATA_DIR / 'tender_system.db'
+#DB_PATH = DATA_DIR / 'tender_system.db'
 
 # Create data directory if not exists
 DATA_DIR.mkdir(exist_ok=True)
@@ -32,6 +32,7 @@ def debug_print(*args, **kwargs):
     """Print debug messages only when DEBUG_MODE is True"""
     if DEBUG_MODE:
         print(*args, **kwargs)
+
 
 # =============================================================================
 # 📐 BID CALCULATION CONSTANTS
@@ -56,11 +57,11 @@ PPR_CONFIG = {
 # =============================================================================
 # 📐 DATABASE CONFIGURATION
 # =============================================================================
-DATABASE_CONFIG = {
-    'path': str(DB_PATH),
-    'pool_size': int(os.getenv('DB_POOL_SIZE', '5')),
-    'timeout': int(os.getenv('DB_TIMEOUT', '30'))
-}
+# DATABASE_CONFIG = {
+#     'path': str(DB_PATH),
+#     'pool_size': int(os.getenv('DB_POOL_SIZE', '5')),
+#     'timeout': int(os.getenv('DB_TIMEOUT', '30'))
+# }
 
 # =============================================================================
 # 📐 OTP & EMAIL CONFIGURATION (Default - Email OTP always enabled)
@@ -71,16 +72,16 @@ EMAIL_CONFIG = {
     'enabled': os.getenv('EMAIL_ENABLED', 'true').lower() == 'true',
     'smtp_host': os.getenv('SMTP_HOST', 'smtp.gmail.com'),
     'smtp_port': int(os.getenv('SMTP_PORT', '587')),
-    'smtp_user': os.getenv('SMTP_USER', ''),
-    'smtp_password': os.getenv('SMTP_PASSWORD', ''),
-    'from_email': os.getenv('SMTP_FROM_EMAIL', 'noreply@tenderai.com'),
+    'smtp_user': os.getenv('SMTP_USER', 'shomonrobie@gmail.com'),
+    'smtp_password': os.getenv('SMTP_PASSWORD', 'xxvyijhqoastfdmt'),
+    'from_email': os.getenv('SMTP_FROM_EMAIL', 'shomonrobie@gmail.com'),
     'from_name': os.getenv('SMTP_FROM_NAME', 'TenderAI')
 }
 
 # SMS settings (disabled by default - admin can enable)
 SMS_CONFIG = {
-    'enabled': os.getenv('SMS_ENABLED', 'false').lower() == 'true',
-    'test_mode': os.getenv('SMS_TEST_MODE', 'true').lower() == 'true',
+    'enabled': os.getenv('SMS_ENABLED', 'false').lower() == 'false',
+    'test_mode': os.getenv('SMS_TEST_MODE', 'true').lower() == 'false',
     'provider': os.getenv('SMS_PROVIDER', 'test'),
     'ssl_wireless_api_key': os.getenv('SSL_WIRELESS_API_KEY', ''),
     'ssl_wireless_sid': os.getenv('SSL_WIRELESS_SID', ''),
@@ -236,6 +237,3 @@ def reload_from_env():
     Config.OTP_MAX_ATTEMPTS = OTP_CONFIG['max_attempts']
     Config.ALLOW_PASSWORD_LOGIN = LOGIN_CONFIG['allow_password']
     Config.ALLOW_OTP_LOGIN = LOGIN_CONFIG['allow_otp']
-
-
-print(f"✅ Config loaded | Debug: {DEBUG_MODE} | DB: {DB_PATH}")

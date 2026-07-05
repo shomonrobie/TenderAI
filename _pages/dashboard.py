@@ -4,12 +4,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 from modules.subscription import get_plan, get_current_user_plan, get_current_user_plan_name, is_premium_plan
 from modules.subscription import render_simple_subscription_status
 from modules.access_control import access_control
 
-db = UnifiedDatabaseManager()
+
 
 
 def show():
@@ -26,7 +26,7 @@ def show():
     current_plan = get_current_user_plan_name()
     plan_config = get_plan(current_plan)
     is_premium = is_premium_plan(current_plan)
-    
+    db= get_db_manager()
     # =========================================================================
     # HEADER
     # =========================================================================
@@ -111,7 +111,7 @@ def _render_extension_status(company_id: int, is_premium: bool):
     """Render extension status section"""
     
     st.markdown("### 🤖 Extension Status")
-    
+    db= get_db_manager()
     try:
         usage = db.get_extension_fill_usage(company_id) if company_id else {}
         is_unlimited = usage.get('is_unlimited', False)
@@ -196,7 +196,7 @@ def _render_quick_actions(user_role: str):
 
 def _render_recent_analyses(user_id: int, company_id: int, user_role: str):
     """Render recent analyses section"""
-    
+    db= get_db_manager()
     try:
         analyses_df = db.get_user_analyses(
             user_id=user_id,
@@ -235,7 +235,7 @@ def _render_recent_analyses(user_id: int, company_id: int, user_role: str):
 
 def _render_subscription_alerts(user_id: int):
     """Render subscription alerts"""
-    
+    db= get_db_manager()
     try:
         sub = db.get_user_subscription(user_id) if user_id else {}
         status = sub.get('status', '')

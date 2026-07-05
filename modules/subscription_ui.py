@@ -4,9 +4,9 @@ import streamlit as st
 from datetime import datetime
 from typing import Dict, Optional
 
-from database.unified_db_manager import db
+from database.unified_db_manager import get_db_manager
 from modules.subscription_plans import get_plans, get_plan, is_premium_plan, refresh_plans_cache
-
+db = get_db_manager()
 
 def render_subscription_card(
     subscription: Dict,
