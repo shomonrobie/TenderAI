@@ -16,12 +16,6 @@ from modules.footer import render_footer
 
 from database.unified_db_manager import get_db_manager
 
-from config.settings import Config
-st.write("EMAIL_ENABLED:", Config.EMAIL_ENABLED)
-st.write("SMTP_HOST:", Config.SMTP_HOST)
-st.write("SMTP_USER:", Config.SMTP_USER)
-st.write("SMTP_PASSWORD:", "***" if Config.SMTP_PASSWORD else "Empty")
-
 
 def render_2fa_verification():
     """Render 2FA OTP verification screen"""

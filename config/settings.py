@@ -8,10 +8,47 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file if exists
+# Load environment variables from .env file if exists (local development)
 env_file = Path(__file__).parent.parent / '.env'
 if env_file.exists():
     load_dotenv(env_file)
+
+# =============================================================================
+# 📐 SUPABASE CONFIGURATION - Check Streamlit Secrets First
+# =============================================================================
+
+# Try to get Supabase config from Streamlit secrets first (production)
+SUPABASE_URL = None
+SUPABASE_KEY = None
+USE_SUPABASE = False
+
+try:
+    import streamlit as st
+    if hasattr(st, 'secrets'):
+        # Check for Supabase in secrets
+        if 'SUPABASE_URL' in st.secrets and 'SUPABASE_KEY' in st.secrets:
+            SUPABASE_URL = st.secrets['SUPABASE_URL']
+            SUPABASE_KEY = st.secrets['SUPABASE_KEY']
+            USE_SUPABASE = True
+            print("✅ Supabase config loaded from Streamlit secrets")
+        elif 'connections' in st.secrets and 'supabase' in st.secrets['connections']:
+            supabase_config = st.secrets['connections']['supabase']
+            SUPABASE_URL = supabase_config.get('SUPABASE_URL')
+            SUPABASE_KEY = supabase_config.get('SUPABASE_KEY')
+            USE_SUPABASE = True
+            print("✅ Supabase config loaded from Streamlit secrets (connections format)")
+except:
+    pass
+
+# If not in Streamlit secrets, check environment variables (local development)
+if not USE_SUPABASE:
+    SUPABASE_URL = os.getenv('SUPABASE_URL')
+    SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+    USE_SUPABASE = os.getenv('USE_SUPABASE', 'false').lower() == 'true'
+    if USE_SUPABASE and SUPABASE_URL and SUPABASE_KEY:
+        print("✅ Supabase config loaded from environment variables")
+    else:
+        USE_SUPABASE = False
 
 # =============================================================================
 # 📐 BASE PATHS
@@ -57,11 +94,24 @@ PPR_CONFIG = {
 # =============================================================================
 # 📐 DATABASE CONFIGURATION
 # =============================================================================
-# DATABASE_CONFIG = {
-#     'path': str(DB_PATH),
-#     'pool_size': int(os.getenv('DB_POOL_SIZE', '5')),
-#     'timeout': int(os.getenv('DB_TIMEOUT', '30'))
-# }
+# Use Supabase if configured, otherwise fallback to SQLite
+if USE_SUPABASE and SUPABASE_URL and SUPABASE_KEY:
+    DATABASE_CONFIG = {
+        'type': 'supabase',
+        'url': SUPABASE_URL,
+        'key': SUPABASE_KEY,
+        'pool_size': int(os.getenv('DB_POOL_SIZE', '5')),
+        'timeout': int(os.getenv('DB_TIMEOUT', '30'))
+    }
+    print(f"🔗 Using Supabase: {SUPABASE_URL[:30]}...")
+else:
+    DATABASE_CONFIG = {
+        'type': 'sqlite',
+        'path': str(DATA_DIR / 'tender_system.db'),
+        'pool_size': int(os.getenv('DB_POOL_SIZE', '5')),
+        'timeout': int(os.getenv('DB_TIMEOUT', '30'))
+    }
+    print("📁 Using SQLite database")
 
 # =============================================================================
 # 📐 OTP & EMAIL CONFIGURATION (Default - Email OTP always enabled)
@@ -123,7 +173,6 @@ class Config:
     OTP_EXPIRY_MINUTES = OTP_CONFIG['expiry_minutes']
     OTP_MAX_ATTEMPTS = OTP_CONFIG['max_attempts']
     DEBUG_OTP_PRINT = True  # ← Add this line
-
     
     # Email Settings
     EMAIL_ENABLED = EMAIL_CONFIG['enabled']
