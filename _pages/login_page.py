@@ -18,7 +18,7 @@ from database.unified_db_manager import get_db_manager
 
 
 def render_2fa_verification():
-    """Render 2FA OTP verification screen"""
+    """Render 2FA OTP verification screen for login"""
     
     st.markdown("""
     <div style="max-width: 450px; margin: 0 auto; padding: 2rem 1rem;">
@@ -34,20 +34,6 @@ def render_2fa_verification():
     with col2:
         contact = st.session_state.get('_2fa_contact', 'your email')
         st.info(f"📧 A verification code has been sent to **{contact}**")
-        
-        # # Show OTP in development mode
-        # otp_code = st.session_state.get('_2fa_otp_code', '')
-        # if otp_code and otp_code != 'GOOGLE_VERIFIED':
-        #     st.markdown("---")
-        #     st.markdown("### 📱 Development Mode - Your 2FA Code")
-        #     st.markdown(f"""
-        #     <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; border: 2px dashed #4CAF50;">
-        #         <h1 style="color: #4CAF50; font-size: 48px; letter-spacing: 10px; margin: 0;">{otp_code}</h1>
-        #         <p style="color: #666; margin: 10px 0 0 0;">Copy this code and paste it below</p>
-        #     </div>
-        #     """, unsafe_allow_html=True)
-        #     st.markdown("---")
-        #     st.caption("⚠️ This code is only shown in development mode.")
         
         otp = st.text_input(
             "Verification Code",
@@ -437,7 +423,7 @@ def show():
         }
         </style>
     """, unsafe_allow_html=True)
-        
+    
     # ========== MAIN CONTENT ==========
     st.markdown('<div class="login-main-container">', unsafe_allow_html=True)
     
@@ -499,13 +485,13 @@ def show():
                         user = authenticate_user(username, password)
                         
                         if user:
-                            if auth_login_user(user, password, remember_me):
-                                # Check if 2FA is required
-                                if st.session_state.get('verification_step') == '2fa_otp':
-                                    st.info("📧 A verification code has been sent to your email.")
-                                    st.rerun()
-                                    return
-                                else:
+                            # Check if user is email/password or Google OAuth
+                            auth_provider = user.get('auth_provider', 'email_password')
+                            
+                            # ========== GOOGLE OAUTH USERS ==========
+                            if auth_provider == 'google':
+                                # Google users: No 2FA needed (Google handles it)
+                                if auth_login_user(user, password, remember_me):
                                     st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
                                     user_role = user.get('role', 'viewer')
                                     if user_role in ['admin', 'system_admin']:
@@ -515,8 +501,36 @@ def show():
                                     else:
                                         navigate_to("dashboard")
                                     return
+                                else:
+                                    st.error("Login failed")
+                            
+                            # ========== EMAIL/PASSWORD USERS ==========
                             else:
-                                st.error("Login failed")
+                                # Check if email is verified (registration requirement)
+                                if not user.get('email_verified', False):
+                                    st.warning("⚠️ Please verify your email address first. Check your inbox for the verification link.")
+                                    st.info("📧 If you didn't receive the email, please contact support.")
+                                    return
+                                
+                                # Email verified ✅ Now check 2FA for login
+                                if auth_login_user(user, password, remember_me):
+                                    # Check if 2FA is required
+                                    if st.session_state.get('verification_step') == '2fa_otp':
+                                        st.info("📧 A verification code has been sent to your email.")
+                                        st.rerun()
+                                        return
+                                    else:
+                                        st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
+                                        user_role = user.get('role', 'viewer')
+                                        if user_role in ['admin', 'system_admin']:
+                                            navigate_to("admin_dashboard")
+                                        elif user_role == 'company_admin':
+                                            navigate_to("company_dashboard")
+                                        else:
+                                            navigate_to("dashboard")
+                                        return
+                                else:
+                                    st.error("Login failed")
                         else:
                             st.error("Invalid username/email or password")
             

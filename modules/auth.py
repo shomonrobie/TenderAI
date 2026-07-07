@@ -144,6 +144,78 @@ def clear_session_url():
 
 # modules/auth.py
 def login_user(user_data: Dict, password: str = None, remember_me: bool = False) -> bool:
+    """Login user - with 2FA for email/password users only"""
+    if not user_data:
+        return False
+    
+    try:
+        user_id = user_data.get('id')
+        email = user_data.get('email')
+        
+        # ✅ CHECK AUTH PROVIDER
+        auth_provider = user_data.get('auth_provider', 'email_password')
+        print(f"🔍 login_user - Auth Provider: {auth_provider}")
+        
+        # ============================================================
+        # ✅ GOOGLE OAUTH USERS: Login directly (no 2FA)
+        # ============================================================
+        if auth_provider == 'google':
+            print(f"✅ Google OAuth user - logging in directly (no 2FA)")
+            return _complete_login(user_data, remember_me)
+        
+        # ============================================================
+        # EMAIL/PASSWORD USERS: Require 2FA
+        # ============================================================
+        print(f"🔐 Email/password user - checking 2FA")
+        
+        # ✅ Check if already logged in
+        if st.session_state.get('logged_in', False) and st.session_state.get('user_id') == user_id:
+            print(f"✅ User {user_id} already logged in")
+            return True
+        
+        # ✅ Check if 2FA already verified
+        if st.session_state.get('two_factor_verified', False):
+            print(f"✅ 2FA already verified for user {user_id}")
+            return _complete_login(user_data, remember_me)
+        
+        # ✅ Check if we're in 2FA flow
+        if st.session_state.get('verification_step') == '2fa_otp':
+            print(f"⏳ 2FA flow in progress for user {user_id}")
+            return True
+        
+        # ✅ Store pending login info and send OTP
+        st.session_state.pending_2fa_user_id = user_id
+        st.session_state.pending_2fa_user_data = user_data
+        st.session_state.pending_2fa_remember_me = remember_me
+        st.session_state.verification_step = '2fa_otp'
+        
+        # Send OTP
+        from utils.otp_service import OTPService
+        otp_service = OTPService(db)
+        success, message, otp_code = otp_service.send_verification_otp(
+            contact_type='email',
+            contact_value=email,
+            target_type='user',
+            target_id=user_id,
+            purpose='2fa_login'
+        )
+        
+        if success:
+            st.session_state._2fa_otp_sent = True
+            st.session_state._2fa_otp_code = otp_code
+            st.session_state._2fa_contact = email
+            print(f"✅ 2FA OTP sent to: {email}")
+            return True  # Will show 2FA verification screen
+        else:
+            st.error(f"Failed to send verification code: {message}")
+            return False
+        
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        traceback.print_exc()
+        return False
+
+def login_user_bak(user_data: Dict, password: str = None, remember_me: bool = False) -> bool:
     """Login user - with global 2FA"""
     if not user_data:
         return False

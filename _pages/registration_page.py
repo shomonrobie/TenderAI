@@ -1,4 +1,4 @@
-# _pages/registration_page.py - Remove manual handle_google_callback call
+# _pages/registration_page.py
 
 import streamlit as st
 from utils.otp_service import OTPService
@@ -10,7 +10,7 @@ from utils.validators import (
     validate_bangladesh_mobile
 )
 from utils.helpers import navigate_to
-from modules.google_auth import render_google_login_button, get_oidc_component, process_oidc_user
+from modules.google_auth import render_google_login_button, process_oidc_user
 from modules.footer import render_footer
 import os
 
@@ -19,72 +19,71 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 
-
 def show():
     """Main registration page with Google Sign-Up"""
     
     # ========== FORCE ALL TEXT TO BE VISIBLE ==========
     st.markdown("""
-    <style>
-    /* Force ALL labels to be white */
-    label, .stRadio label, .stCheckbox label, 
-    .stTextInput label, .stSelectbox label,
-    .stRadio label span, .stCheckbox label span,
-    div[role="radiogroup"] label, div[role="radiogroup"] label span {
-        color: #ffffff !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Radio button container */
-    .stRadio > div {
-        gap: 1rem !important;
-    }
-    
-    /* Radio button labels */
-    .stRadio label {
-        color: #ffffff !important;
-        background: rgba(255, 255, 255, 0.05);
-        padding: 0.5rem 1.5rem;
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-    
-    .stRadio label:hover {
-        background: rgba(102, 126, 234, 0.15);
-        border-color: rgba(102, 126, 234, 0.3);
-    }
-    
-    /* Checkbox labels */
-    .stCheckbox label {
-        color: #ffffff !important;
-    }
-    
-    .stCheckbox label span {
-        color: #ffffff !important;
-    }
-    
-    /* All text inputs labels */
-    .stTextInput label, .stSelectbox label {
-        color: #ffffff !important;
-    }
-    
-    /* All markdown text */
-    .stMarkdown p, .stMarkdown li, .stMarkdown span {
-        color: #e0e0e0 !important;
-    }
-    
-    /* Headings */
-    h3, h4 {
-        color: #e0e0e0 !important;
-    }
-    
-    /* Captions */
-    .stCaption {
-        color: #94a3b8 !important;
-    }
-    </style>
+        <style>
+        /* Force ALL labels to be white */
+        label, .stRadio label, .stCheckbox label, 
+        .stTextInput label, .stSelectbox label,
+        .stRadio label span, .stCheckbox label span,
+        div[role="radiogroup"] label, div[role="radiogroup"] label span {
+            color: #ffffff !important;
+            font-weight: 500 !important;
+        }
+        
+        /* Radio button container */
+        .stRadio > div {
+            gap: 1rem !important;
+        }
+        
+        /* Radio button labels */
+        .stRadio label {
+            color: #ffffff !important;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem 1.5rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .stRadio label:hover {
+            background: rgba(102, 126, 234, 0.15);
+            border-color: rgba(102, 126, 234, 0.3);
+        }
+        
+        /* Checkbox labels */
+        .stCheckbox label {
+            color: #ffffff !important;
+        }
+        
+        .stCheckbox label span {
+            color: #ffffff !important;
+        }
+        
+        /* All text inputs labels */
+        .stTextInput label, .stSelectbox label {
+            color: #ffffff !important;
+        }
+        
+        /* All markdown text */
+        .stMarkdown p, .stMarkdown li, .stMarkdown span {
+            color: #e0e0e0 !important;
+        }
+        
+        /* Headings */
+        h3, h4 {
+            color: #e0e0e0 !important;
+        }
+        
+        /* Captions */
+        .stCaption {
+            color: #94a3b8 !important;
+        }
+        </style>
     """, unsafe_allow_html=True)
     db = get_db_manager()
 
@@ -94,10 +93,12 @@ def show():
     print(f"🔍 logged_in: {st.session_state.get('logged_in', False)}")
     print(f"🔍 page: {st.session_state.get('page', 'None')}")
     
+    # ============================================================
+    # GOOGLE OAUTH USERS: Registration flow
+    # ============================================================
     if st.session_state.get('show_google_registration', False):
         print("🔍 Google registration flag detected - showing registration form")
         from modules.google_auth import render_google_registration_form
-        # ✅ Get user info
         user_info = st.session_state.get('google_user_info', {})
         email = user_info.get('email')
         
@@ -105,13 +106,14 @@ def show():
             db = get_db_manager()
             existing_user = db.get_user_by_email(email)
             if existing_user:
-                # ✅ User exists - pass user_id to form
                 st.session_state['existing_google_user_id'] = existing_user.get('id')
         
         render_google_registration_form(db)
-        return  # ✅ IMPORTANT: Stop execution here
-        
-    # ========== CHECK IF USER IS ALREADY LOGGED IN ==========
+        return
+    
+    # ============================================================
+    # CHECK IF USER IS ALREADY LOGGED IN
+    # ============================================================
     if st.session_state.get('logged_in', False):
         print("✅ User already logged in, redirecting to dashboard...")
         user_role = st.session_state.get('user_role', 'viewer')
@@ -123,22 +125,19 @@ def show():
             navigate_to("dashboard")
         return
     
-    # ========== HANDLE OIDC AUTHENTICATION ==========
-    # Check if user is authenticated via Streamlit's OIDC
+    # ============================================================
+    # HANDLE OIDC AUTHENTICATION (Google OAuth)
+    # ============================================================
     try:
         if hasattr(st, 'user') and st.user:
-            # Try to get email from st.user
             try:
                 user_dict = dict(st.user) if st.user else {}
                 email = user_dict.get('email')
             except:
                 email = None
             
-            # If we have email, process the OIDC user
             if email:
                 print(f"✅ OIDC user detected on registration page: {email}")
-                
-                # Process the OIDC user using the shared function
                 result = process_oidc_user()
                 
                 if result:
@@ -155,16 +154,15 @@ def show():
                     elif result.get('show_registration'):
                         print(f"🔄 New OIDC user, showing registration form: {email}")
                         st.session_state.show_google_registration = True
-            else:
-                print("ℹ️ No email in st.user yet - waiting for OIDC callback")
     except Exception as e:
         print(f"ℹ️ OIDC check on registration page: {e}")
         pass
     
-    # ========== CHECK FOR OIDC CALLBACK (code in URL) ==========
+    # ============================================================
+    # CHECK FOR OIDC CALLBACK
+    # ============================================================
     if 'code' in st.query_params:
         print("🔄 OIDC callback detected on registration page")
-        # Let the process_oidc_user handle it
         if hasattr(st, 'user') and st.user:
             try:
                 user_dict = dict(st.user) if st.user else {}
@@ -184,14 +182,9 @@ def show():
             except Exception as e:
                 print(f"⚠️ OIDC callback processing error: {e}")
     
-    # Check if showing Google registration (from OIDC)
-    if st.session_state.get('show_google_registration'):
-        print("🔍 Showing Google registration form")
-        from modules.google_auth import render_google_registration_form
-        render_google_registration_form(db)
-        return
-    
-    # Check if we're in OTP verification step
+    # ============================================================
+    # EMAIL/PASSWORD USERS: Email verification step
+    # ============================================================
     if st.session_state.get('verification_step') == 'email_otp':
         print("🔍 Rendering OTP verification")
         render_otp_verification()
@@ -489,11 +482,11 @@ def show():
         }
         </style>
     """, unsafe_allow_html=True)
-
-    # ========== MAIN CONTENT ==========
+    # ============================================================
+    # MAIN CONTENT
+    # ============================================================
     st.markdown('<div class="register-main-container">', unsafe_allow_html=True)
     
-    # Header
     st.markdown("""
     <div class="register-header">
         <h1>🚀 Create Your TenderAI Account</h1>
@@ -501,27 +494,64 @@ def show():
     </div>
     """, unsafe_allow_html=True)
     
-    # ========== TWO COLUMN LAYOUT ==========
     col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
         with st.container():
             st.markdown("""
             <style>
-            div[data-testid="stColumn"]:nth-child(1) .stContainer .stVerticalBlock {
-                background: rgba(255, 255, 255, 0.03);
-                backdrop-filter: blur(10px);
-                border-radius: 16px;
-                padding: 2rem;
-                border: 1px solid rgba(102, 126, 234, 0.1);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            }
+                div[data-testid="stColumn"]:nth-child(1) .stContainer .stVerticalBlock {
+                    background: rgba(255, 255, 255, 0.03);
+                    backdrop-filter: blur(10px);
+                    border-radius: 16px;
+                    padding: 2rem;
+                    border: 1px solid rgba(102, 126, 234, 0.1);
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                }
+                
+                /* ============================================================
+                RADIO BUTTON FIX - Make labels white
+                ============================================================ */
+                
+                /* Target the radio button container */
+                div[data-testid="stRadio"] {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target all label elements inside radio */
+                div[data-testid="stRadio"] label {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target the span inside label (the text) */
+                div[data-testid="stRadio"] label span {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target the text directly */
+                div[data-testid="stRadio"] label div {
+                    color: wh#c0c0c0ite !important;
+                }
+                
+                /* Target the p tag inside label */
+                div[data-testid="stRadio"] label p {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* When radio is selected */
+                div[data-testid="stRadio"] label[data-checked="true"] span {
+                    color: #667eea !important;
+                }
+                
+                /* Hover state */
+                div[data-testid="stRadio"] label:hover span {
+                    color: #c0c0c0 !important;
+                }
             </style>
             """, unsafe_allow_html=True)
-            
-            # ========== ACCOUNT TYPE SELECTION ==========
+
             st.markdown("### 📝 Choose Account Type")
-            
+
             account_type = st.radio(
                 "Select Account Type",
                 ["Individual", "Company"],
@@ -531,7 +561,9 @@ def show():
             
             st.markdown("---")
             
-            # ========== GOOGLE REGISTRATION BUTTON ==========
+            # ============================================================
+            # GOOGLE REGISTRATION BUTTON
+            # ============================================================
             st.markdown("""
             <div style="text-align: center;">
                 <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.5rem;">
@@ -540,7 +572,6 @@ def show():
             </div>
             """, unsafe_allow_html=True)
             
-            # Check if OIDC is configured by checking secrets (instead of get_oidc_component)
             try:
                 if "auth" in st.secrets and "client_id" in st.secrets["auth"]:
                     render_google_login_button(registration_mode=True)
@@ -551,7 +582,9 @@ def show():
             
             st.markdown('<div class="or-divider">OR</div>', unsafe_allow_html=True)
             
-            # ========== TRADITIONAL REGISTRATION FORM ==========
+            # ============================================================
+            # EMAIL/PASSWORD REGISTRATION FORM
+            # ============================================================
             if account_type == "Individual":
                 render_individual_registration()
             else:
@@ -582,7 +615,6 @@ def show():
             </style>
             """, unsafe_allow_html=True)
             
-            # Try to display logo
             logo_paths = [
                 "assets/images/tender_ai_logo.jpg",
                 "assets/images/tender_ai_logo.png",
@@ -633,14 +665,13 @@ def show():
             </div>
             """, unsafe_allow_html=True)
     
-    # ========== FOOTER ==========
     st.markdown("---")
     render_footer()
 
 
-
 def render_individual_registration():
-    """Render individual registration form"""
+    """Render individual registration form - Email/Password users only"""
+    db = get_db_manager()
     
     with st.form("individual_register_form"):
         col1, col2 = st.columns(2)
@@ -653,7 +684,6 @@ def render_individual_registration():
             password = st.text_input("Password *", type="password", placeholder="••••••••")
             confirm_password = st.text_input("Confirm Password *", type="password", placeholder="••••••••")
         
-        # Password strength
         if password:
             score, message, color = validate_password_strength(password)
             st.progress(score / 100, text=f"Strength: {score}%")
@@ -663,8 +693,6 @@ def render_individual_registration():
         submitted = st.form_submit_button("📝 Register Individual Account", type="primary", use_container_width=True)
         
         if submitted:
-            print("🔍 DEBUG: Registration form submitted")
-            
             errors = validate_individual_registration(
                 full_name, username, email, mobile, password, confirm_password, terms
             )
@@ -673,22 +701,24 @@ def render_individual_registration():
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                print(f"🔍 DEBUG: Validation passed for email: {email}")
+                # ============================================================
+                # ✅ EMAIL/PASSWORD USERS: Send verification email
+                # ============================================================
+                print(f"🔍 DEBUG: Registration form submitted for email: {email}")
                 
-                # Send OTP for email verification
                 otp_service = OTPService(db)
                 success, message, otp_code = otp_service.send_verification_otp(
                     contact_type='email',
                     contact_value=email,
                     target_type='user',
                     target_id=0,
-                    purpose='verification'
+                    purpose='email_verification'  # ✅ Registration verification
                 )
                 
-                print(f"🔍 DEBUG: send_verification_otp returned: success={success}, message={message}, otp_code={otp_code}")
+                print(f"🔍 DEBUG: send_verification_otp returned: success={success}, message={message}")
                 
                 if success:
-                    # Store ALL data in session state
+                    # Store pending registration data
                     st.session_state.pending_registration = {
                         'account_type': 'individual',
                         'full_name': full_name.strip(),
@@ -696,18 +726,14 @@ def render_individual_registration():
                         'email': email.strip(),
                         'mobile': normalize_mobile(mobile),
                         'password': password,
-                        'is_google_user': False
+                        'auth_provider': 'email_password'  # ✅ Mark as email/password user
                     }
                     
                     st.session_state.verification_step = 'email_otp'
                     st.session_state.verification_contact = email
                     st.session_state.verification_purpose = 'registration'
-                    
-                    # Store OTP in session state
                     st.session_state['temp_otp_code'] = otp_code
                     st.session_state['_otp_sent'] = True
-                    
-                    print(f"🔍 DEBUG: OTP stored in session_state: {st.session_state.temp_otp_code}")
                     
                     st.success(f"✅ {message}")
                     st.rerun()
@@ -716,10 +742,10 @@ def render_individual_registration():
 
 
 def render_company_registration():
-    """Render company registration form"""
-    db= get_db_manager()
+    """Render company registration form - Email/Password users only"""
+    db = get_db_manager()
+    
     with st.form("company_register_form"):
-        # Company Information
         st.markdown("#### 📌 Company Information")
         col1, col2 = st.columns(2)
         with col1:
@@ -733,7 +759,6 @@ def render_company_registration():
             )
             district = st.text_input("District *", placeholder="e.g., Dhaka")
         
-        # Admin Account Details
         st.markdown("#### 👤 Admin Account Details")
         col3, col4 = st.columns(2)
         with col3:
@@ -745,7 +770,6 @@ def render_company_registration():
             password = st.text_input("Password *", type="password", placeholder="••••••••")
             confirm_password = st.text_input("Confirm Password *", type="password", placeholder="••••••••")
         
-        # Password strength
         if password:
             score, message, color = validate_password_strength(password)
             st.progress(score / 100, text=f"Strength: {score}%")
@@ -764,14 +788,16 @@ def render_company_registration():
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # Send OTP for email verification
+                # ============================================================
+                # ✅ EMAIL/PASSWORD USERS: Send verification email
+                # ============================================================
                 otp_service = OTPService(db)
                 success, message, otp_code = otp_service.send_verification_otp(
                     contact_type='email',
                     contact_value=email,
                     target_type='user',
                     target_id=0,
-                    purpose='verification'
+                    purpose='email_verification'  # ✅ Registration verification
                 )
                 
                 if success:
@@ -786,7 +812,8 @@ def render_company_registration():
                         'username': username.strip(),
                         'admin_mobile': normalize_mobile(admin_mobile),
                         'email': email.strip(),
-                        'password': password
+                        'password': password,
+                        'auth_provider': 'email_password'  # ✅ Mark as email/password user
                     }
                     
                     st.session_state.verification_step = 'email_otp'
@@ -802,7 +829,7 @@ def render_company_registration():
 
 
 def render_otp_verification():
-    """Render OTP verification screen"""
+    """Render OTP verification screen for Email/Password users only"""
     db = get_db_manager()
     
     st.subheader("🔐 Verify Your Email Address")
@@ -810,60 +837,35 @@ def render_otp_verification():
     email = st.session_state.get('verification_contact', '')
     purpose = st.session_state.get('verification_purpose', 'registration')
     
-    # ✅ Check if this is Google registration (no OTP needed for existing users)
+    # ============================================================
+    # GOOGLE OAUTH USERS: Skip OTP verification
+    # ============================================================
     if purpose == 'google_registration':
-        # Check if we have pending registration data
         pending = st.session_state.get('pending_registration', {})
         if pending:
             st.info("✅ Google account verified! Completing registration...")
             
-            # Check if user already exists
             existing_user = db.get_user_by_email(email)
             if existing_user:
-                # Update existing user
-                try:
-                    db.execute("""
-                        UPDATE users 
-                        SET full_name = ?, username = ?, mobile_number = ?,
-                            specialization = ?, years_experience = ?,
-                            registration_complete = TRUE,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (
-                        pending.get('full_name', ''),
-                        pending.get('username', ''),
-                        pending.get('mobile', ''),
-                        pending.get('specialization', ''),
-                        pending.get('years_experience', 0),
-                        existing_user['id']
-                    ))
-                    
+                # Google user - login directly (no 2FA needed)
+                from modules.auth import _complete_login
+                if _complete_login(existing_user, True):
                     st.success("✅ Registration completed successfully!")
                     st.balloons()
+                    st.session_state.verification_step = None
+                    st.session_state.pending_registration = None
+                    st.session_state.show_google_registration = False
                     
-                    # Login the user
-                    user = db.get_user_by_id(existing_user['id'])
-                    if user:
-                        from modules.auth import login_user
-                        if login_user(user, None, True):
-                            # Clear session
-                            st.session_state.verification_step = None
-                            st.session_state.pending_registration = None
-                            st.session_state.show_google_registration = False
-                            
-                            user_role = st.session_state.get('user_role', 'viewer')
-                            if user_role in ['admin', 'system_admin']:
-                                navigate_to("admin_dashboard")
-                            elif user_role == 'company_admin':
-                                navigate_to("company_dashboard")
-                            else:
-                                navigate_to("dashboard")
-                            return
-                except Exception as e:
-                    st.error(f"Error completing registration: {e}")
+                    user_role = st.session_state.get('user_role', 'viewer')
+                    if user_role in ['admin', 'system_admin']:
+                        navigate_to("admin_dashboard")
+                    elif user_role == 'company_admin':
+                        navigate_to("company_dashboard")
+                    else:
+                        navigate_to("dashboard")
                     return
             else:
-                # New user - complete registration
+                # New Google user - complete registration
                 from _pages.registration_page import complete_registration
                 complete_registration()
                 st.rerun()
@@ -875,10 +877,73 @@ def render_otp_verification():
                 st.session_state.show_google_registration = True
                 st.rerun()
             return
+    
+    # ============================================================
+    # EMAIL/PASSWORD USERS: OTP Verification
+    # ============================================================
+    if purpose == 'registration' or purpose == 'email_verification':
+        st.markdown(f"""
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <p style="color: #94a3b8;">A verification code has been sent to</p>
+            <p style="font-weight: 600; font-size: 1.1rem;">{mask_email(email)}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            otp = st.text_input(
+                "Verification Code",
+                type="password",
+                max_chars=6,
+                placeholder="Enter 6-digit code",
+                key="reg_otp_input",
+                label_visibility="collapsed"
+            )
+            
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                if st.button("✅ Verify Email", type="primary", use_container_width=True):
+                    if otp and len(otp) == 6:
+                        # Verify OTP
+                        stored_otp = st.session_state.get('temp_otp_code')
+                        if stored_otp and stored_otp == otp:
+                            # ✅ OTP verified - complete registration
+                            from _pages.registration_page import complete_registration
+                            st.session_state.verification_step = None
+                            complete_registration()
+                        else:
+                            st.error("❌ Invalid verification code. Please try again.")
+                    else:
+                        st.warning("Please enter the 6-digit verification code")
+            
+            with col_b:
+                if st.button("🔄 Resend Code", use_container_width=True):
+                    # Resend OTP
+                    otp_service = OTPService(db)
+                    success, message, otp_code = otp_service.send_verification_otp(
+                        contact_type='email',
+                        contact_value=email,
+                        target_type='user',
+                        target_id=0,
+                        purpose='email_verification'
+                    )
+                    if success:
+                        st.session_state['temp_otp_code'] = otp_code
+                        st.success("✅ New verification code sent!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {message}")
+            
+            st.divider()
+            if st.button("← Back to Registration", use_container_width=True):
+                st.session_state.verification_step = None
+                st.session_state.pending_registration = None
+                st.rerun()
 
 
 def complete_registration():
-    """Complete registration after OTP verification"""
+    """Complete registration after OTP verification for Email/Password users"""
     
     pending = st.session_state.get('pending_registration', {})
     print(f"🔍 DEBUG: complete_registration started")
@@ -890,9 +955,9 @@ def complete_registration():
         return
     
     try:
-        is_google_user = pending.get('is_google_user', False)
+        auth_provider = pending.get('auth_provider', 'email_password')
         
-        if is_google_user:
+        if auth_provider == 'google':
             print("🔍 DEBUG: Google user registration")
             result = complete_google_registration(pending)
         elif pending['account_type'] == 'company':
@@ -907,7 +972,6 @@ def complete_registration():
         if result['success']:
             print("🔍 DEBUG: Registration successful!")
             
-            # Clear registration data
             st.session_state.verification_step = None
             st.session_state.verification_contact = None
             st.session_state.verification_purpose = None
@@ -915,7 +979,14 @@ def complete_registration():
             if 'temp_otp_code' in st.session_state:
                 del st.session_state.temp_otp_code
             
-            # Store success message and redirect to login
+            # ✅ Email verified - set email_verified flag
+            db = get_db_manager()
+            if result.get('user_id'):
+                try:
+                    db.update_user(result['user_id'], {'email_verified': 1})
+                except:
+                    pass
+            
             st.session_state._registration_success = result['message']
             st.session_state._show_registration_success = True
             st.session_state.page = 'login'
@@ -936,10 +1007,11 @@ def complete_registration():
 
 
 def complete_individual_registration(pending):
-    """Complete individual registration"""
+    """Complete individual registration - Email/Password user"""
     
     print("🔍 DEBUG: complete_individual_registration called")
-    db=get_db_manager()
+    db = get_db_manager()
+    
     try:
         user_data = {
             'username': pending['username'],
@@ -948,7 +1020,9 @@ def complete_individual_registration(pending):
             'full_name': pending['full_name'],
             'phone': pending.get('phone', ''),
             'mobile_number': pending['mobile'],
-            'role': 'individual'
+            'role': 'individual',
+            'auth_provider': 'email_password',  # ✅ Mark as email/password user
+            'email_verified': 1  # ✅ Verified during registration
         }
         
         print(f"🔍 DEBUG: Creating user with data: {user_data}")
@@ -965,7 +1039,7 @@ def complete_individual_registration(pending):
             
             return {
                 'success': True,
-                'message': f"Welcome {pending['full_name']}! Your account has been created.",
+                'message': f"Welcome {pending['full_name']}! Your account has been created. Please login.",
                 'user_id': user_id
             }
         else:
@@ -986,12 +1060,12 @@ def complete_individual_registration(pending):
 
 
 def complete_company_registration(pending):
-    """Complete company registration"""
+    """Complete company registration - Email/Password user"""
     
     print("🔍 DEBUG: complete_company_registration called")
-    db=get_db_manager()
+    db = get_db_manager()
+    
     try:
-        # First create the company
         company_data = {
             'name': pending['company_name'],
             'email': pending['company_email'],
@@ -1001,7 +1075,6 @@ def complete_company_registration(pending):
             'status': 'pending'
         }
         
-        # Create company
         company_id = db.create_company(company_data)
         
         if not company_id:
@@ -1012,7 +1085,6 @@ def complete_company_registration(pending):
         
         print(f"🔍 DEBUG: Company created with ID: {company_id}")
         
-        # Create admin user
         user_data = {
             'username': pending['username'],
             'password': pending['password'],
@@ -1020,7 +1092,9 @@ def complete_company_registration(pending):
             'full_name': pending['full_name'],
             'phone': pending.get('phone', ''),
             'mobile_number': pending['admin_mobile'],
-            'role': 'company_admin'
+            'role': 'company_admin',
+            'auth_provider': 'email_password',  # ✅ Mark as email/password user
+            'email_verified': 1  # ✅ Verified during registration
         }
         
         success, result = db.create_user(
@@ -1055,40 +1129,41 @@ def complete_company_registration(pending):
             'message': f"Registration failed: {str(e)}"
         }
 
+
 def complete_google_registration(pending):
-    """Complete Google user registration"""
-    db=get_db_manager()
+    """Complete Google user registration - NO OTP/Email verification needed"""
+    db = get_db_manager()
     print("🔍 DEBUG: complete_google_registration called")
     print(f"🔍 DEBUG: pending data: {pending}")
     
     try:
-        # Check if user already exists
-        print("🔍 DEBUG: Checking if user exists...")
         existing_user = db.get_user_by_email(pending['email'])
-        print(f"🔍 DEBUG: existing_user: {existing_user}")
         
         if existing_user:
             print(f"🔍 DEBUG: User already exists: {existing_user['id']}")
+            # ✅ Google user - login directly
+            from modules.auth import _complete_login
+            _complete_login(existing_user, True)
             return {
                 'success': True,
                 'message': f"Welcome back, {pending['full_name']}!",
                 'user_id': existing_user['id']
             }
         
-        # Prepare user data for Google user
         user_data = {
             'username': pending['username'],
             'email': pending['email'],
             'full_name': pending['full_name'],
             'phone': pending.get('phone', ''),
-            'mobile_number': pending.get('mobile', ''),  # Optional for Google users
+            'mobile_number': pending.get('mobile', ''),
             'google_id': pending.get('google_id'),
-            'role': 'individual'
+            'role': 'individual',
+            'auth_provider': 'google',  # ✅ Mark as Google OAuth user
+            'email_verified': 1  # ✅ Google verified - skip email verification
         }
         
         print(f"🔍 DEBUG: Creating Google user with data: {user_data}")
         
-        # Create user using the create_google_user method
         success, user_id = db.create_google_user(user_data)
         
         print(f"🔍 DEBUG: create_google_user returned: success={success}, user_id={user_id}")
@@ -1096,14 +1171,12 @@ def complete_google_registration(pending):
         if success:
             print(f"🔍 DEBUG: Google user created with ID: {user_id}")
             
-            # Auto-login the user
-            from modules.auth import login_user
             user_data = db.get_user_by_id(user_id)
-            print(f"🔍 DEBUG: Retrieved user data: {user_data}")
             
             if user_data:
-                login_success = login_user(user_data, None, True)
-                print(f"🔍 DEBUG: login_user returned: {login_success}")
+                # ✅ Google user - login directly (no 2FA)
+                from modules.auth import _complete_login
+                login_success = _complete_login(user_data, True)
                 
                 if login_success:
                     return {
@@ -1138,6 +1211,7 @@ def complete_google_registration(pending):
             'success': False,
             'message': f"Registration failed: {str(e)}"
         }
+
 
 def mask_email(email: str) -> str:
     """Mask email for display"""

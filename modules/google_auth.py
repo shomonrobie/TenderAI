@@ -568,7 +568,6 @@ def get_oidc_component():
     """Legacy function - returns None as we're using built-in OIDC"""
     return None
 
-
 def process_oidc_user():
     """Process OIDC user after successful authentication"""
     
@@ -592,6 +591,7 @@ def process_oidc_user():
             name = user_dict.get('name', email.split('@')[0] if email else 'Unknown')
             google_sub = user_dict.get('sub', '')
             google_picture = user_dict.get('picture', '')
+            email_verified = user_dict.get('email_verified', False)
         except Exception as e:
             print(f"⚠️ Could not read st.user: {e}")
             if 'code' in st.query_params:
@@ -610,6 +610,7 @@ def process_oidc_user():
         print(f"✅ Processing OIDC user: {email}")
         print(f"   Name: {name}")
         print(f"   Google Sub: {google_sub}")
+        print(f"   Email Verified: {email_verified}")
         
         db = get_db()
         
@@ -619,6 +620,10 @@ def process_oidc_user():
         
         if existing_user:
             print(f"✅ Existing user found: {existing_user.get('username')} (ID: {existing_user.get('id')})")
+            
+            # ✅ CHECK AUTH PROVIDER - THIS IS THE FIX
+            auth_provider = existing_user.get('auth_provider', 'email_password')
+            print(f"🔍 Auth Provider: {auth_provider}")
             
             registration_complete = existing_user.get('registration_complete', 0)
             print(f"   Registration complete: {registration_complete}")
@@ -635,7 +640,27 @@ def process_oidc_user():
                 st.session_state['show_google_registration'] = True
                 return {'show_registration': True, 'existing_user': existing_user}
             
-            # ✅ User exists and registration complete - check if already logged in
+            # ============================================================
+            # ✅ GOOGLE OAUTH USERS: Skip 2FA completely
+            # ============================================================
+            if auth_provider == 'google':
+                print(f"✅ Google OAuth user - SKIPPING 2FA")
+                
+                # Login directly
+                from modules.auth import _complete_login
+                if _complete_login(existing_user, True):
+                    print(f"✅ Google user logged in directly: {email}")
+                    return {'logged_in': True, 'user_id': existing_user['id']}
+                else:
+                    print(f"❌ Failed to login Google user")
+                    return None
+            
+            # ============================================================
+            # EMAIL/PASSWORD USERS: Require 2FA
+            # ============================================================
+            print(f"🔐 Email/password user - requiring 2FA")
+            
+            # ✅ Check if already logged in
             if st.session_state.get('logged_in', False) and st.session_state.get('user_id') == existing_user.get('id'):
                 print("✅ User already logged in - skipping 2FA")
                 return {'logged_in': True, 'user_id': existing_user['id']}
@@ -643,8 +668,8 @@ def process_oidc_user():
             # ✅ Check if 2FA is already verified in this session
             if st.session_state.get('two_factor_verified', False):
                 print("✅ 2FA already verified in this session - logging in")
-                from modules.auth import login_user
-                login_success = login_user(existing_user, None, True)
+                from modules.auth import _complete_login
+                login_success = _complete_login(existing_user, True)
                 if login_success:
                     return {'logged_in': True, 'user_id': existing_user['id']}
                 else:
@@ -697,10 +722,12 @@ def process_oidc_user():
             'google_id': google_sub,
             'picture': google_picture,
             'mobile_number': '',
-            'phone': ''
+            'phone': '',
+            'auth_provider': 'google',  # ✅ Mark as Google OAuth user
+            'email_verified': 1 if email_verified else 0  # ✅ Google verified
         }
         
-        print(f"📝 Creating/linking user with data: {user_data}")
+        print(f"📝 Creating user with data: {user_data}")
         
         success, result = db.create_google_user(user_data)
         
@@ -724,9 +751,11 @@ def process_oidc_user():
                     st.session_state['show_google_registration'] = True
                     return {'show_registration': True, 'new_user': True}
                 else:
-                    from modules.auth import login_user
-                    login_success = login_user(existing_user, None, True)
+                    # ✅ Google OAuth user - login directly (no 2FA)
+                    from modules.auth import _complete_login
+                    login_success = _complete_login(existing_user, True)
                     if login_success:
+                        print(f"✅ New Google user logged in directly: {email}")
                         return {'logged_in': True, 'user_id': existing_user['id']}
             else:
                 print(f"❌ Could not retrieve user after creation: {user_id}")
