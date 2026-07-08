@@ -423,9 +423,17 @@ def refresh_plans_cache():
     global _plans_cache, _plans_cache_time
     _plans_cache = None
     _plans_cache_time = None
-    get_plans.cache_clear()  # Clear Streamlit cache
-    get_plans_cached.clear()  # Clear cached function
+    
+    # Clear Streamlit cache - use .clear() for st.cache_data
+    try:
+        get_plans_cached.clear()  # This is correct for @st.cache_data
+        print("   ✅ Plans cache cleared via st.cache_data.clear()")
+    except Exception as e:
+        print(f"   ⚠️ Could not clear cache: {str(e)}")
+    
+    # Force refresh
     return get_plans(force_refresh=True)
+
 
 # =============================================================================
 # MODULE INITIALIZATION

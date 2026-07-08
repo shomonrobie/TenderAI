@@ -1,17 +1,21 @@
-# modules/subscription.py
+# modules/subscription.py - Refactored for Supabase
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+import logging
 
 from database.unified_db_manager import get_db_manager
-
 from modules.subscription_ui import render_subscription_card
+
+logger = logging.getLogger(__name__)
 
 _db = None
 
+
 def get_db():
+    """Get database manager instance"""
     global _db
     if _db is None:
         _db = get_db_manager()
@@ -42,51 +46,32 @@ def get_plans_from_db(force_refresh: bool = False) -> Dict[str, Dict]:
     if not force_refresh and _plans_cache is not None:
         if _plans_cache_time and datetime.now() - _plans_cache_time < timedelta(minutes=5):
             return _plans_cache
+    
     db = get_db()
-
+    
     try:
-        # ✅ Use query() which handles both SQLite and Supabase
-        rows = db.query("""
-            SELECT 
-                plan_name,
-                monthly_price,
-                yearly_price,
-                max_boq_generations,
-                max_bid_optimizations,
-                max_tender_analyses,
-                max_users,
-                extension_auto_fills,
-                can_export_data,
-                can_edit_rates,
-                can_delete_rates,
-                can_create_versions,
-                can_manage_team,
-                description,
-                is_active
-            FROM subscription_plans
-            WHERE is_active = 1
-            ORDER BY monthly_price
-        """)
+        # ✅ Use get_all_plans() which works with both SQLite and Supabase
+        rows = db.get_all_plans()
         
         plans = {}
         for row in rows:
-            plan_name = row['plan_name']
+            plan_name = row.get('plan_name', 'free')
             plans[plan_name] = {
                 'name': plan_name.title(),
-                'price_monthly': row['monthly_price'] or 0,
-                'price_yearly': row['yearly_price'] or 0,
-                'analyses_limit': row['max_tender_analyses'] or 5,
-                'max_boq_generations': row['max_boq_generations'] or 5,
-                'max_bid_optimizations': row['max_bid_optimizations'] or 5,
-                'extension_auto_fills': row['extension_auto_fills'] or 5,
-                'users_limit': row['max_users'] or 1,
-                'can_export_data': bool(row['can_export_data']),
-                'can_edit_rates': bool(row['can_edit_rates']),
-                'can_delete_rates': bool(row['can_delete_rates']),
-                'can_create_versions': bool(row['can_create_versions']),
-                'can_manage_team': bool(row['can_manage_team']),
-                'description': row['description'] or '',
-                'is_active': bool(row['is_active']),
+                'price_monthly': row.get('monthly_price', 0) or 0,
+                'price_yearly': row.get('yearly_price', 0) or 0,
+                'analyses_limit': row.get('max_tender_analyses', 5),
+                'max_boq_generations': row.get('max_boq_generations', 5),
+                'max_bid_optimizations': row.get('max_bid_optimizations', 5),
+                'extension_auto_fills': row.get('extension_auto_fills', 5),
+                'users_limit': row.get('max_users', 1),
+                'can_export_data': bool(row.get('can_export_data', False)),
+                'can_edit_rates': bool(row.get('can_edit_rates', False)),
+                'can_delete_rates': bool(row.get('can_delete_rates', False)),
+                'can_create_versions': bool(row.get('can_create_versions', False)),
+                'can_manage_team': bool(row.get('can_manage_team', False)),
+                'description': row.get('description', ''),
+                'is_active': bool(row.get('is_active', True)),
                 'color': _get_plan_color(plan_name),
                 'badge': _get_plan_badge(plan_name),
                 'features': _get_plan_features(plan_name)
@@ -95,14 +80,13 @@ def get_plans_from_db(force_refresh: bool = False) -> Dict[str, Dict]:
         _plans_cache = plans
         _plans_cache_time = datetime.now()
         
-        print(f"📊 Loaded {len(plans)} plans from database")
+        logger.info(f"📊 Loaded {len(plans)} plans from database")
         return plans
             
     except Exception as e:
-        print(f"⚠️ subscription.py > Error loading plans from database: {e}")
+        logger.error(f"⚠️ Error loading plans from database: {e}")
         # Fallback to default plans
         return get_default_plans()
-
 
 
 def get_default_plans() -> Dict[str, Dict]:
@@ -333,8 +317,6 @@ def get_plan_limit(plan_name: str, limit_type: str) -> int:
 # UI FUNCTIONS
 # =============================================================================
 
-# modules/subscription.py
-
 def render_subscription_page():
     """Render subscription management page"""
     
@@ -354,10 +336,8 @@ def render_subscription_page():
     source = effective.get('source', 'none')
     subscription = effective.get('subscription', {})
     
-    # Debug
-    print(f"📊 Subscription Page - User: {st.session_state.user_id}")
-    print(f"   Effective Plan: {current_plan} (Source: {source})")
-    print(f"   Subscription Data: {subscription}")
+    logger.info(f"📊 Subscription Page - User: {st.session_state.get('user_id')}")
+    logger.info(f"   Effective Plan: {current_plan} (Source: {source})")
     
     # =========================================================================
     # CURRENT SUBSCRIPTION
@@ -395,14 +375,10 @@ def render_subscription_page():
     st.markdown("---")
     st.markdown("### 🚀 Upgrade Options")
     
-    # ✅ Check if user can upgrade
-    # Company users can only upgrade company plan (admin only)
-    # Individual users can upgrade their own plan
     user_role = st.session_state.get('user_role', 'viewer')
     company_id = st.session_state.get('company_id')
     
     if company_id and source == 'company':
-        # Company user - only company admin can upgrade
         if user_role in ['company_admin', 'admin', 'system_admin']:
             st.info("📌 You are on a company plan. Company admins can upgrade the company subscription.")
             if st.button("🏢 Go to Company Subscription Management", use_container_width=True):
@@ -412,10 +388,8 @@ def render_subscription_page():
             st.info("📌 Your company subscription is managed by your company admin.")
             st.caption("Contact your company admin to request an upgrade.")
     elif not company_id and source == 'individual':
-        # Individual user - can upgrade own plan
         _render_upgrade_options(current_plan, plans)
     else:
-        # Fallback: show upgrade options if no clear source
         _render_upgrade_options(current_plan, plans)
     
     # =========================================================================
@@ -423,11 +397,6 @@ def render_subscription_page():
     # =========================================================================
     if st.session_state.get('user_role') in ['admin', 'system_admin']:
         _render_admin_subscriptions()
-    
-    # =========================================================================
-    # BILLING HISTORY
-    # =========================================================================
-    _render_billing_history()
 
 
 def _render_upgrade_options(current_plan: str, plans: Dict):
@@ -450,8 +419,9 @@ def _render_upgrade_options(current_plan: str, plans: Dict):
     
     _render_plan_comparison(current_plan, billing_cycle, plans)
 
+
 def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
-    """Render plan comparison cards with gradient styling"""
+    """Render plan comparison cards"""
     
     plan_order = ['free', 'basic', 'professional', 'enterprise']
     current_index = plan_order.index(current_plan) if current_plan in plan_order else 0
@@ -486,7 +456,6 @@ def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
         features = plan.get('features', ['Basic features'])
         users_limit = plan.get('users_limit', 1)
         
-        # ✅ Gradient color for different plans
         gradient_colors = {
             'basic': 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
             'professional': 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
@@ -494,7 +463,6 @@ def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
         }
         gradient = gradient_colors.get(plan_key, 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)')
         
-        # ✅ Card border glow
         glow_colors = {
             'basic': 'rgba(59, 130, 246, 0.3)',
             'professional': 'rgba(139, 92, 246, 0.3)',
@@ -521,7 +489,6 @@ def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
                 <div style="background: {gradient}; height: 3px; width: 50px; margin: 0.75rem auto; border-radius: 2px;"></div>
             """, unsafe_allow_html=True)
             
-            # Features with icons
             for feature in features[:4]:
                 st.markdown(f"✅ {feature}")
             
@@ -530,27 +497,6 @@ def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
             
             users_text = "Unlimited" if users_limit == -1 else users_limit
             st.markdown(f"👥 Up to **{users_text}** users")
-            
-            # ✅ Button with gradient background
-            st.markdown("""
-            <style>
-            .upgrade-btn {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 8px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                width: 100%;
-            }
-            .upgrade-btn:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-            }
-            </style>
-            """, unsafe_allow_html=True)
             
             if st.button(
                 f"⬆️ Upgrade to {plan_name}", 
@@ -564,58 +510,219 @@ def _render_plan_comparison(current_plan: str, billing_cycle: str, plans: Dict):
                 st.rerun()
             
             st.markdown("</div>", unsafe_allow_html=True)
+
+
 def _render_admin_subscriptions():
     """Render admin view of all subscriptions"""
     
     st.markdown("---")
     st.markdown("### 👑 Admin: All Subscriptions")
     
-    all_subs = db.get_all_subscriptions()
+    db = get_db()
     
-    if all_subs:
-        # Convert to DataFrame
-        sub_df = pd.DataFrame(all_subs)
+    try:
+        # ✅ Use get_all_subscriptions from CRUD
+        all_subs = db.get_all_subscriptions()
         
-        # Select columns to display
-        display_cols = ['id', 'plan', 'status', 'company_id', 'user_id', 'start_date', 'end_date']
-        available_cols = [col for col in display_cols if col in sub_df.columns]
-        
-        if available_cols:
-            st.dataframe(
-                sub_df[available_cols],
-                use_container_width=True,
-                hide_index=True
+        if all_subs:
+            sub_df = pd.DataFrame(all_subs)
+            
+            # Select columns to display
+            display_cols = ['id', 'plan', 'status', 'company_id', 'user_id', 'start_date', 'end_date']
+            available_cols = [col for col in display_cols if col in sub_df.columns]
+            
+            if available_cols:
+                st.dataframe(
+                    sub_df[available_cols],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            
+            # Download option
+            csv = sub_df.to_csv(index=False)
+            st.download_button(
+                "📥 Download Subscriptions CSV",
+                csv,
+                f"subscriptions_{datetime.now().strftime('%Y%m%d')}.csv",
+                "text/csv"
             )
+        else:
+            st.info("No subscriptions found")
+            
+    except Exception as e:
+        logger.error(f"Error loading subscriptions: {e}")
+        st.error("Failed to load subscriptions")
+
+
+# =============================================================================
+# CONVENIENCE FUNCTIONS
+# =============================================================================
+
+def get_plan_config(plan_name: str) -> Dict:
+    """Get plan configuration by name"""
+    return get_plan(plan_name)
+
+
+def get_current_user_plan() -> Dict:
+    """Get current user's plan configuration"""
+    effective = get_current_user_effective_plan()
+    current_plan = effective.get('plan', 'free')
+    return get_plan(current_plan)
+
+
+def get_current_user_plan_name() -> str:
+    """Get current user's plan name"""
+    effective = get_current_user_effective_plan()
+    return effective.get('plan', 'free')
+
+
+def get_available_plans() -> List[Dict]:
+    """Get list of all available plans"""
+    plans = get_plans()
+    return list(plans.values())
+
+
+def get_plan_display_name(plan_name: str) -> str:
+    """Get display name for plan"""
+    plan = get_plan(plan_name)
+    return plan.get('name', plan_name.title())
+
+
+def get_plan_limit_by_type(plan_name: str, limit_type: str) -> int:
+    """Get plan limit by type"""
+    return get_plan_limit(plan_name, limit_type)
+
+
+def is_plan_available(plan_name: str) -> bool:
+    """Check if a plan is available"""
+    plans = get_plans()
+    return plan_name in plans
+
+
+def render_plan_badge(plan_name: str):
+    """Render a small plan badge"""
+    plan = get_plan(plan_name)
+    color = plan.get('color', '#6c757d')
+    badge = plan.get('badge', '📋')
+    name = plan.get('name', plan_name.title())
+    
+    st.markdown(f"""
+    <span style="background: {color}20; color: {color}; 
+                 border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600;">
+        {badge} {name}
+    </span>
+    """, unsafe_allow_html=True)
+
+
+def render_simple_subscription_status(subscription: Dict):
+    """Render a simple subscription status badge"""
+    plan = subscription.get('subscription_tier') or subscription.get('plan', 'free')
+    status = subscription.get('status', 'active')
+    
+    plan_config = get_plan(plan)
+    color = plan_config.get('color', '#6c757d')
+    badge = plan_config.get('badge', '📋')
+    name = plan_config.get('name', plan.title())
+    
+    status_color = '#10b981' if status == 'active' else '#ef4444'
+    
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 16px; 
+                background: {color}15; border-radius: 8px; margin: 4px 0; 
+                border: 1px solid {color}30;">
+        <span style="font-weight: 600; color: {color};">{badge} {name}</span>
+        <span style="color: {status_color}; font-size: 0.8rem;">
+            • {status.upper()}
+        </span>
+        <span style="margin-left: auto; font-size: 0.7rem; color: #6c757d;">
+            {subscription.get('end_date', 'No expiry')}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# EFFECTIVE PLAN FUNCTIONS
+# =============================================================================
+
+def get_effective_plan_for_user(user_id: int) -> Dict:
+    """
+    Get the effective plan for a user.
+    
+    Logic:
+    1. If user has company_id -> Use company subscription ONLY
+    2. If user has NO company_id -> Use individual subscription
+    3. If no subscription found -> Free plan
+    
+    Returns:
+        Dict with plan details
+    """
+    db = get_db()
+    
+    # ✅ Get user data
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return {'plan': 'free', 'source': 'none', 'subscription': {}}
+    
+    company_id = user.get('company_id')
+    
+    # ✅ If user belongs to a company, use company subscription ONLY
+    if company_id:
+        logger.info(f"🏢 User {user_id} belongs to company {company_id} - using company subscription")
+        company_sub = db.get_company_subscription(company_id)
+        company_plan = company_sub.get('subscription_tier') or company_sub.get('plan', 'free')
         
-        # Download option
-        csv = sub_df.to_csv(index=False)
-        st.download_button(
-            "📥 Download Subscriptions CSV",
-            csv,
-            f"subscriptions_{datetime.now().strftime('%Y%m%d')}.csv",
-            "text/csv"
-        )
-    else:
-        st.info("No subscriptions found")
+        return {
+            'plan': company_plan,
+            'source': 'company',
+            'subscription': company_sub,
+            'is_premium': is_premium_plan(company_plan),
+            'company_id': company_id
+        }
+    
+    # ✅ Individual user - use personal subscription
+    logger.info(f"👤 User {user_id} is an individual - using personal subscription")
+    user_sub = db.get_user_subscription(user_id)
+    user_plan = user_sub.get('subscription_tier') or user_sub.get('plan', 'free')
+    
+    return {
+        'plan': user_plan,
+        'source': 'individual',
+        'subscription': user_sub,
+        'is_premium': is_premium_plan(user_plan),
+        'company_id': None
+    }
 
 
-def _render_billing_history():
-    """Render billing history"""
-    
-    st.markdown("---")
-    st.markdown("### 📜 Billing History")
-    
-    # This would typically come from a billing table
-    # For now, show sample data
-    history_data = [
-        {'Date': '2024-03-01', 'Amount': '৳14,999', 'Plan': 'Professional', 'Status': 'Paid'},
-        {'Date': '2024-02-01', 'Amount': '৳14,999', 'Plan': 'Professional', 'Status': 'Paid'},
-        {'Date': '2024-01-01', 'Amount': '৳14,999', 'Plan': 'Professional', 'Status': 'Paid'},
-    ]
-    
-    df = pd.DataFrame(history_data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+def get_current_user_effective_plan() -> Dict:
+    """Get current user's effective plan"""
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        return {'plan': 'free', 'source': 'none', 'subscription': {}}
+    return get_effective_plan_for_user(user_id)
 
+
+def get_current_user_plan_name() -> str:
+    """Get current user's effective plan name"""
+    effective = get_current_user_effective_plan()
+    return effective.get('plan', 'free')
+
+
+def is_premium_user() -> bool:
+    """Check if current user has premium access"""
+    user_role = st.session_state.get('user_role', 'viewer')
+    
+    # System admins bypass
+    if user_role in ['admin', 'system_admin']:
+        return True
+    
+    effective = get_current_user_effective_plan()
+    return effective.get('is_premium', False)
+
+
+# =============================================================================
+# CHECKOUT FUNCTIONS
+# =============================================================================
 
 def render_checkout():
     """Render checkout page"""
@@ -691,11 +798,13 @@ def _render_checkout_summary(plan: Dict, price: float, duration: str, billing: s
 def _render_payment_form(selected_payment: str, payment_methods: Dict, plan: Dict, price: float, duration: str, billing: str):
     """Render payment form for selected payment method"""
     
+    db = get_db()
+    
     st.markdown(f"### Payment via {payment_methods[selected_payment]}")
     
     if selected_payment == 'bkash':
-        phone = st.text_input("bKash Account Number (01XXXXXXXXX)")
-        if st.button("Complete Payment", use_container_width=True):
+        phone = st.text_input("bKash Account Number (01XXXXXXXXX)", key="bkash_phone")
+        if st.button("Complete Payment", key="bkash_pay", use_container_width=True):
             if phone:
                 transaction_id = f"BKASH-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 success = db.update_user_subscription(
@@ -715,16 +824,60 @@ def _render_payment_form(selected_payment: str, payment_methods: Dict, plan: Dic
             else:
                 st.error("Please enter your bKash number")
     
+    elif selected_payment == 'nagad':
+        phone = st.text_input("Nagad Account Number (01XXXXXXXXX)", key="nagad_phone")
+        if st.button("Complete Payment", key="nagad_pay", use_container_width=True):
+            if phone:
+                transaction_id = f"NAGAD-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                success = db.update_user_subscription(
+                    st.session_state.user_id, 
+                    st.session_state.selected_plan, 
+                    billing, 
+                    selected_payment, 
+                    transaction_id
+                )
+                if success:
+                    st.balloons()
+                    st.success("✅ Payment successful! Subscription activated.")
+                    st.session_state.show_checkout = False
+                    st.rerun()
+                else:
+                    st.error("❌ Payment failed. Please try again.")
+            else:
+                st.error("Please enter your Nagad number")
+    
+    elif selected_payment == 'rocket':
+        phone = st.text_input("Rocket Account Number (01XXXXXXXXX)", key="rocket_phone")
+        if st.button("Complete Payment", key="rocket_pay", use_container_width=True):
+            if phone:
+                transaction_id = f"ROCKET-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                success = db.update_user_subscription(
+                    st.session_state.user_id, 
+                    st.session_state.selected_plan, 
+                    billing, 
+                    selected_payment, 
+                    transaction_id
+                )
+                if success:
+                    st.balloons()
+                    st.success("✅ Payment successful! Subscription activated.")
+                    st.session_state.show_checkout = False
+                    st.rerun()
+                else:
+                    st.error("❌ Payment failed. Please try again.")
+            else:
+                st.error("Please enter your Rocket number")
+    
     elif selected_payment == 'card':
         st.markdown("**Card Details**")
-        card_number = st.text_input("Card Number", placeholder="4242 4242 4242 4242")
+        card_number = st.text_input("Card Number", placeholder="4242 4242 4242 4242", key="card_number")
         col_c1, col_c2 = st.columns(2)
         with col_c1:
-            expiry = st.text_input("Expiry (MM/YY)")
+            expiry = st.text_input("Expiry (MM/YY)", key="card_expiry")
         with col_c2:
-            cvv = st.text_input("CVV", type="password")
+            cvv = st.text_input("CVV", type="password", key="card_cvv")
         
-        if st.button("Pay Now", use_container_width=True):
+        if st.button("Pay Now", key="card_pay", use_container_width=True):
             if card_number and expiry and cvv:
                 transaction_id = f"CARD-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 success = db.update_user_subscription(
@@ -760,164 +913,3 @@ def _render_checkout_features(plan: Dict):
     - PCI compliant
     - Money-back guarantee
     """)
-
-
-# =============================================================================
-# CONVENIENCE FUNCTIONS
-# =============================================================================
-
-def get_plan_config(plan_name: str) -> Dict:
-    """Get plan configuration by name"""
-    return get_plan(plan_name)
-
-
-def get_current_user_plan() -> Dict:
-    """Get current user's plan configuration"""
-    current_sub = db.get_user_subscription(st.session_state.user_id)
-    current_plan = current_sub.get('subscription_tier', 'free')
-    return get_plan(current_plan)
-
-
-def get_current_user_plan_name() -> str:
-    """Get current user's plan name"""
-    current_sub = db.get_user_subscription(st.session_state.user_id)
-    return current_sub.get('subscription_tier', 'free')
-
-
-def get_available_plans() -> List[Dict]:
-    """Get list of all available plans"""
-    plans = get_plans()
-    return list(plans.values())
-
-
-def get_plan_display_name(plan_name: str) -> str:
-    """Get display name for plan"""
-    plan = get_plan(plan_name)
-    return plan.get('name', plan_name.title())
-
-
-def get_plan_limit_by_type(plan_name: str, limit_type: str) -> int:
-    """Get plan limit by type"""
-    return get_plan_limit(plan_name, limit_type)
-
-
-def is_plan_available(plan_name: str) -> bool:
-    """Check if a plan is available"""
-    plans = get_plans()
-    return plan_name in plans
-
-
-def render_plan_badge(plan_name: str):
-    """Render a small plan badge"""
-    plan = get_plan(plan_name)
-    color = plan.get('color', '#6c757d')
-    badge = plan.get('badge', '📋')
-    name = plan.get('name', plan_name.title())
-    
-    st.markdown(f"""
-    <span style="background: {color}20; color: {color}; 
-                 border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600;">
-        {badge} {name}
-    </span>
-    """, unsafe_allow_html=True)
-def render_simple_subscription_status(subscription: Dict):
-    """Render a simple subscription status badge"""
-    plan = subscription.get('subscription_tier') or subscription.get('plan', 'free')
-    status = subscription.get('status', 'active')
-    
-    plan_config = get_plan(plan)
-    color = plan_config.get('color', '#6c757d')
-    badge = plan_config.get('badge', '📋')
-    name = plan_config.get('name', plan.title())
-    
-    status_color = '#10b981' if status == 'active' else '#ef4444'
-    
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 16px; 
-                background: {color}15; border-radius: 8px; margin: 4px 0; 
-                border: 1px solid {color}30;">
-        <span style="font-weight: 600; color: {color};">{badge} {name}</span>
-        <span style="color: {status_color}; font-size: 0.8rem;">
-            • {status.upper()}
-        </span>
-        <span style="margin-left: auto; font-size: 0.7rem; color: #6c757d;">
-            {subscription.get('end_date', 'No expiry')}
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-
-# modules/subscription.py
-
-def get_effective_plan_for_user(user_id: int) -> Dict:
-    """
-    Get the effective plan for a user.
-    
-    Logic:
-    1. If user has company_id -> Use company subscription ONLY
-    2. If user has NO company_id -> Use individual subscription
-    3. If no subscription found -> Free plan
-    
-    Returns:
-        Dict with plan details
-    """
-    db = get_db()
-    
-    # ✅ Get user data
-    user = db.get_user_by_id(user_id)
-    if not user:
-        return {'plan': 'free', 'source': 'none', 'subscription': {}}
-    
-    company_id = user.get('company_id')
-    
-    # ✅ If user belongs to a company, use company subscription ONLY
-    if company_id:
-        print(f"🏢 User {user_id} belongs to company {company_id} - using company subscription")
-        company_sub = db.get_company_subscription(company_id)
-        company_plan = company_sub.get('subscription_tier') or company_sub.get('plan', 'free')
-        
-        return {
-            'plan': company_plan,
-            'source': 'company',
-            'subscription': company_sub,
-            'is_premium': is_premium_plan(company_plan),
-            'company_id': company_id
-        }
-    
-    # ✅ Individual user - use personal subscription
-    print(f"👤 User {user_id} is an individual - using personal subscription")
-    user_sub = db.get_user_subscription(user_id)
-    user_plan = user_sub.get('subscription_tier') or user_sub.get('plan', 'free')
-    
-    return {
-        'plan': user_plan,
-        'source': 'individual',
-        'subscription': user_sub,
-        'is_premium': is_premium_plan(user_plan),
-        'company_id': None
-    }
-
-
-def get_current_user_effective_plan() -> Dict:
-    """Get current user's effective plan"""
-    user_id = st.session_state.get('user_id')
-    if not user_id:
-        return {'plan': 'free', 'source': 'none', 'subscription': {}}
-    return get_effective_plan_for_user(user_id)
-
-
-def get_current_user_plan_name() -> str:
-    """Get current user's effective plan name"""
-    effective = get_current_user_effective_plan()
-    return effective.get('plan', 'free')
-
-
-def is_premium_user() -> bool:
-    """Check if current user has premium access"""
-    user_role = st.session_state.get('user_role', 'viewer')
-    
-    # System admins bypass
-    if user_role in ['admin', 'system_admin']:
-        return True
-    
-    effective = get_current_user_effective_plan()
-    return effective.get('is_premium', False)

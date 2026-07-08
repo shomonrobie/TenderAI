@@ -142,17 +142,29 @@ def clear_session_url():
     """Clear session from URL"""
     st.query_params.clear()
 
-# modules/auth.py
+
 def login_user(user_data: Dict, password: str = None, remember_me: bool = False) -> bool:
-    """Login user - with 2FA for email/password users only"""
+    """Login user - with 2FA for regular users, admin bypass"""
     if not user_data:
         return False
     
     try:
         user_id = user_data.get('id')
-        email = user_data.get('email')
+        email = user_data.get('email')  # ✅ Get email from user data
+        role = user_data.get('role', 'viewer')
         
+        print(f"🔍 login_user called for: {user_data.get('username')} (Email: {email})")
+        
+        # ============================================================
+        # ✅ ADMIN BYPASS: System admins and admins skip 2FA
+        # ============================================================
+        if role in ['admin', 'system_admin']:
+            print(f"🔓 Admin user detected - bypassing 2FA: {email} (Role: {role})")
+            return _complete_login(user_data, remember_me)
+        
+        # ============================================================
         # ✅ CHECK AUTH PROVIDER
+        # ============================================================
         auth_provider = user_data.get('auth_provider', 'email_password')
         print(f"🔍 login_user - Auth Provider: {auth_provider}")
         
@@ -189,12 +201,14 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         st.session_state.pending_2fa_remember_me = remember_me
         st.session_state.verification_step = '2fa_otp'
         
-        # Send OTP
+        # ✅ Send OTP to user's email from database
+        print(f"📧 Sending 2FA OTP to email: {email}")
+        
         from utils.otp_service import OTPService
         otp_service = OTPService(db)
         success, message, otp_code = otp_service.send_verification_otp(
             contact_type='email',
-            contact_value=email,
+            contact_value=email,  # ✅ Use email from database
             target_type='user',
             target_id=user_id,
             purpose='2fa_login'
@@ -203,7 +217,7 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         if success:
             st.session_state._2fa_otp_sent = True
             st.session_state._2fa_otp_code = otp_code
-            st.session_state._2fa_contact = email
+            st.session_state._2fa_contact = email  # ✅ Store email for display
             print(f"✅ 2FA OTP sent to: {email}")
             return True  # Will show 2FA verification screen
         else:
@@ -215,6 +229,7 @@ def login_user(user_data: Dict, password: str = None, remember_me: bool = False)
         traceback.print_exc()
         return False
 
+    
 def login_user_bak(user_data: Dict, password: str = None, remember_me: bool = False) -> bool:
     """Login user - with global 2FA"""
     if not user_data:

@@ -590,14 +590,23 @@ def apply_theme():
     is_dark = st.session_state.get('dark_mode', False)
     current_page = st.session_state.get('page', 'home')
     st.markdown(get_theme_css(), unsafe_allow_html=True)
-
 def render_footer():
     """Render e-GP style footer with gradient matching login page"""
     try:
         from version import __version__, __version_date__
-    except ImportError:
+    except (ImportError, ModuleNotFoundError):
         __version__ = "1.0.0"
         __version_date__ = datetime.now().strftime("%Y")
+    except Exception as e:
+        # Fallback for any other import errors
+        __version__ = "1.0.0"
+        __version_date__ = datetime.now().strftime("%Y")
+    
+    # ✅ SAFELY get current year
+    try:
+        current_year = datetime.now().strftime("%Y")
+    except Exception:
+        current_year = "2024"
     
     st.markdown(f"""
     <style>
@@ -674,49 +683,11 @@ def render_footer():
             Best viewed in 1024 x 768 and above resolution. 
             Microsoft Edge 109.x or above and Mozilla Firefox 113.x or above and Google Chrome 109.x or above
         </div>
-        <div class="copyright">
-            Copyright © 2011 Bangladesh Public Procurement Authority (BPPA). All Rights Reserved.
-        </div>
+        
         <div class="version-info">
             <span class="highlight">TenderAI</span> v{__version__} • {__version_date__} • 
-            Powered by <span class="highlight">Copyright © 2024 Bangladesh's First AI-Powered Tender Intelligence Platform</span>
+            Powered by <span class="highlight">Copyright © {current_year} Bangladesh's First AI-Powered Tender Intelligence Platform</span>
         </div>
     
-    </div>
-    """, unsafe_allow_html=True)
-
-    """Render footer with gradient matching login page"""
-    try:
-        from version import __version__, __version_date__
-    except ImportError:
-        __version__ = "1.0.0"
-        __version_date__ = datetime.now().strftime("%Y")
-    
-    st.markdown(f"""
-    <style>
-    .footer {{
-        background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%) !important;
-        color: #94a3b8;
-        padding: 1.5rem;
-        border-radius: 16px;
-        margin-top: 2.5rem;
-        text-align: center;
-        font-size: 0.88rem;
-        border: 1px solid rgba(102, 126, 234, 0.1);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }}
-    .footer strong {{
-        color: #e0e0e0;
-    }}
-    .footer .highlight {{
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }}
-    </style>
-    <div class="footer">
-        🏗️ <strong>TenderAI</strong> v{__version__} • {__version_date__} • 
-        <span class="highlight">Bangladesh's First AI-Powered Tender Intelligence Platform</span>
     </div>
     """, unsafe_allow_html=True)

@@ -16,6 +16,19 @@ from modules.footer import render_footer
 
 from database.unified_db_manager import get_db_manager
 
+def mask_email(email: str) -> str:
+    """Mask email for display (e.g., j****n@example.com)"""
+    if not email:
+        return ""
+    parts = email.split('@')
+    if len(parts) != 2:
+        return email
+    username, domain = parts
+    if len(username) <= 2:
+        masked_username = username[0] + '*' * (len(username) - 1)
+    else:
+        masked_username = username[0] + '*' * (len(username) - 2) + username[-1]
+    return f"{masked_username}@{domain}"
 
 def render_2fa_verification():
     """Render 2FA OTP verification screen for login"""
@@ -183,13 +196,14 @@ def show():
             background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%) !important;
             background-color: #0a0a1a !important;
         }
-        
+
         /* Force transparent on intermediate containers */
         [data-testid="stAppViewContainer"] > section > div,
         [data-testid="stAppViewContainer"] > section > div > div,
         .main .block-container > div {
             background: transparent !important;
         }
+
         .login-container .stVerticalBlock {
             background: rgba(255, 255, 255, 0.03);
             backdrop-filter: blur(10px);
@@ -211,18 +225,19 @@ def show():
             justify-content: center;
             align-items: center;
         }
+
         /* Main container */
         .login-main-container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 1rem 2rem;
         }
-        
+
         .login-header {
             text-align: center;
             padding: 1rem 0 1.5rem 0;
         }
-        
+
         .login-header h1 {
             font-size: 2.5rem;
             font-weight: 700;
@@ -232,12 +247,12 @@ def show():
             background-clip: text;
             margin-bottom: 0.5rem;
         }
-        
+
         .login-header p {
             color: #94a3b8;
             font-size: 1.1rem;
         }
-        
+
         .login-box {
             background: rgba(255, 255, 255, 0.03);
             backdrop-filter: blur(10px);
@@ -246,12 +261,16 @@ def show():
             border: 1px solid rgba(102, 126, 234, 0.1);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
         }
-        
-        .login-box h3 {
-            color: #e0e0e0;
-            margin-bottom: 1.5rem;
-        }
-        
+
+        .login-box h3,
+            .stContainer h3,
+            div[data-testid="stContainer"] h3 {
+                color: #e0e0e0 !important;
+                font-weight: 600 !important;
+            }
+
+
+
         .branding-box {
             background: linear-gradient(145deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
             border-radius: 16px;
@@ -264,12 +283,12 @@ def show():
             justify-content: center;
             align-items: center;
         }
-        
+
         .branding-box .logo-placeholder {
             font-size: 5rem;
             margin-bottom: 1rem;
         }
-        
+
         .branding-box h3 {
             color: #e0e0e0;
             font-size: 1.8rem;
@@ -279,24 +298,24 @@ def show():
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        
+
         .branding-box p {
             color: #94a3b8;
             font-size: 0.95rem;
             margin: 0.5rem 0;
         }
-        
+
         .branding-box .tagline {
             color: #64748b;
             font-size: 0.85rem;
         }
-        
+
         .feature-list {
             text-align: left;
             margin-top: 1.5rem;
             padding: 0;
         }
-        
+
         .feature-list li {
             color: #94a3b8;
             font-size: 0.85rem;
@@ -306,14 +325,14 @@ def show():
             align-items: center;
             gap: 0.5rem;
         }
-        
+
         .feature-list li::before {
             content: '✓';
             color: #667eea;
             font-weight: bold;
             font-size: 1rem;
         }
-        
+
         .or-divider {
             text-align: center;
             color: #64748b;
@@ -321,7 +340,7 @@ def show():
             margin: 1.5rem 0 1rem 0;
             position: relative;
         }
-        
+
         .or-divider::before,
         .or-divider::after {
             content: '';
@@ -331,55 +350,93 @@ def show():
             height: 1px;
             background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.2));
         }
-        
+
         .or-divider::before {
             left: 0;
         }
-        
+
         .or-divider::after {
             right: 0;
             background: linear-gradient(90deg, rgba(102, 126, 234, 0.2), transparent);
         }
-        
+
         .login-footer-text {
             text-align: center;
             color: #64748b;
             font-size: 0.75rem;
             margin-top: 0.5rem;
         }
-        
+
         .login-footer-text a {
             color: #667eea;
             text-decoration: none;
         }
-        
+
         .login-footer-text a:hover {
             text-decoration: underline;
         }
-        
+
         .google-btn-container {
             display: flex;
             justify-content: center;
             margin: 0.5rem 0;
         }
-        
-        /* Form styling */
+
+        /* ============================================================
+        LABEL STYLING - Set to #c0c0c0
+        ============================================================ */
+
+        /* All Streamlit labels */
+        .stTextInput label,
+        .stSelectbox label,
+        .stTextArea label,
+        .stNumberInput label,
+        .stDateInput label,
+        .stTimeInput label,
+        .stFileUploader label,
+        .stMultiSelect label,
+        .stColorPicker label {
+            color: #c0c0c0 !important;
+            font-weight: 500 !important;
+        }
+
+        /* Radio button labels */
+        .stRadio label {
+            color: #c0c0c0 !important;
+        }
+
+        /* Checkbox labels */
+        .stCheckbox label {
+            color: #c0c0c0 !important;
+        }
+
+        /* Form submit button label */
+        .stFormSubmitButton label {
+            color: #c0c0c0 !important;
+        }
+
+        /* Selectbox label */
+        .stSelectbox label {
+            color: #c0c0c0 !important;
+        }
+
+        /* Form styling - Input fields */
         .stTextInput > div > div > input {
             background: rgba(255, 255, 255, 0.05) !important;
             border: 1px solid rgba(255, 255, 255, 0.08) !important;
             color: #e0e0e0 !important;
             border-radius: 8px !important;
         }
-        
+
         .stTextInput > div > div > input:focus {
             border-color: #667eea !important;
             box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2) !important;
         }
-        
-        .stCheckbox label {
-            color: #94a3b8 !important;
+
+        .stTextInput > div > div > input::placeholder {
+            color: #64748b !important;
         }
-        
+
         /* Button styling */
         .stButton > button {
             background: linear-gradient(135deg, #667eea, #764ba2) !important;
@@ -389,23 +446,28 @@ def show():
             font-weight: 600 !important;
             transition: all 0.3s ease !important;
         }
-        
+
         .stButton > button:hover {
             transform: translateY(-2px) !important;
             box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4) !important;
         }
-        
+
         .stButton > button:active {
             transform: translateY(0px) !important;
         }
-        
+
         /* Success/Error messages */
         .stAlert {
             background: rgba(255, 255, 255, 0.05) !important;
             border: 1px solid rgba(255, 255, 255, 0.08) !important;
             border-radius: 8px !important;
         }
-        
+
+        /* 2FA verification screen labels */
+        .stTextInput label {
+            color: #c0c0c0 !important;
+        }
+
         @media (max-width: 768px) {
             .login-main-container {
                 padding: 0.5rem 1rem;
@@ -422,7 +484,8 @@ def show():
             }
         }
         </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
+    
     
     # ========== MAIN CONTENT ==========
     st.markdown('<div class="login-main-container">', unsafe_allow_html=True)
@@ -449,9 +512,49 @@ def show():
                 border: 1px solid rgba(102, 126, 234, 0.1);
                 box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
             }
+                    /* ============================================================
+                RADIO BUTTON FIX - Make labels white
+                ============================================================ */
+                
+                /* Target the radio button container */
+                div[data-testid="stRadio"] {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target all label elements inside radio */
+                div[data-testid="stRadio"] label {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target the span inside label (the text) */
+                div[data-testid="stRadio"] label span {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* Target the text directly */
+                div[data-testid="stRadio"] label div {
+                    color: wh#c0c0c0ite !important;
+                }
+                
+                /* Target the p tag inside label */
+                div[data-testid="stRadio"] label p {
+                    color: #c0c0c0 !important;
+                }
+                
+                /* When radio is selected */
+                div[data-testid="stRadio"] label[data-checked="true"] span {
+                    color: #667eea !important;
+                }
+                
+                /* Hover state */
+                div[data-testid="stRadio"] label:hover span {
+                    color: #c0c0c0 !important;
+                }
+                    
             </style>
             """, unsafe_allow_html=True)
         with st.container():
+
             st.markdown("### 👤 Login to Your Account")
             
             # ========== LOGIN FORM ==========
@@ -482,15 +585,20 @@ def show():
                     if not username or not password:
                         st.error("Please enter both username and password")
                     else:
+                        # ✅ Get user by username or email
                         user = authenticate_user(username, password)
                         
                         if user:
-                            # Check if user is email/password or Google OAuth
+                            # ✅ Get user's email from database
+                            user_email = user.get('email')
+                            role = user.get('role', 'viewer')
                             auth_provider = user.get('auth_provider', 'email_password')
                             
-                            # ========== GOOGLE OAUTH USERS ==========
-                            if auth_provider == 'google':
-                                # Google users: No 2FA needed (Google handles it)
+                            # ============================================================
+                            # ✅ ADMIN BYPASS: System admins and admins skip 2FA
+                            # ============================================================
+                            if role in ['admin', 'system_admin']:
+                                print(f"🔓 Admin user detected - bypassing 2FA: {username} (Role: {role})")
                                 if auth_login_user(user, password, remember_me):
                                     st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
                                     user_role = user.get('role', 'viewer')
@@ -503,36 +611,60 @@ def show():
                                     return
                                 else:
                                     st.error("Login failed")
-                            
-                            # ========== EMAIL/PASSWORD USERS ==========
-                            else:
-                                # Check if email is verified (registration requirement)
-                                if not user.get('email_verified', False):
-                                    st.warning("⚠️ Please verify your email address first. Check your inbox for the verification link.")
-                                    st.info("📧 If you didn't receive the email, please contact support.")
                                     return
-                                
-                                # Email verified ✅ Now check 2FA for login
+                            
+                            # ============================================================
+                            # ✅ GOOGLE OAUTH USERS: No 2FA needed
+                            # ============================================================
+                            if auth_provider == 'google':
+                                print(f"✅ Google OAuth user - no 2FA: {username}")
                                 if auth_login_user(user, password, remember_me):
-                                    # Check if 2FA is required
-                                    if st.session_state.get('verification_step') == '2fa_otp':
-                                        st.info("📧 A verification code has been sent to your email.")
-                                        st.rerun()
-                                        return
+                                    st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
+                                    user_role = user.get('role', 'viewer')
+                                    if user_role in ['admin', 'system_admin']:
+                                        navigate_to("admin_dashboard")
+                                    elif user_role == 'company_admin':
+                                        navigate_to("company_dashboard")
                                     else:
-                                        st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
-                                        user_role = user.get('role', 'viewer')
-                                        if user_role in ['admin', 'system_admin']:
-                                            navigate_to("admin_dashboard")
-                                        elif user_role == 'company_admin':
-                                            navigate_to("company_dashboard")
-                                        else:
-                                            navigate_to("dashboard")
-                                        return
+                                        navigate_to("dashboard")
+                                    return
                                 else:
                                     st.error("Login failed")
+                                    return
+                            
+                            # ============================================================
+                            # ✅ EMAIL/PASSWORD USERS: Check email verification + 2FA
+                            # ============================================================
+                            
+                            # ✅ Check if email is verified (registration requirement)
+                            if not user.get('email_verified', False):
+                                st.warning("⚠️ Please verify your email address first. Check your inbox for the verification link.")
+                                st.info("📧 If you didn't receive the email, please contact support.")
+                                return
+                            
+                            # ✅ Login with 2FA - OTP will be sent to user's email from database
+                            if auth_login_user(user, password, remember_me):
+                                # Check if 2FA is required
+                                if st.session_state.get('verification_step') == '2fa_otp':
+                                    # ✅ OTP sent to user_email (from database)
+                                    st.info(f"📧 A verification code has been sent to your registered email: {mask_email(user_email)}")
+                                    st.rerun()
+                                    return
+                                else:
+                                    st.success(f"Welcome back, {user.get('full_name', user.get('username'))}! 🎉")
+                                    user_role = user.get('role', 'viewer')
+                                    if user_role in ['admin', 'system_admin']:
+                                        navigate_to("admin_dashboard")
+                                    elif user_role == 'company_admin':
+                                        navigate_to("company_dashboard")
+                                    else:
+                                        navigate_to("dashboard")
+                                    return
+                            else:
+                                st.error("Login failed")
                         else:
                             st.error("Invalid username/email or password")
+
             
             # ========== DIVIDER AND GOOGLE SIGN-IN ==========
             st.markdown('<div class="or-divider">OR</div>', unsafe_allow_html=True)

@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 import sqlite3
-
+from httpx import HTTPError
 logger = logging.getLogger(__name__)
 
 
@@ -177,7 +177,7 @@ class SupabaseSQLWrapper:
         Returns:
             self (for method chaining)
         """
-        print(f"🔍 _execute_select_supabase called: sql={sql[:100]}...")
+        print(f"🔍 _execute_select_supabase called: sql={sql[:1500]}...")
         
         try:
             sql_lower = sql.lower()
@@ -334,6 +334,64 @@ class SupabaseSQLWrapper:
         return self
 
     def _handle_simple_select(self, sql: str, sql_lower: str, params: tuple = None):
+        """Handle regular (non-JOIN) SELECT queries"""
+        print(f"🔍 _handle_simple_select called: sql={sql[:100]}...")
+        
+        # Extract table name
+        from_match = re.search(r'from\s+([^\s]+)', sql_lower)
+        if not from_match:
+            self._result = []
+            self._rowcount = 0
+            return self
+        
+        table_name = from_match.group(1).strip().split()[0].strip()
+        print(f"🔍 Table: {table_name}")
+        
+        # Build query
+        query = self._supabase_client.table(table_name).select('*')
+        
+        # Apply WHERE clause
+        if 'where' in sql_lower:
+            query = self._apply_where_clause_from_sql(query, sql_lower, params)
+        
+        # Apply ORDER BY
+        if 'order by' in sql_lower:
+            print(f"🔍 ORDER BY found in SQL, applying...")
+            query = self._apply_order_by(query, sql_lower)
+        
+        # Apply LIMIT
+        if 'limit' in sql_lower:
+            query = self._apply_limit(query, sql_lower)
+        
+        # Execute with an automatic retry for network/stream drops
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                response = query.execute()
+                self._result = response.data if response else []
+                self._rowcount = len(self._result)
+                print(f"🔍 Query returned {self._rowcount} rows")
+                break  # Success, exit the retry loop
+                
+            except Exception as e:
+                error_str = str(e)
+                is_conn_error = "ConnectionTerminated" in error_str or "stream" in error_str.lower()
+                
+                if is_conn_error and attempt < max_retries - 1:
+                    print(f"⚠️ Connection dropped (Attempt {attempt + 1}). Retrying query...")
+                    continue  # Try execution one more time
+                    
+                print(f"❌ Query execution error: {e}")
+                self._result = []
+                self._rowcount = 0
+                break
+        
+        if self._result and len(self._result) > 0:
+            self._description = [(key, None, None, None, None, None, None) for key in self._result[0].keys()]
+        
+        return self
+
+    def _handle_simple_select_bak(self, sql: str, sql_lower: str, params: tuple = None):
         """Handle regular (non-JOIN) SELECT queries"""
         print(f"🔍 _handle_simple_select called: sql={sql[:100]}...")
         

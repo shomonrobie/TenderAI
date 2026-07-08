@@ -568,6 +568,8 @@ def get_oidc_component():
     """Legacy function - returns None as we're using built-in OIDC"""
     return None
 
+# modules/google_auth.py - Updated process_oidc_user with admin bypass
+
 def process_oidc_user():
     """Process OIDC user after successful authentication"""
     
@@ -621,8 +623,11 @@ def process_oidc_user():
         if existing_user:
             print(f"✅ Existing user found: {existing_user.get('username')} (ID: {existing_user.get('id')})")
             
-            # ✅ CHECK AUTH PROVIDER - THIS IS THE FIX
+            # ✅ CHECK ROLE - Admin bypass
+            role = existing_user.get('role', 'viewer')
             auth_provider = existing_user.get('auth_provider', 'email_password')
+            
+            print(f"🔍 Role: {role}")
             print(f"🔍 Auth Provider: {auth_provider}")
             
             registration_complete = existing_user.get('registration_complete', 0)
@@ -641,12 +646,23 @@ def process_oidc_user():
                 return {'show_registration': True, 'existing_user': existing_user}
             
             # ============================================================
-            # ✅ GOOGLE OAUTH USERS: Skip 2FA completely
+            # ✅ ADMIN BYPASS: System admins and admins skip 2FA
+            # ============================================================
+            if role in ['admin', 'system_admin']:
+                print(f"🔓 Admin user detected - bypassing 2FA: {email} (Role: {role})")
+                from modules.auth import _complete_login
+                if _complete_login(existing_user, True):
+                    print(f"✅ Admin logged in directly: {email}")
+                    return {'logged_in': True, 'user_id': existing_user['id']}
+                else:
+                    return None
+            
+            # ============================================================
+            # ✅ GOOGLE OAUTH USERS: Skip 2FA
             # ============================================================
             if auth_provider == 'google':
                 print(f"✅ Google OAuth user - SKIPPING 2FA")
                 
-                # Login directly
                 from modules.auth import _complete_login
                 if _complete_login(existing_user, True):
                     print(f"✅ Google user logged in directly: {email}")
@@ -723,8 +739,9 @@ def process_oidc_user():
             'picture': google_picture,
             'mobile_number': '',
             'phone': '',
-            'auth_provider': 'google',  # ✅ Mark as Google OAuth user
-            'email_verified': 1 if email_verified else 0  # ✅ Google verified
+            'auth_provider': 'google',
+            'email_verified': 1 if email_verified else 0,
+            'role': 'individual'  # Default role for new Google users
         }
         
         print(f"📝 Creating user with data: {user_data}")
@@ -751,7 +768,7 @@ def process_oidc_user():
                     st.session_state['show_google_registration'] = True
                     return {'show_registration': True, 'new_user': True}
                 else:
-                    # ✅ Google OAuth user - login directly (no 2FA)
+                    # ✅ Google OAuth user - login directly
                     from modules.auth import _complete_login
                     login_success = _complete_login(existing_user, True)
                     if login_success:

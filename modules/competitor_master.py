@@ -1,10 +1,11 @@
-# modules/competitor_master.py - Refactored to use CompetitorCRUD
+# modules/competitor_master.py - Refactored with Unique Keys
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from datetime import datetime
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 import json
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -44,14 +45,15 @@ def render_competitor_master_page(db=None, subscription_manager=None):
         st.info("Upgrade to use Competitor Master.")
         return
     
-    # Create tabs
+    # Create tabs (7 tabs now)
     tabs = st.tabs([
         "📋 Competitor List", 
         "➕ Add Competitor", 
         "📊 Analytics", 
-        "🧠 Intelligence", 
+        "🧠 Full Profile",
         "🔍 Tracking", 
-        "⚙️ Settings"
+        "⚙️ Settings",
+        "📈 Bid History"
     ])
     
     with tabs[0]:
@@ -64,17 +66,20 @@ def render_competitor_master_page(db=None, subscription_manager=None):
         render_competitor_analytics(db)
     
     with tabs[3]:
-        render_intelligence_tab(db)
+        render_full_profile_tab(db)
     
     with tabs[4]:
         render_tracking_tab(db)
     
     with tabs[5]:
         render_settings_tab(db, can_edit)
+    
+    with tabs[6]:
+        render_bid_history_tab(db)
 
 
 # ============================================================================
-# TAB 1: COMPETITOR LIST
+# TAB 0: COMPETITOR LIST
 # ============================================================================
 
 def render_competitor_list(db):
@@ -160,14 +165,26 @@ def render_competitor_list(db):
     # Competitor List Table
     st.markdown("### 📋 Competitor List")
     
-    # Search and Filter
+    # Search and Filter - with UNIQUE KEYS
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        search = st.text_input("🔍 Search Competitor", placeholder="Enter competitor name...")
+        search = st.text_input(
+            "🔍 Search Competitor",
+            placeholder="Enter competitor name...",
+            key="competitor_list_search"
+        )
     with col2:
-        filter_type = st.selectbox("Filter", ["All", "Active", "Inactive"])
+        filter_type = st.selectbox(
+            "Filter",
+            ["All", "Active", "Inactive"],
+            key="competitor_list_filter"
+        )
     with col3:
-        sort_by = st.selectbox("Sort by", ["Name", "Total Bids", "Win Rate", "Last Seen"])
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Name", "Total Bids", "Win Rate", "Last Seen"],
+            key="competitor_list_sort"
+        )
     
     # Apply filters
     filtered_competitors = competitors.copy()
@@ -255,14 +272,14 @@ def render_competitor_list(db):
         col1, col2, col3 = st.columns([1, 3, 1])
         with col1:
             if page > 1:
-                if st.button("◀ Previous"):
+                if st.button("◀ Previous", key="competitor_prev_page"):
                     st.session_state.competitor_page = page - 1
                     st.rerun()
         with col2:
             st.caption(f"Page {page} of {total_pages} | Showing {len(page_competitors)} of {len(filtered_competitors)} competitors")
         with col3:
             if page < total_pages:
-                if st.button("Next ▶"):
+                if st.button("Next ▶", key="competitor_next_page"):
                     st.session_state.competitor_page = page + 1
                     st.rerun()
     else:
@@ -270,7 +287,7 @@ def render_competitor_list(db):
 
 
 # ============================================================================
-# TAB 2: ADD COMPETITOR
+# TAB 1: ADD COMPETITOR
 # ============================================================================
 
 def render_add_competitor_form(db):
@@ -339,7 +356,7 @@ def render_add_competitor_form(db):
 
 
 # ============================================================================
-# TAB 3: ANALYTICS
+# TAB 2: ANALYTICS
 # ============================================================================
 
 def render_competitor_analytics(db):
@@ -347,14 +364,18 @@ def render_competitor_analytics(db):
     
     st.markdown("### 📊 Competitor Analytics")
     
-    # ✅ Use CRUD method
-    competitors = db.get_competitor_master_list(st.session_state.company_id)
+    company_id = st.session_state.get('company_id')
+    
+    # ✅ Get both master and profile data
+    competitors = db.get_competitor_master_list(company_id)
+    profiles = db.get_competitor_profiles(company_id)
     
     if not competitors:
         st.info("No competitor data available. Add competitors and record historical tenders.")
         return
     
     comp_df = pd.DataFrame(competitors)
+    profile_df = pd.DataFrame(profiles) if profiles else pd.DataFrame()
     
     comp_df['Win Rate'] = comp_df.apply(
         lambda x: x['total_wins'] / x['total_bids'] if x['total_bids'] > 0 else 0, axis=1
@@ -398,6 +419,21 @@ def render_competitor_analytics(db):
         )
         st.plotly_chart(fig, use_container_width=True)
     
+    # Competitor Type Distribution (from competitor_profiles)
+    if not profile_df.empty and 'competitor_type' in profile_df.columns:
+        st.markdown("#### Competitor Personality Distribution")
+        type_counts = profile_df['competitor_type'].value_counts()
+        if len(type_counts) > 0:
+            fig = px.bar(
+                x=type_counts.index,
+                y=type_counts.values,
+                title="Personality Types",
+                labels={'x': 'Type', 'y': 'Count'},
+                color=type_counts.index,
+                color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
     # Market aggression index
     avg_aggression = comp_df['avg_bid_ratio'].mean()
     st.markdown(f"#### Market Insights")
@@ -411,194 +447,167 @@ def render_competitor_analytics(db):
 
 
 # ============================================================================
-# TAB 4: INTELLIGENCE
+# TAB 3: FULL PROFILE (NEW - consumes competitor_profiles)
 # ============================================================================
 
-def render_intelligence_tab(db):
-    """Render the main intelligence dashboard"""
+def render_full_profile_tab(db):
+    """Render full competitor profile from competitor_profiles table"""
     
-    st.markdown("### 🧠 Competitor Intelligence Dashboard")
-    st.caption("Deep insights into competitor behavior, performance, and market positioning")
+    st.markdown("### 🧠 Competitor Personality & Behavioural Profile")
+    st.caption("Deep behavioural intelligence derived from competitor_profiles")
     
     company_id = st.session_state.get('company_id')
     if not company_id:
-        st.warning("Please login to view competitor intelligence")
+        st.warning("Please login to view competitor profiles")
         return
     
-    # ✅ Use CRUD method
-    competitors = db.get_competitor_master_list(company_id, active_only=True)
+    # ✅ Fetch from competitor_profiles
+    profiles = db.get_competitor_profiles(company_id)
     
-    if not competitors:
-        st.info("No competitors found. Add competitors to start tracking intelligence.")
+    if not profiles:
+        st.info("No detailed profiles available. Profiles are automatically built from bid history.")
+        st.info("💡 Tip: Record historical tenders with competitor bids to generate profiles.")
         return
     
-    comp_df = pd.DataFrame(competitors)
+    profile_df = pd.DataFrame(profiles)
     
-    # Intelligence Overview Cards
-    st.markdown("#### 📊 Intelligence Overview")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    total_competitors = len(comp_df)
-    total_bids = comp_df['total_bids'].sum()
-    total_wins = comp_df['total_wins'].sum()
-    
-    with col1:
-        st.metric("Total Competitors", total_competitors)
-    with col2:
-        st.metric("Total Bids Tracked", total_bids)
-    with col3:
-        win_rate = (total_wins / total_bids * 100) if total_bids > 0 else 0
-        st.metric("Market Win Rate", f"{win_rate:.0f}%")
-    with col4:
-        avg_ratio = comp_df['avg_bid_ratio'].mean()
-        st.metric("Market Avg Bid Ratio", f"{avg_ratio*100:.1f}%" if pd.notna(avg_ratio) else "N/A")
-    
-    # Strategy breakdown
-    st.markdown("#### 🎯 Strategy Distribution")
-    strategies = comp_df['preferred_strategy'].value_counts()
-    aggressive_count = strategies.get('Aggressive', 0)
-    moderate_count = strategies.get('Moderate', 0)
-    conservative_count = strategies.get('Conservative', 0)
-    variable_count = strategies.get('Variable', 0)
+    # KPI Cards
+    st.markdown("#### 📊 Profile Overview")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("🟢 Aggressive", aggressive_count)
+        st.metric("Total Profiles", len(profile_df))
     with col2:
-        st.metric("🟡 Moderate", moderate_count)
+        aggressive = len(profile_df[profile_df['competitor_type'] == 'Aggressive']) if 'competitor_type' in profile_df.columns else 0
+        st.metric("🟢 Aggressive", aggressive)
     with col3:
-        st.metric("🔵 Conservative", conservative_count)
+        conservative = len(profile_df[profile_df['competitor_type'] == 'Conservative']) if 'competitor_type' in profile_df.columns else 0
+        st.metric("🔵 Conservative", conservative)
     with col4:
-        st.metric("🟣 Variable", variable_count)
+        balanced = len(profile_df[profile_df['competitor_type'] == 'Balanced']) if 'competitor_type' in profile_df.columns else 0
+        st.metric("🟡 Balanced", balanced)
     
-    # Competitor Intelligence Table
-    st.markdown("#### 📋 Competitor Intelligence Report")
+    st.divider()
     
-    intel_data = []
-    for _, comp in comp_df.iterrows():
-        total_bids_comp = comp.get('total_bids', 0)
-        total_wins_comp = comp.get('total_wins', 0)
-        win_rate_comp = (total_wins_comp / total_bids_comp * 100) if total_bids_comp > 0 else 0
-        
-        avg_ratio = comp.get('avg_bid_ratio', 0.92)
-        if avg_ratio < 0.88:
-            behavior = "Aggressive Bidder"
-        elif avg_ratio < 0.93:
-            behavior = "Consistent Bidder"
-        else:
-            behavior = "Conservative Bidder"
-        
-        first_seen = comp.get('first_seen')
-        last_seen = comp.get('last_seen')
-        active_months = None
-        
-        if first_seen and last_seen:
-            if isinstance(first_seen, str):
-                try:
-                    first_seen = datetime.strptime(first_seen, '%Y-%m-%d')
-                except ValueError:
-                    first_seen = None
-            if isinstance(last_seen, str):
-                try:
-                    last_seen = datetime.strptime(last_seen, '%Y-%m-%d')
-                except ValueError:
-                    last_seen = None
-            if first_seen and last_seen:
-                active_months = ((last_seen - first_seen).days / 30.44)
-        
-        intel_data.append({
-            'Competitor': comp.get('competitor_name', 'Unknown'),
-            'Strategy': comp.get('preferred_strategy', 'Unknown'),
-            'Behavior': behavior,
-            'Bids': total_bids_comp,
-            'Wins': total_wins_comp,
-            'Win Rate': win_rate_comp,
-            'Avg Bid Ratio': avg_ratio,
-            'Active Months': f"{active_months:.0f}" if active_months else "N/A",
-            'ID': comp.get('id')
-        })
+    # Profile Cards with personality display
+    st.markdown("#### 📋 Competitor Profiles")
     
-    intel_df = pd.DataFrame(intel_data)
-    
-    st.dataframe(
-        intel_df[['Competitor', 'Strategy', 'Behavior', 'Bids', 'Win Rate', 'Avg Bid Ratio', 'Active Months']],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            'Competitor': 'Competitor Name',
-            'Strategy': st.column_config.TextColumn("Strategy", width="small"),
-            'Behavior': st.column_config.TextColumn("Behavior Pattern", width="small"),
-            'Bids': st.column_config.NumberColumn("Total Bids", width="small"),
-            'Win Rate': st.column_config.NumberColumn("Win Rate (%)", width="small", format="%.1f%%"),
-            'Avg Bid Ratio': st.column_config.NumberColumn("Avg Bid Ratio", width="small", format="%.2f"),
-            'Active Months': st.column_config.TextColumn("Active (Months)", width="small")
-        }
+    # Search - with UNIQUE KEY
+    search_profile = st.text_input(
+        "🔍 Search Competitor",
+        placeholder="Enter competitor name...",
+        key="profile_search"
     )
     
-    # Quick Access to Intelligence Profiles
-    st.markdown("#### 🔍 Quick Access to Full Intelligence Profiles")
-    top_competitors = intel_df.nlargest(5, 'Bids')
+    filtered_profiles = profiles.copy()
+    if search_profile:
+        filtered_profiles = [p for p in filtered_profiles if search_profile.lower() in p.get('competitor_name', '').lower()]
     
-    if not top_competitors.empty:
-        cols = st.columns(min(5, len(top_competitors)))
-        for idx, (_, comp) in enumerate(top_competitors.iterrows()):
-            if idx < len(cols):
-                with cols[idx]:
-                    comp_name = comp['Competitor']
-                    comp_id = comp['ID']
-                    if st.button(
-                        f"🧠 {comp_name[:12]}{'...' if len(comp_name) > 12 else ''}",
-                        key=f"quick_intel_{comp_id}",
-                        help=f"View full intelligence profile for {comp_name}"
-                    ):
-                        st.query_params.competitor_id = comp_id
-                        st.session_state.page = "competitor_profile"
+    # Display as cards
+    for idx, profile in enumerate(filtered_profiles[:20]):
+        with st.expander(f"🧠 {profile.get('competitor_name', 'Unknown')}", expanded=(idx == 0)):
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**Behavioural Profile**")
+                comp_type = profile.get('competitor_type', 'Unknown')
+                if comp_type == 'Aggressive':
+                    st.warning(f"⚡ {comp_type}")
+                elif comp_type == 'Conservative':
+                    st.info(f"🛡️ {comp_type}")
+                elif comp_type == 'Balanced':
+                    st.success(f"⚖️ {comp_type}")
+                else:
+                    st.write(comp_type)
+                
+                strategy = profile.get('strategy', 'N/A')
+                st.write(f"**Strategy:** {strategy}")
+                
+                first_seen = profile.get('first_seen')
+                last_seen = profile.get('last_seen')
+                st.write(f"**Active Period:** {first_seen} → {last_seen}")
+            
+            with col2:
+                st.markdown("**Performance Metrics**")
+                appearances = profile.get('total_appearances', 0)
+                wins = profile.get('wins_count', 0)
+                win_rate = (wins / appearances * 100) if appearances > 0 else 0
+                st.metric("Appearances", appearances)
+                st.metric("Wins", wins)
+                st.metric("Win Rate", f"{win_rate:.0f}%")
+            
+            with col3:
+                st.markdown("**Bid Behaviour**")
+                avg_ratio = profile.get('avg_bid_ratio', 0)
+                std_dev = profile.get('bid_std_dev', 0)
+                st.metric("Avg Bid Ratio", f"{avg_ratio*100:.1f}%" if avg_ratio else "N/A")
+                st.metric("Consistency (Std Dev)", f"{std_dev:.3f}" if std_dev else "N/A")
+                
+                # Consistency indicator
+                if std_dev and std_dev < 0.05:
+                    st.success("✅ Highly Consistent")
+                elif std_dev and std_dev < 0.10:
+                    st.info("⚖️ Moderately Consistent")
+                elif std_dev:
+                    st.warning("⚠️ Highly Variable")
+            
+            # Notes (from competitor_profiles)
+            notes = profile.get('notes')
+            if notes:
+                st.markdown("---")
+                st.markdown("**📝 Intelligence Notes**")
+                st.info(notes[:500] + "..." if len(notes) > 500 else notes)
     
-    # Market Intelligence Insights
-    st.markdown("#### 📈 Market Intelligence Insights")
-    avg_ratio = comp_df['avg_bid_ratio'].mean()
+    # AI Insights section
+    st.markdown("---")
+    st.markdown("#### 🤖 AI-Generated Insights")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Market Positioning**")
-        if avg_ratio and avg_ratio < 0.89:
-            st.warning("🟢 Market is **highly competitive** - aggressive pricing is common")
-        elif avg_ratio and avg_ratio < 0.93:
-            st.info("🟡 Market is **moderately competitive** - balanced approach recommended")
-        else:
-            st.success("🔵 Market is **less competitive** - room for better margins")
+    if not profile_df.empty:
+        # Find the most aggressive competitor
+        if 'avg_bid_ratio' in profile_df.columns:
+            most_aggressive = profile_df.loc[profile_df['avg_bid_ratio'].idxmin()] if not profile_df['avg_bid_ratio'].isna().all() else None
+            if most_aggressive is not None:
+                st.info(f"**Most Aggressive Competitor:** {most_aggressive.get('competitor_name')} "
+                       f"(avg bid ratio {most_aggressive.get('avg_bid_ratio', 0)*100:.1f}%)")
+        
+        # Find the most consistent competitor
+        if 'bid_std_dev' in profile_df.columns:
+            most_consistent = profile_df.loc[profile_df['bid_std_dev'].idxmin()] if not profile_df['bid_std_dev'].isna().all() else None
+            if most_consistent is not None:
+                st.success(f"**Most Consistent Competitor:** {most_consistent.get('competitor_name')} "
+                          f"(std dev {most_consistent.get('bid_std_dev', 0):.3f})")
+        
+        # Find the most successful competitor
+        profile_df['Win Rate'] = profile_df.apply(
+            lambda x: x.get('wins_count', 0) / x.get('total_appearances', 1) if x.get('total_appearances', 0) > 0 else 0,
+            axis=1
+        )
+        if not profile_df['Win Rate'].isna().all():
+            most_successful = profile_df.loc[profile_df['Win Rate'].idxmax()] if not profile_df['Win Rate'].isna().all() else None
+            if most_successful is not None:
+                st.info(f"**Most Successful Competitor:** {most_successful.get('competitor_name')} "
+                       f"(win rate {most_successful.get('Win Rate', 0)*100:.0f}%)")
     
-    with col2:
-        st.markdown("**Recommendations**")
-        if aggressive_count > conservative_count:
-            st.write("• Consider **competitive pricing** to win more tenders")
-            st.write("• Focus on **cost optimization** and efficiency")
-        elif moderate_count > aggressive_count:
-            st.write("• **Balanced strategy** is working well")
-            st.write("• Maintain current approach and monitor trends")
-        else:
-            st.write("• Opportunity for **margin improvement**")
-            st.write("• Consider **differentiation** strategies")
-    
-    # Export Intelligence Data
-    if st.button("📥 Export Intelligence Report", use_container_width=True):
-        csv = intel_df.to_csv(index=False)
+    # Export profile data
+    st.markdown("---")
+    if st.button("📥 Export Full Profiles", key="export_profiles_btn", use_container_width=True):
+        csv = profile_df.to_csv(index=False)
         st.download_button(
-            "💾 Download CSV",
+            "💾 Download Profiles CSV",
             csv,
-            f"competitor_intelligence_{datetime.now().strftime('%Y%m%d')}.csv",
+            f"competitor_profiles_{datetime.now().strftime('%Y%m%d')}.csv",
             "text/csv",
-            key="export_intelligence"
+            key="download_profiles_csv"
         )
 
 
 # ============================================================================
-# TAB 5: TRACKING
+# TAB 4: TRACKING
 # ============================================================================
 
 def render_tracking_tab(db):
-    """Render competitor tracking dashboard"""
+    """Render competitor tracking dashboard with historical bid data"""
     
     st.markdown("### 📊 Competitor Tracking")
     st.caption("Track competitor behavior patterns and predict future bids")
@@ -687,7 +696,7 @@ def render_tracking_tab(db):
 
 
 # ============================================================================
-# TAB 6: SETTINGS
+# TAB 5: SETTINGS
 # ============================================================================
 
 def render_settings_tab(db, can_edit: bool):
@@ -721,7 +730,7 @@ def render_settings_tab(db, can_edit: bool):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("📥 Export All Competitor Data", use_container_width=True):
+        if st.button("📥 Export All Competitor Data", key="export_competitor_data_btn", use_container_width=True):
             company_id = st.session_state.get('company_id')
             # ✅ Use CRUD method
             competitors = db.get_competitor_master_list(company_id, active_only=False)
@@ -732,13 +741,14 @@ def render_settings_tab(db, can_edit: bool):
                     "💾 Download Full Dataset",
                     csv,
                     f"competitor_full_export_{datetime.now().strftime('%Y%m%d')}.csv",
-                    "text/csv"
+                    "text/csv",
+                    key="download_competitor_data"
                 )
             else:
                 st.warning("No competitor data to export")
     
     with col2:
-        if st.button("📊 Export Bid History", use_container_width=True):
+        if st.button("📊 Export Bid History", key="export_bid_history_btn", use_container_width=True):
             company_id = st.session_state.get('company_id')
             # ✅ Use CRUD method
             history = db.get_competitor_bid_history(company_id, limit=1000)
@@ -749,13 +759,14 @@ def render_settings_tab(db, can_edit: bool):
                     "💾 Download Bid History",
                     csv,
                     f"competitor_bid_history_{datetime.now().strftime('%Y%m%d')}.csv",
-                    "text/csv"
+                    "text/csv",
+                    key="download_bid_history"
                 )
             else:
                 st.warning("No bid history data to export")
     
     with col3:
-        if st.button("🔄 Recalculate Stats", use_container_width=True):
+        if st.button("🔄 Recalculate Stats", key="recalc_stats_btn", use_container_width=True):
             with st.spinner("Recalculating competitor statistics..."):
                 company_id = st.session_state.get('company_id')
                 # ✅ Use CRUD method
@@ -774,7 +785,7 @@ def render_settings_tab(db, can_edit: bool):
         st.markdown("---")
         st.warning("⚠️ Danger Zone")
         
-        if st.button("🗑️ Clear All Competitor Data", type="secondary", use_container_width=True):
+        if st.button("🗑️ Clear All Competitor Data", key="clear_competitor_data_btn", type="secondary", use_container_width=True):
             if st.session_state.get('confirm_clear_competitors'):
                 company_id = st.session_state.get('company_id')
                 db.execute("DELETE FROM competitor_profiles WHERE company_id = ?", (company_id,))
@@ -786,6 +797,237 @@ def render_settings_tab(db, can_edit: bool):
             else:
                 st.session_state.confirm_clear_competitors = True
                 st.warning("⚠️ Click again to confirm clearing ALL competitor data")
+
+
+# ============================================================================
+# TAB 6: BID HISTORY (NEW - consumes competitor_bid_history)
+# ============================================================================
+
+def render_bid_history_tab(db):
+    """Render detailed bid history timeline from competitor_bid_history"""
+    
+    st.markdown("### 📈 Competitor Bid History Timeline")
+    st.caption("Historical bid data per competitor over time")
+    
+    company_id = st.session_state.get('company_id')
+    if not company_id:
+        st.warning("Please login to view bid history")
+        return
+    
+    # ✅ Fetch from competitor_bid_history
+    history = db.get_competitor_bid_history(company_id, limit=10000)
+    
+    if not history:
+        st.info("No bid history available. Record historical tenders with competitor bids to build history.")
+        return
+    
+    history_df = pd.DataFrame(history)
+    
+    # Ensure bid_date is datetime
+    if 'bid_date' in history_df.columns:
+        history_df['bid_date'] = pd.to_datetime(history_df['bid_date'], errors='coerce')
+    elif 'created_at' in history_df.columns:
+        history_df['bid_date'] = pd.to_datetime(history_df['created_at'], errors='coerce')
+    
+    # Filters - with UNIQUE KEYS
+    st.markdown("#### 🔍 Filter History")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # Competitor filter
+        competitors = history_df['competitor_name'].unique().tolist() if 'competitor_name' in history_df.columns else []
+        selected_competitor = st.selectbox(
+            "Select Competitor",
+            ["All"] + sorted(competitors),
+            key="bid_history_competitor_filter"
+        )
+    
+    with col2:
+        # Date range
+        min_date = history_df['bid_date'].min().date() if not history_df['bid_date'].isna().all() else datetime.now().date() - timedelta(days=365)
+        max_date = history_df['bid_date'].max().date() if not history_df['bid_date'].isna().all() else datetime.now().date()
+        date_range = st.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            key="bid_history_date_range"
+        )
+    
+    with col3:
+        # Sector filter (if available)
+        sectors = []
+        if 'tender_title' in history_df.columns:
+            history_df['sector'] = history_df['tender_title'].apply(
+                lambda x: 'Roads' if 'Road' in str(x) else
+                          'Bridges' if 'Bridge' in str(x) else
+                          'Buildings' if 'Building' in str(x) or 'School' in str(x) or 'Hospital' in str(x) else
+                          'Water' if 'Water' in str(x) else
+                          'Drainage' if 'Drainage' in str(x) else
+                          'General'
+            )
+            sectors = history_df['sector'].unique().tolist()
+        selected_sector = st.selectbox(
+            "Sector",
+            ["All"] + sorted(sectors) if sectors else ["All"],
+            key="bid_history_sector_filter"
+        )
+    
+    with col4:
+        # Show winners only?
+        show_winners = st.selectbox(
+            "Outcome",
+            ["All", "Wins Only", "Losses Only"],
+            key="bid_history_outcome_filter"
+        )
+    
+    # Apply filters
+    filtered_history = history_df.copy()
+    
+    if selected_competitor != "All" and 'competitor_name' in filtered_history.columns:
+        filtered_history = filtered_history[filtered_history['competitor_name'] == selected_competitor]
+    
+    if len(date_range) == 2 and 'bid_date' in filtered_history.columns:
+        filtered_history = filtered_history[
+            (filtered_history['bid_date'].dt.date >= date_range[0]) &
+            (filtered_history['bid_date'].dt.date <= date_range[1])
+        ]
+    
+    if selected_sector != "All" and 'sector' in filtered_history.columns:
+        filtered_history = filtered_history[filtered_history['sector'] == selected_sector]
+    
+    if show_winners == "Wins Only" and 'was_winner' in filtered_history.columns:
+        filtered_history = filtered_history[filtered_history['was_winner'] == True]
+    elif show_winners == "Losses Only" and 'was_winner' in filtered_history.columns:
+        filtered_history = filtered_history[filtered_history['was_winner'] == False]
+    
+    # Display metrics
+    if not filtered_history.empty:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Encounters", len(filtered_history))
+        with col2:
+            wins = filtered_history['was_winner'].sum() if 'was_winner' in filtered_history.columns else 0
+            st.metric("Wins", wins)
+        with col3:
+            win_rate = (wins / len(filtered_history) * 100) if len(filtered_history) > 0 else 0
+            st.metric("Win Rate", f"{win_rate:.0f}%")
+        with col4:
+            avg_ratio = filtered_history['bid_ratio'].mean() if 'bid_ratio' in filtered_history.columns else 0
+            st.metric("Avg Bid Ratio", f"{avg_ratio*100:.1f}%" if avg_ratio else "N/A")
+    
+    st.divider()
+    
+    # Line Chart: Bid Ratio Over Time
+    if not filtered_history.empty and 'bid_date' in filtered_history.columns and 'bid_ratio' in filtered_history.columns:
+        st.markdown("#### 📈 Bid Ratio Trend (Lower = More Aggressive)")
+        
+        # Group by month for cleaner trends
+        filtered_history['month'] = filtered_history['bid_date'].dt.to_period('M')
+        
+        # If single competitor selected, show trend with win markers
+        if selected_competitor != "All":
+            fig = go.Figure()
+            
+            # Add line trace
+            fig.add_trace(go.Scatter(
+                x=filtered_history['bid_date'],
+                y=filtered_history['bid_ratio'],
+                mode='lines+markers',
+                name='Bid Ratio',
+                line=dict(color='blue'),
+                marker=dict(
+                    size=8,
+                    color=filtered_history['was_winner'].apply(lambda x: 'green' if x else 'red'),
+                    symbol='circle',
+                    showscale=False
+                )
+            ))
+            
+            # Add OCE line (1.0)
+            fig.add_hline(y=1.0, line_dash="dash", line_color="gray", annotation_text="OCE")
+            
+            fig.update_layout(
+                title=f"Bid Ratio Trend for {selected_competitor}",
+                xaxis_title="Date",
+                yaxis_title="Bid Ratio (Bid / OCE)",
+                height=400,
+                hovermode='x unified'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Interpretation
+            avg_ratio = filtered_history['bid_ratio'].mean()
+            if avg_ratio < 0.88:
+                st.warning(f"📊 **Aggressive Bidder** - Average ratio {avg_ratio*100:.1f}%")
+            elif avg_ratio < 0.93:
+                st.info(f"📊 **Moderate Bidder** - Average ratio {avg_ratio*100:.1f}%")
+            else:
+                st.success(f"📊 **Conservative Bidder** - Average ratio {avg_ratio*100:.1f}%")
+        
+        else:
+            # Multiple competitors - show average trend
+            monthly_avg = filtered_history.groupby('month')['bid_ratio'].mean().reset_index()
+            monthly_avg['month'] = monthly_avg['month'].astype(str)
+            
+            fig = px.line(
+                monthly_avg,
+                x='month',
+                y='bid_ratio',
+                title='Market Average Bid Ratio Over Time',
+                labels={'month': 'Month', 'bid_ratio': 'Avg Bid Ratio'},
+                markers=True
+            )
+            fig.add_hline(y=1.0, line_dash="dash", line_color="gray", annotation_text="OCE")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed history table
+    st.markdown("---")
+    st.markdown("#### 📋 Detailed Encounter History")
+    
+    display_cols = ['competitor_name', 'bid_date', 'bid_amount', 'official_estimate', 'bid_ratio', 'was_winner', 'tender_id']
+    if 'sector' in filtered_history.columns:
+        display_cols.insert(2, 'sector')
+    
+    display_df = filtered_history[display_cols].copy() if all(col in filtered_history.columns for col in display_cols) else filtered_history
+    
+    # Format columns
+    if 'bid_date' in display_df.columns:
+        display_df['bid_date'] = display_df['bid_date'].dt.strftime('%Y-%m-%d')
+    
+    if 'was_winner' in display_df.columns:
+        display_df['was_winner'] = display_df['was_winner'].apply(lambda x: '✅ Winner' if x else '❌ Lost')
+    
+    if 'bid_ratio' in display_df.columns:
+        display_df['bid_ratio'] = display_df['bid_ratio'].apply(lambda x: f"{x*100:.1f}%")
+    
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'competitor_name': 'Competitor',
+            'bid_date': 'Date',
+            'bid_amount': 'Bid Amount',
+            'official_estimate': 'OCE',
+            'bid_ratio': 'Bid %',
+            'was_winner': 'Outcome',
+            'tender_id': 'Tender ID'
+        }
+    )
+    
+    # Export
+    if st.button("📥 Export Bid History", key="export_bid_history_full_btn", use_container_width=True):
+        csv = filtered_history.to_csv(index=False)
+        st.download_button(
+            "💾 Download History CSV",
+            csv,
+            f"competitor_bid_history_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv",
+            key="download_bid_history_full"
+        )
 
 
 # ============================================================================

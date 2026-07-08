@@ -420,7 +420,8 @@ class RateViewer:
     # =========================================================================
     # TENANT RATE BOOKS - Using RateCRUD
     # =========================================================================
-    
+
+
     def _render_tenant_rate_books(self):
         """Render tenant rate books with RBAC controls"""
         st.markdown("### 📚 My Rate Books")
@@ -528,40 +529,47 @@ class RateViewer:
         if not selected_version_id:
             return
         
-        # ✅ Get items with pricing using RateCRUD
+        # ✅ Get items with pricing
         items = self.db.get_rate_items_with_pricing(selected_book_id, selected_version_id)
         
         if not items:
             st.info("No items found in this rate book")
             return
         
+        # ✅ Build display data with CORRECT column mapping
         data = []
         for item in items:
             if not isinstance(item, dict):
                 continue
             pricing = item.get('pricing', {})
             
-            def get_price(pricing_dict, level):
-                if isinstance(pricing_dict, dict):
-                    level_data = pricing_dict.get(level, {})
-                    if isinstance(level_data, dict):
-                        return level_data.get('price', '')
-                return ''
+            # ✅ Extract ALL 4 pricing levels
+            standard_price = pricing.get('STANDARD', {}).get('price', 0)
+            competitive_price = pricing.get('COMPETITIVE', {}).get('price', 0)
+            aggressive_price = pricing.get('AGGRESSIVE', {}).get('price', 0)
+            premium_price = pricing.get('PREMIUM', {}).get('price', 0)
+            
+            # ✅ Debug - print to console
+            print(f"Item: {item.get('item_code')}")
+            print(f"  STANDARD: {standard_price}")
+            print(f"  COMPETITIVE: {competitive_price}")
+            print(f"  AGGRESSIVE: {aggressive_price}")
+            print(f"  PREMIUM: {premium_price}")
             
             data.append({
                 'Item Code': item.get('item_code', ''),
                 'Description': item.get('item_description', ''),
                 'Unit': item.get('unit', ''),
-                'Aggressive': get_price(pricing, 'AGGRESSIVE'),
-                'Competitive': get_price(pricing, 'COMPETITIVE'),
-                'Standard': get_price(pricing, 'STANDARD'),
+                'Standard': standard_price,       # ✅ Matches data_editor column name
+                'Competitive': competitive_price, # ✅ Matches data_editor column name
+                'Aggressive': aggressive_price,   # ✅ Matches data_editor column name
+                'Premium': premium_price,         # ✅ Matches data_editor column name
             })
         
-        if not data:
-            st.info("No valid items found")
-            return
-        
         df = pd.DataFrame(data)
+        
+        # ✅ Show pricing level info
+        st.info("💡 **Pricing Levels:** Aggressive (-16%), Competitive (-12%), Standard (0%), Premium (+10%)")
         
         items_per_page = st.selectbox("Items per page", [10, 25, 50, 100, 200], key="tenant_items_per_page")
         
@@ -589,6 +597,7 @@ class RateViewer:
         end_idx = min(start_idx + items_per_page, total_items)
         page_data = df.iloc[start_idx:end_idx]
         
+        # ✅ Display with ALL 4 columns
         if can_edit and not selected_book.get('is_archived', False):
             edited_df = st.data_editor(
                 page_data,
@@ -598,9 +607,10 @@ class RateViewer:
                     "Item Code": st.column_config.TextColumn("Item Code", width="small"),
                     "Description": st.column_config.TextColumn("Description", width="large"),
                     "Unit": st.column_config.TextColumn("Unit", width="small"),
-                    "Aggressive": st.column_config.NumberColumn("Aggressive (BDT)", format="%.2f"),
-                    "Competitive": st.column_config.NumberColumn("Competitive (BDT)", format="%.2f"),
-                    "Standard": st.column_config.NumberColumn("Standard (BDT)", format="%.2f"),
+                    "Aggressive": st.column_config.NumberColumn("Aggressive (-16%)", format="%.2f", help="16% discount from Standard"),
+                    "Competitive": st.column_config.NumberColumn("Competitive (-12%)", format="%.2f", help="12% discount from Standard"),
+                    "Standard": st.column_config.NumberColumn("Standard (0%)", format="%.2f", help="Base rate"),
+                    "Premium": st.column_config.NumberColumn("Premium (+10%)", format="%.2f", help="10% premium from Standard"),
                 },
                 key=f"tenant_editor_{selected_book_id}_{selected_version_id}_{st.session_state.tenant_page_num}"
             )
@@ -610,11 +620,25 @@ class RateViewer:
                 st.success("✅ Pricing updated successfully!")
                 st.rerun()
         else:
-            st.dataframe(page_data, use_container_width=True, hide_index=True)
+            # ✅ Display all 4 columns
+            st.dataframe(
+                page_data,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Item Code": st.column_config.TextColumn("Item Code", width="small"),
+                    "Description": st.column_config.TextColumn("Description", width="large"),
+                    "Unit": st.column_config.TextColumn("Unit", width="small"),
+                    "Aggressive": st.column_config.NumberColumn("Aggressive (-16%)", format="%.2f"),
+                    "Competitive": st.column_config.NumberColumn("Competitive (-12%)", format="%.2f"),
+                    "Standard": st.column_config.NumberColumn("Standard (0%)", format="%.2f"),
+                    "Premium": st.column_config.NumberColumn("Premium (+10%)", format="%.2f"),
+                }
+            )
         
         if can_export:
             self._render_export_options(df, f"rate_book_{selected_book.get('name', 'unknown')}")
-    
+
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
@@ -735,6 +759,77 @@ class RateViewer:
         st.info("LGED save functionality implementation")
     
     def _save_tenant_pricing_changes(
+        self, 
+        edited_data: pd.DataFrame, 
+        original_items: List[Dict], 
+        version_id: int
+    ):
+        """Save tenant pricing changes using RateCRUD"""
+        
+        user_id = st.session_state.get('user_id')
+        
+        if not user_id:
+            st.error("⚠️ User not logged in. Cannot save changes.")
+            return
+        
+        items_by_code = {item.get('item_code'): item for item in original_items if item.get('item_code')}
+        
+        saved_count = 0
+        error_count = 0
+        skipped_count = 0
+        
+        for _, row in edited_data.iterrows():
+            item_code = row.get('Item Code')
+            if not item_code or item_code not in items_by_code:
+                continue
+            
+            item = items_by_code[item_code]
+            item_id = item.get('id')
+            
+            if not item_id:
+                continue
+            
+            # ✅ Save ALL 4 pricing levels
+            pricing_levels = [
+                ('Aggressive', 'AGGRESSIVE'),
+                ('Competitive', 'COMPETITIVE'),
+                ('Standard', 'STANDARD'),
+                ('Premium', 'PREMIUM'),  # ✅ ADDED
+            ]
+            
+            for col_name, db_level in pricing_levels:
+                price = row.get(col_name)
+                
+                if price is None or price == '':
+                    skipped_count += 1
+                    continue
+                
+                try:
+                    price_val = float(price)
+                    if price_val >= 0:
+                        success = self.db.update_pricing(
+                            version_id=version_id,
+                            item_id=item_id,
+                            pricing_level=db_level,
+                            price=price_val,
+                            user_id=user_id
+                        )
+                        if success:
+                            saved_count += 1
+                        else:
+                            error_count += 1
+                except (ValueError, TypeError):
+                    error_count += 1
+        
+        if saved_count > 0:
+            st.success(f"✅ Saved {saved_count} pricing updates successfully!")
+        if error_count > 0:
+            st.warning(f"⚠️ {error_count} updates failed. Check the logs for details.")
+        if skipped_count > 0 and error_count == 0:
+            st.info(f"ℹ️ {skipped_count} fields were empty and skipped.")
+    
+    
+    def _save_tenant_pricing_changes_bak(
         self, 
         edited_data: pd.DataFrame, 
         original_items: List[Dict], 

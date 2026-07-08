@@ -19,7 +19,7 @@ from database.crud_experience import ExperienceCRUD
 from database.crud_competitor import CompetitorCRUD
 from database.crud_user import UserCRUD
 from database.crud_system_rates import SystemRateCRUD
-
+from database.crud_subscription import SubscriptionManager
 import os
  
 
@@ -35,7 +35,9 @@ class DatabaseCRUD:
         self.supabase = get_supabase_client() if self._use_supabase else None
         
         # ✅ Initialize CRUD modules
+        self._subscription_crud = SubscriptionManager(self)
         self._user_crud = UserCRUD(self)
+    
         self._tender_crud = TenderCRUD(self)
         self._system_rate_crud = SystemRateCRUD(self)
         self._rate_crud = RateCRUD(self)
@@ -44,9 +46,11 @@ class DatabaseCRUD:
         self._equipment_crud = EquipmentCRUD(self)
         self._experience_crud = ExperienceCRUD(self)
         self._competitor_crud = CompetitorCRUD(self)
+        
         self._bind_competitor_methods()
 
         # ✅ Bind both Tender and Rate methods
+        self._bind_subscription_methods()
         self._bind_user_methods()
         self._bind_tender_methods()
         self._bind_system_rate_methods()  # ✅ Make sure this is called!     
@@ -55,8 +59,22 @@ class DatabaseCRUD:
         self._bind_company_methods()
         self._bind_equipment_methods()
         self._bind_experience_methods()
+        
         print(f"✅ DatabaseCRUD initialized: mode={self.db_type}")
     
+    
+    def _bind_subscription_methods(self):
+        """Bind all _subscription_crud methods to this instance"""
+        # print("🔍 Binding _subscription_crud methods...")
+        for method_name in dir(self._subscription_crud):
+            if method_name.startswith('_'):
+                continue
+            method = getattr(self._subscription_crud, method_name)
+            if callable(method):
+                setattr(self, method_name, method.__get__(self, DatabaseCRUD))
+                #print(f"   ✅ Bound: {method_name}")
+
+
     def _bind_user_methods(self):
         """Bind all UserCRUD methods to this instance"""
         # print("🔍 Binding UserCRUD methods...")
@@ -329,26 +347,75 @@ class DatabaseCRUD:
 
         # ==================== DATABASE-AGNOSTIC SCHEMA METHODS ====================
     
+    
     def get_existing_tables(self):
         """Get list of existing tables (database-agnostic)"""
         db_type = self.db_type
         
         if db_type == 'sqlite':
             sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        elif db_type in ['postgresql', 'cockroachdb', 'supabase']:
+            results = self.query(sql)
+            return {row['name'] if 'name' in row else list(row.values())[0] for row in results}
+        
+        elif db_type in ['postgresql', 'cockroachdb']:
             sql = """
                 SELECT table_name FROM information_schema.tables 
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
             """
+            results = self.query(sql)
+            return {row['table_name'] for row in results}
+        
+        elif db_type == 'supabase':
+            # ✅ Use the RPC function for Supabase
+            try:
+                from database.connection import get_supabase_client
+                supabase = get_supabase_client()
+                response = supabase.rpc("get_table_names").execute()
+                
+                if hasattr(response, 'data') and response.data:
+                    return {row['table_name'] for row in response.data}
+                else:
+                    # Fallback to hardcoded list
+                    return {
+                        "users", "companies", "subscriptions", "user_oauth",
+                        "boq_templates", "boq_items", "boq_approval_history",
+                        "rates", "system_rates", "price_change_logs",
+                        "company_profile", "company_onboarding_status", "company_documents",
+                        "company_financials", "company_licenses", "company_personnel",
+                        "company_nppi", "certificate",
+                        "competitors", "competitor_rates", "competitor_master",
+                        "competitor_bids", "competitor_bid_history",
+                        "tenders", "tender_milestones", "tender_documents", "bid_submissions",
+                        "analysis_history", "otp_verification", "system_config",
+                        "user_activity_logs", "version_history", "migrations",
+                        "pwd_import_history", "extension_downloads", "demo_data_generation_log"
+                    }
+            except Exception as e:
+                logger.warning(f"Could not call get_table_names RPC: {e}")
+                # Fallback to hardcoded list
+                return {
+                    "users", "companies", "subscriptions", "user_oauth",
+                    "boq_templates", "boq_items", "boq_approval_history",
+                    "rates", "system_rates", "price_change_logs",
+                    "company_profile", "company_onboarding_status", "company_documents",
+                    "company_financials", "company_licenses", "company_personnel",
+                    "company_nppi", "certificate",
+                    "competitors", "competitor_rates", "competitor_master",
+                    "competitor_bids", "competitor_bid_history",
+                    "tenders", "tender_milestones", "tender_documents", "bid_submissions",
+                    "analysis_history", "otp_verification", "system_config",
+                    "user_activity_logs", "version_history", "migrations",
+                    "pwd_import_history", "extension_downloads", "demo_data_generation_log"
+                }
+        
         elif db_type == 'mysql':
             sql = "SHOW TABLES"
+            results = self.query(sql)
+            return {list(row.values())[0] for row in results}
+        
         else:
             return set()
-        
-        results = self.query(sql)
-        if db_type == 'mysql':
-            return {list(row.values())[0] for row in results}
-        return {row['name'] if 'name' in row else list(row.values())[0] for row in results}
+
     
     def get_table_columns(self, table_name: str):
         """Get table columns (database-agnostic)"""
@@ -1222,500 +1289,500 @@ class DatabaseCRUD:
         """Get user by ID"""
         sql = "SELECT id, username, full_name, email, role FROM users WHERE id = ? AND is_active = 1"
         return self.query_one(sql, (user_id,))
-    def get_company_subscription(self, company_id: int) -> Dict:
-        """Get company's subscription details"""
-        try:
-            print(f"🔍 get_company_subscription called for company_id: {company_id}")
+    # # def get_company_subscription(self, company_id: int) -> Dict:
+    # #     """Get company's subscription details"""
+    # #     try:
+    # #         print(f"🔍 get_company_subscription called for company_id: {company_id}")
             
-            # First, check if subscription exists
-            sub_check = self.query_one("""
-                SELECT id, plan, status FROM subscriptions WHERE company_id = ? AND status = 'active'
-            """, (company_id,))
+    # #         # First, check if subscription exists
+    # #         sub_check = self.query_one("""
+    # #             SELECT id, plan, status FROM subscriptions WHERE company_id = ? AND status = 'active'
+    # #         """, (company_id,))
             
-            print(f"🔍 Subscription check result: {sub_check}")
+    # #         print(f"🔍 Subscription check result: {sub_check}")
             
-            if not sub_check:
-                print(f"⚠️ No active subscription found for company {company_id}")
-                return self._get_default_subscription()
+    # #         if not sub_check:
+    # #             print(f"⚠️ No active subscription found for company {company_id}")
+    # #             return self._get_default_subscription()
             
-            # Now get the plan details
-            plan_name = sub_check.get('plan', 'free')
-            print(f"🔍 Looking for plan: '{plan_name}'")
+    # #         # Now get the plan details
+    # #         plan_name = sub_check.get('plan', 'free')
+    # #         print(f"🔍 Looking for plan: '{plan_name}'")
             
-            plan_result = self.query_one("""
-                SELECT * FROM subscription_plans WHERE plan_name = ?
-            """, (plan_name,))
+    # #         plan_result = self.query_one("""
+    # #             SELECT * FROM subscription_plans WHERE plan_name = ?
+    # #         """, (plan_name,))
             
-            print(f"🔍 Plan result: {plan_result}")
+    # #         print(f"🔍 Plan result: {plan_result}")
             
-            if plan_result:
-                print(f"✅ Found plan: {plan_result.get('plan_name')}")
-                # Merge subscription and plan data
-                result = dict(sub_check)
-                result['max_users'] = plan_result.get('max_users', 1)
-                result['extension_auto_fills'] = plan_result.get('extension_auto_fills', 5)
-                result['plan_name'] = plan_result.get('plan_name')
-                result['monthly_price'] = plan_result.get('monthly_price', 0)
-                result['yearly_price'] = plan_result.get('yearly_price', 0)
-                result['max_tender_analyses'] = plan_result.get('max_tender_analyses', 5)
-                return result
+    # #         if plan_result:
+    # #             print(f"✅ Found plan: {plan_result.get('plan_name')}")
+    # #             # Merge subscription and plan data
+    # #             result = dict(sub_check)
+    # #             result['max_users'] = plan_result.get('max_users', 1)
+    # #             result['extension_auto_fills'] = plan_result.get('extension_auto_fills', 5)
+    # #             result['plan_name'] = plan_result.get('plan_name')
+    # #             result['monthly_price'] = plan_result.get('monthly_price', 0)
+    # #             result['yearly_price'] = plan_result.get('yearly_price', 0)
+    # #             result['max_tender_analyses'] = plan_result.get('max_tender_analyses', 5)
+    # #             return result
             
-            print(f"⚠️ Plan '{plan_name}' not found in subscription_plans")
-            return self._get_default_subscription()
+    # #         print(f"⚠️ Plan '{plan_name}' not found in subscription_plans")
+    # #         return self._get_default_subscription()
             
-        except Exception as e:
-            print(f"❌ Error in get_company_subscription: {e}")
-            import traceback
-            traceback.print_exc()
-            return self._get_default_subscription()
-    def get_user_subscription(self, user_id: int) -> Dict:
-        """Get user's subscription details"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    # #     except Exception as e:
+    # #         print(f"❌ Error in get_company_subscription: {e}")
+    # #         import traceback
+    # #         traceback.print_exc()
+    # #         return self._get_default_subscription()
+    # def get_user_subscription(self, user_id: int) -> Dict:
+    #     """Get user's subscription details"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            # ✅ Try user's own subscription first
-            cursor.execute("""
-                SELECT 
-                    plan as subscription_tier,
-                    status,
-                    start_date,
-                    end_date,
-                    analyses_limit as max_projects,
-                    analyses_used,
-                    max_boq_generations,
-                    max_bid_optimizations,
-                    can_export_data,
-                    can_edit_rates,
-                    can_delete_rates,
-                    can_create_versions,
-                    can_manage_team
-                FROM subscriptions 
-                WHERE user_id = ? AND status = 'active'
-                ORDER BY id DESC
-                LIMIT 1
-            """, (user_id,))
+    #         # ✅ Try user's own subscription first
+    #         cursor.execute("""
+    #             SELECT 
+    #                 plan as subscription_tier,
+    #                 status,
+    #                 start_date,
+    #                 end_date,
+    #                 analyses_limit as max_projects,
+    #                 analyses_used,
+    #                 max_boq_generations,
+    #                 max_bid_optimizations,
+    #                 can_export_data,
+    #                 can_edit_rates,
+    #                 can_delete_rates,
+    #                 can_create_versions,
+    #                 can_manage_team
+    #             FROM subscriptions 
+    #             WHERE user_id = ? AND status = 'active'
+    #             ORDER BY id DESC
+    #             LIMIT 1
+    #         """, (user_id,))
             
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
+    #         row = cursor.fetchone()
+    #         if row:
+    #             return dict(row)
             
-            # ✅ If no user subscription, check company subscription
-            cursor.execute("""
-                SELECT 
-                    u.company_id,
-                    s.plan as subscription_tier,
-                    s.status,
-                    s.start_date,
-                    s.end_date,
-                    s.analyses_limit as max_projects,
-                    s.analyses_used,
-                    s.max_boq_generations,
-                    s.max_bid_optimizations,
-                    s.can_export_data,
-                    s.can_edit_rates,
-                    s.can_delete_rates,
-                    s.can_create_versions,
-                    s.can_manage_team
-                FROM users u
-                LEFT JOIN subscriptions s ON u.company_id = s.company_id AND s.status = 'active'
-                WHERE u.id = ?
-                ORDER BY s.id DESC
-                LIMIT 1
-            """, (user_id,))
+    #         # ✅ If no user subscription, check company subscription
+    #         cursor.execute("""
+    #             SELECT 
+    #                 u.company_id,
+    #                 s.plan as subscription_tier,
+    #                 s.status,
+    #                 s.start_date,
+    #                 s.end_date,
+    #                 s.analyses_limit as max_projects,
+    #                 s.analyses_used,
+    #                 s.max_boq_generations,
+    #                 s.max_bid_optimizations,
+    #                 s.can_export_data,
+    #                 s.can_edit_rates,
+    #                 s.can_delete_rates,
+    #                 s.can_create_versions,
+    #                 s.can_manage_team
+    #             FROM users u
+    #             LEFT JOIN subscriptions s ON u.company_id = s.company_id AND s.status = 'active'
+    #             WHERE u.id = ?
+    #             ORDER BY s.id DESC
+    #             LIMIT 1
+    #         """, (user_id,))
             
-            row = cursor.fetchone()
-            if row and row.get('subscription_tier'):
-                return dict(row)
+    #         row = cursor.fetchone()
+    #         if row and row.get('subscription_tier'):
+    #             return dict(row)
             
-            return {
-                'subscription_tier': 'free',
-                'status': 'active',
-                'max_projects': 5,
-                'analyses_used': 0,
-                'max_boq_generations': 5,
-                'max_bid_optimizations': 5,
-                'can_export_data': False,
-                'can_edit_rates': False,
-                'can_delete_rates': False,
-                'can_create_versions': False,
-                'can_manage_team': False
-            }
-    def get_company_subscription(self, company_id: int) -> Dict:
-        """Get company's subscription details"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    #         return {
+    #             'subscription_tier': 'free',
+    #             'status': 'active',
+    #             'max_projects': 5,
+    #             'analyses_used': 0,
+    #             'max_boq_generations': 5,
+    #             'max_bid_optimizations': 5,
+    #             'can_export_data': False,
+    #             'can_edit_rates': False,
+    #             'can_delete_rates': False,
+    #             'can_create_versions': False,
+    #             'can_manage_team': False
+    #         }
+    # def get_company_subscription(self, company_id: int) -> Dict:
+    #     """Get company's subscription details"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            # ✅ Get the latest active subscription ordered by id DESC
-            cursor.execute("""
-                SELECT 
-                    s.plan as subscription_tier,
-                    s.status,
-                    s.start_date,
-                    s.end_date,
-                    s.analyses_limit as max_projects,
-                    s.analyses_used,
-                    s.max_boq_generations,
-                    s.max_bid_optimizations,
-                    s.boq_used,
-                    s.bid_optimizations_used,
-                    s.can_export_data,
-                    s.can_edit_rates,
-                    s.can_delete_rates,
-                    s.can_create_versions,
-                    s.can_manage_team,
-                    s.payment_method,
-                    s.transaction_id,
-                    s.updated_at,
-                    sp.max_users,
-                    sp.extension_auto_fills,
-                    sp.plan_name
-                FROM subscriptions s
-                LEFT JOIN subscription_plans sp ON s.plan = sp.plan_name
-                WHERE s.company_id = ? AND s.status = 'active'
-                ORDER BY s.id DESC
-                LIMIT 1
-            """, (company_id,))
+    #         # ✅ Get the latest active subscription ordered by id DESC
+    #         cursor.execute("""
+    #             SELECT 
+    #                 s.plan as subscription_tier,
+    #                 s.status,
+    #                 s.start_date,
+    #                 s.end_date,
+    #                 s.analyses_limit as max_projects,
+    #                 s.analyses_used,
+    #                 s.max_boq_generations,
+    #                 s.max_bid_optimizations,
+    #                 s.boq_used,
+    #                 s.bid_optimizations_used,
+    #                 s.can_export_data,
+    #                 s.can_edit_rates,
+    #                 s.can_delete_rates,
+    #                 s.can_create_versions,
+    #                 s.can_manage_team,
+    #                 s.payment_method,
+    #                 s.transaction_id,
+    #                 s.updated_at,
+    #                 sp.max_users,
+    #                 sp.extension_auto_fills,
+    #                 sp.plan_name
+    #             FROM subscriptions s
+    #             LEFT JOIN subscription_plans sp ON s.plan = sp.plan_name
+    #             WHERE s.company_id = ? AND s.status = 'active'
+    #             ORDER BY s.id DESC
+    #             LIMIT 1
+    #         """, (company_id,))
             
-            row = cursor.fetchone()
+    #         row = cursor.fetchone()
             
-            if row:
-                result = dict(row)
-                # ✅ Debug print to see what's being returned
-                print(f"📊 get_company_subscription for company {company_id}: plan={result.get('subscription_tier')}")
-                return result
+    #         if row:
+    #             result = dict(row)
+    #             # ✅ Debug print to see what's being returned
+    #             print(f"📊 get_company_subscription for company {company_id}: plan={result.get('subscription_tier')}")
+    #             return result
             
-            # ✅ If no active subscription, check if there's any subscription
-            cursor.execute("""
-                SELECT 
-                    plan as subscription_tier,
-                    status,
-                    start_date,
-                    end_date,
-                    analyses_limit as max_projects,
-                    analyses_used
-                FROM subscriptions 
-                WHERE company_id = ?
-                ORDER BY id DESC
-                LIMIT 1
-            """, (company_id,))
+    #         # ✅ If no active subscription, check if there's any subscription
+    #         cursor.execute("""
+    #             SELECT 
+    #                 plan as subscription_tier,
+    #                 status,
+    #                 start_date,
+    #                 end_date,
+    #                 analyses_limit as max_projects,
+    #                 analyses_used
+    #             FROM subscriptions 
+    #             WHERE company_id = ?
+    #             ORDER BY id DESC
+    #             LIMIT 1
+    #         """, (company_id,))
             
-            row = cursor.fetchone()
-            if row:
-                result = dict(row)
-                print(f"⚠️ Found inactive subscription for company {company_id}: {result.get('subscription_tier')}")
-                return result
+    #         row = cursor.fetchone()
+    #         if row:
+    #             result = dict(row)
+    #             print(f"⚠️ Found inactive subscription for company {company_id}: {result.get('subscription_tier')}")
+    #             return result
             
-            print(f"⚠️ No subscription found for company {company_id}")
-            return {
-                'subscription_tier': 'free',
-                'status': 'active',
-                'max_projects': 5,
-                'max_users': 1,
-                'analyses_used': 0,
-                'max_boq_generations': 5,
-                'max_bid_optimizations': 5,
-                'boq_used': 0,
-                'bid_optimizations_used': 0,
-                'can_export_data': False,
-                'can_edit_rates': False,
-                'can_delete_rates': False,
-                'can_create_versions': False,
-                'can_manage_team': False,
-                'extension_auto_fills': 5
-            }
+    #         print(f"⚠️ No subscription found for company {company_id}")
+    #         return {
+    #             'subscription_tier': 'free',
+    #             'status': 'active',
+    #             'max_projects': 5,
+    #             'max_users': 1,
+    #             'analyses_used': 0,
+    #             'max_boq_generations': 5,
+    #             'max_bid_optimizations': 5,
+    #             'boq_used': 0,
+    #             'bid_optimizations_used': 0,
+    #             'can_export_data': False,
+    #             'can_edit_rates': False,
+    #             'can_delete_rates': False,
+    #             'can_create_versions': False,
+    #             'can_manage_team': False,
+    #             'extension_auto_fills': 5
+    #         }
     
-    # database/crud_operations.py - Update update_company_subscription
+    # # database/crud_operations.py - Update update_company_subscription
 
-    def update_company_subscription(self, company_id: int, plan: str, 
-                                    duration: str = 'monthly', 
-                                    payment_method: str = 'admin', 
-                                    transaction_id: str = None) -> bool:
-        """Update or create subscription for a company"""
-        from datetime import datetime, timedelta
+    # def update_company_subscription(self, company_id: int, plan: str, 
+    #                                 duration: str = 'monthly', 
+    #                                 payment_method: str = 'admin', 
+    #                                 transaction_id: str = None) -> bool:
+    #     """Update or create subscription for a company"""
+    #     from datetime import datetime, timedelta
         
-        print("\n" + "=" * 60)
-        print("📝 update_company_subscription() CALLED")
-        print("=" * 60)
-        print(f"   company_id: {company_id}")
-        print(f"   plan: {plan}")
-        print(f"   duration: {duration}")
-        print(f"   payment_method: {payment_method}")
-        print(f"   transaction_id: {transaction_id}")
+    #     print("\n" + "=" * 60)
+    #     print("📝 update_company_subscription() CALLED")
+    #     print("=" * 60)
+    #     print(f"   company_id: {company_id}")
+    #     print(f"   plan: {plan}")
+    #     print(f"   duration: {duration}")
+    #     print(f"   payment_method: {payment_method}")
+    #     print(f"   transaction_id: {transaction_id}")
         
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            start_date = datetime.now().date()
-            print(f"   start_date: {start_date}")
+    #         start_date = datetime.now().date()
+    #         print(f"   start_date: {start_date}")
             
-            # Plan limits and features
-            plan_limits = {
-                'free': {'limit': 5, 'max_boq': 5, 'max_bid': 5},
-                'basic': {'limit': 30, 'max_boq': 30, 'max_bid': 30},
-                'professional': {'limit': -1, 'max_boq': 100, 'max_bid': 100},
-                'enterprise': {'limit': -1, 'max_boq': -1, 'max_bid': -1}
-            }
+    #         # Plan limits and features
+    #         plan_limits = {
+    #             'free': {'limit': 5, 'max_boq': 5, 'max_bid': 5},
+    #             'basic': {'limit': 30, 'max_boq': 30, 'max_bid': 30},
+    #             'professional': {'limit': -1, 'max_boq': 100, 'max_bid': 100},
+    #             'enterprise': {'limit': -1, 'max_boq': -1, 'max_bid': -1}
+    #         }
             
-            plan_features = {
-                'free': {'can_export': 0, 'can_edit_rates': 0, 'can_delete_rates': 0, 
-                        'can_create_versions': 0, 'can_manage_team': 0},
-                'basic': {'can_export': 1, 'can_edit_rates': 0, 'can_delete_rates': 0,
-                        'can_create_versions': 0, 'can_manage_team': 0},
-                'professional': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 0,
-                                'can_create_versions': 1, 'can_manage_team': 1},
-                'enterprise': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 1,
-                            'can_create_versions': 1, 'can_manage_team': 1}
-            }
+    #         plan_features = {
+    #             'free': {'can_export': 0, 'can_edit_rates': 0, 'can_delete_rates': 0, 
+    #                     'can_create_versions': 0, 'can_manage_team': 0},
+    #             'basic': {'can_export': 1, 'can_edit_rates': 0, 'can_delete_rates': 0,
+    #                     'can_create_versions': 0, 'can_manage_team': 0},
+    #             'professional': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 0,
+    #                             'can_create_versions': 1, 'can_manage_team': 1},
+    #             'enterprise': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 1,
+    #                         'can_create_versions': 1, 'can_manage_team': 1}
+    #         }
             
-            features = plan_features.get(plan, plan_features['free'])
-            limits = plan_limits.get(plan, plan_limits['free'])
+    #         features = plan_features.get(plan, plan_features['free'])
+    #         limits = plan_limits.get(plan, plan_limits['free'])
             
-            if duration == 'monthly':
-                end_date = start_date + timedelta(days=30)
-            else:
-                end_date = start_date + timedelta(days=365)
-            print(f"   end_date: {end_date}")
+    #         if duration == 'monthly':
+    #             end_date = start_date + timedelta(days=30)
+    #         else:
+    #             end_date = start_date + timedelta(days=365)
+    #         print(f"   end_date: {end_date}")
             
-            trans_id = transaction_id or f"ADMIN_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    #         trans_id = transaction_id or f"ADMIN_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
-            # Check if subscription exists
-            cursor.execute("""
-                SELECT id, plan FROM subscriptions 
-                WHERE company_id = ? AND company_id IS NOT NULL
-                ORDER BY id DESC LIMIT 1
-            """, (company_id,))
+    #         # Check if subscription exists
+    #         cursor.execute("""
+    #             SELECT id, plan FROM subscriptions 
+    #             WHERE company_id = ? AND company_id IS NOT NULL
+    #             ORDER BY id DESC LIMIT 1
+    #         """, (company_id,))
             
-            existing = cursor.fetchone()
+    #         existing = cursor.fetchone()
             
-            if existing:
-                print(f"   ✅ Found existing subscription ID: {existing['id']}, Current plan: {existing['plan']}")
+    #         if existing:
+    #             print(f"   ✅ Found existing subscription ID: {existing['id']}, Current plan: {existing['plan']}")
                 
-                # UPDATE existing subscription
-                cursor.execute("""
-                    UPDATE subscriptions 
-                    SET plan = ?, 
-                        status = 'active', 
-                        start_date = ?, 
-                        end_date = ?,
-                        analyses_limit = ?,
-                        max_boq_generations = ?,
-                        max_bid_optimizations = ?,
-                        can_export_data = ?,
-                        can_edit_rates = ?,
-                        can_delete_rates = ?,
-                        can_create_versions = ?,
-                        can_manage_team = ?,
-                        payment_method = ?,
-                        transaction_id = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (
-                    plan,
-                    start_date,
-                    end_date,
-                    limits['limit'],
-                    limits['max_boq'],
-                    limits['max_bid'],
-                    features['can_export'],
-                    features['can_edit_rates'],
-                    features['can_delete_rates'],
-                    features['can_create_versions'],
-                    features['can_manage_team'],
-                    payment_method,
-                    trans_id,
-                    existing['id']
-                ))
-                print(f"   ✅ Updated subscription ID {existing['id']} to {plan}")
+    #             # UPDATE existing subscription
+    #             cursor.execute("""
+    #                 UPDATE subscriptions 
+    #                 SET plan = ?, 
+    #                     status = 'active', 
+    #                     start_date = ?, 
+    #                     end_date = ?,
+    #                     analyses_limit = ?,
+    #                     max_boq_generations = ?,
+    #                     max_bid_optimizations = ?,
+    #                     can_export_data = ?,
+    #                     can_edit_rates = ?,
+    #                     can_delete_rates = ?,
+    #                     can_create_versions = ?,
+    #                     can_manage_team = ?,
+    #                     payment_method = ?,
+    #                     transaction_id = ?,
+    #                     updated_at = CURRENT_TIMESTAMP
+    #                 WHERE id = ?
+    #             """, (
+    #                 plan,
+    #                 start_date,
+    #                 end_date,
+    #                 limits['limit'],
+    #                 limits['max_boq'],
+    #                 limits['max_bid'],
+    #                 features['can_export'],
+    #                 features['can_edit_rates'],
+    #                 features['can_delete_rates'],
+    #                 features['can_create_versions'],
+    #                 features['can_manage_team'],
+    #                 payment_method,
+    #                 trans_id,
+    #                 existing['id']
+    #             ))
+    #             print(f"   ✅ Updated subscription ID {existing['id']} to {plan}")
                 
-            else:
-                print(f"   ⚠️ No existing subscription found, creating new one")
+    #         else:
+    #             print(f"   ⚠️ No existing subscription found, creating new one")
                 
-                # INSERT new subscription
-                cursor.execute("""
-                    INSERT INTO subscriptions (
-                        company_id, plan, status, start_date, end_date,
-                        analyses_limit, analyses_used,
-                        max_boq_generations, max_bid_optimizations,
-                        can_export_data, can_edit_rates, can_delete_rates,
-                        can_create_versions, can_manage_team,
-                        payment_method, transaction_id,
-                        created_at, updated_at
-                    ) VALUES (?, ?, 'active', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (
-                    company_id,
-                    plan,
-                    start_date,
-                    end_date,
-                    limits['limit'],
-                    limits['max_boq'],
-                    limits['max_bid'],
-                    features['can_export'],
-                    features['can_edit_rates'],
-                    features['can_delete_rates'],
-                    features['can_create_versions'],
-                    features['can_manage_team'],
-                    payment_method,
-                    trans_id
-                ))
-                print(f"   ✅ Created new subscription for company {company_id} with plan {plan}")
+    #             # INSERT new subscription
+    #             cursor.execute("""
+    #                 INSERT INTO subscriptions (
+    #                     company_id, plan, status, start_date, end_date,
+    #                     analyses_limit, analyses_used,
+    #                     max_boq_generations, max_bid_optimizations,
+    #                     can_export_data, can_edit_rates, can_delete_rates,
+    #                     can_create_versions, can_manage_team,
+    #                     payment_method, transaction_id,
+    #                     created_at, updated_at
+    #                 ) VALUES (?, ?, 'active', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    #             """, (
+    #                 company_id,
+    #                 plan,
+    #                 start_date,
+    #                 end_date,
+    #                 limits['limit'],
+    #                 limits['max_boq'],
+    #                 limits['max_bid'],
+    #                 features['can_export'],
+    #                 features['can_edit_rates'],
+    #                 features['can_delete_rates'],
+    #                 features['can_create_versions'],
+    #                 features['can_manage_team'],
+    #                 payment_method,
+    #                 trans_id
+    #             ))
+    #             print(f"   ✅ Created new subscription for company {company_id} with plan {plan}")
             
-            # Verify the update worked
-            print("\n   🔍 Verifying update...")
-            cursor.execute("""
-                SELECT id, plan, status, start_date, end_date 
-                FROM subscriptions 
-                WHERE company_id = ? AND company_id IS NOT NULL
-                ORDER BY id DESC LIMIT 1
-            """, (company_id,))
-            verify = cursor.fetchone()
-            if verify:
-                print(f"   ✅ Verification: Subscription ID {verify['id']} now has plan {verify['plan']}")
-                return verify['plan'] == plan
+    #         # Verify the update worked
+    #         print("\n   🔍 Verifying update...")
+    #         cursor.execute("""
+    #             SELECT id, plan, status, start_date, end_date 
+    #             FROM subscriptions 
+    #             WHERE company_id = ? AND company_id IS NOT NULL
+    #             ORDER BY id DESC LIMIT 1
+    #         """, (company_id,))
+    #         verify = cursor.fetchone()
+    #         if verify:
+    #             print(f"   ✅ Verification: Subscription ID {verify['id']} now has plan {verify['plan']}")
+    #             return verify['plan'] == plan
             
-            print("   ✅ Update completed successfully")
-            return True
+    #         print("   ✅ Update completed successfully")
+    #         return True
     
-    def cancel_user_subscription(self, user_id: int) -> bool:
-        """Cancel user subscription (set to free)"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    # def cancel_user_subscription(self, user_id: int) -> bool:
+    #     """Cancel user subscription (set to free)"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            cursor.execute("""
-                UPDATE subscriptions 
-                SET plan = 'free',
-                    status = 'active',
-                    analyses_limit = 5,
-                    max_boq_generations = 5,
-                    max_bid_optimizations = 5,
-                    can_export_data = 0,
-                    can_edit_rates = 0,
-                    can_delete_rates = 0,
-                    can_create_versions = 0,
-                    can_manage_team = 0,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = ? AND user_id IS NOT NULL
-            """, (user_id,))
+    #         cursor.execute("""
+    #             UPDATE subscriptions 
+    #             SET plan = 'free',
+    #                 status = 'active',
+    #                 analyses_limit = 5,
+    #                 max_boq_generations = 5,
+    #                 max_bid_optimizations = 5,
+    #                 can_export_data = 0,
+    #                 can_edit_rates = 0,
+    #                 can_delete_rates = 0,
+    #                 can_create_versions = 0,
+    #                 can_manage_team = 0,
+    #                 updated_at = CURRENT_TIMESTAMP
+    #             WHERE user_id = ? AND user_id IS NOT NULL
+    #         """, (user_id,))
             
-            return True
-    def cancel_company_subscription(self, company_id: int) -> bool:
-        """Cancel subscription for a company (set to free)"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    #         return True
+    # def cancel_company_subscription(self, company_id: int) -> bool:
+    #     """Cancel subscription for a company (set to free)"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            cursor.execute("""
-                UPDATE subscriptions 
-                SET plan = 'free',
-                    status = 'active',
-                    analyses_limit = 5,
-                    max_boq_generations = 5,
-                    max_bid_optimizations = 5,
-                    can_export_data = 0,
-                    can_edit_rates = 0,
-                    can_delete_rates = 0,
-                    can_create_versions = 0,
-                    can_manage_team = 0,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE company_id = ?
-            """, (company_id,))
+    #         cursor.execute("""
+    #             UPDATE subscriptions 
+    #             SET plan = 'free',
+    #                 status = 'active',
+    #                 analyses_limit = 5,
+    #                 max_boq_generations = 5,
+    #                 max_bid_optimizations = 5,
+    #                 can_export_data = 0,
+    #                 can_edit_rates = 0,
+    #                 can_delete_rates = 0,
+    #                 can_create_versions = 0,
+    #                 can_manage_team = 0,
+    #                 updated_at = CURRENT_TIMESTAMP
+    #             WHERE company_id = ?
+    #         """, (company_id,))
             
-            print(f"✅ Cancelled subscription for company {company_id}")
-            return True
+    #         print(f"✅ Cancelled subscription for company {company_id}")
+    #         return True
 
     
 
-    def update_user_subscription(self, user_id: int, plan: str, 
-                             duration: str = 'monthly',
-                             payment_method: str = 'admin',
-                             transaction_id: str = None) -> bool:
-        """Update or create subscription for a user"""
-        from datetime import datetime, timedelta
+    # def update_user_subscription(self, user_id: int, plan: str, 
+    #                          duration: str = 'monthly',
+    #                          payment_method: str = 'admin',
+    #                          transaction_id: str = None) -> bool:
+    #     """Update or create subscription for a user"""
+    #     from datetime import datetime, timedelta
         
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            start_date = datetime.now().date()
+    #         start_date = datetime.now().date()
             
-            # Plan limits
-            plan_limits = {
-                'free': {'limit': 5, 'max_boq': 5, 'max_bid': 5},
-                'basic': {'limit': 30, 'max_boq': 30, 'max_bid': 30},
-                'professional': {'limit': -1, 'max_boq': 100, 'max_bid': 100},
-                'enterprise': {'limit': -1, 'max_boq': -1, 'max_bid': -1}
-            }
+    #         # Plan limits
+    #         plan_limits = {
+    #             'free': {'limit': 5, 'max_boq': 5, 'max_bid': 5},
+    #             'basic': {'limit': 30, 'max_boq': 30, 'max_bid': 30},
+    #             'professional': {'limit': -1, 'max_boq': 100, 'max_bid': 100},
+    #             'enterprise': {'limit': -1, 'max_boq': -1, 'max_bid': -1}
+    #         }
             
-            plan_features = {
-                'free': {'can_export': 0, 'can_edit_rates': 0, 'can_delete_rates': 0, 
-                        'can_create_versions': 0, 'can_manage_team': 0},
-                'basic': {'can_export': 1, 'can_edit_rates': 0, 'can_delete_rates': 0,
-                        'can_create_versions': 0, 'can_manage_team': 0},
-                'professional': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 0,
-                                'can_create_versions': 1, 'can_manage_team': 1},
-                'enterprise': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 1,
-                            'can_create_versions': 1, 'can_manage_team': 1}
-            }
+    #         plan_features = {
+    #             'free': {'can_export': 0, 'can_edit_rates': 0, 'can_delete_rates': 0, 
+    #                     'can_create_versions': 0, 'can_manage_team': 0},
+    #             'basic': {'can_export': 1, 'can_edit_rates': 0, 'can_delete_rates': 0,
+    #                     'can_create_versions': 0, 'can_manage_team': 0},
+    #             'professional': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 0,
+    #                             'can_create_versions': 1, 'can_manage_team': 1},
+    #             'enterprise': {'can_export': 1, 'can_edit_rates': 1, 'can_delete_rates': 1,
+    #                         'can_create_versions': 1, 'can_manage_team': 1}
+    #         }
             
-            features = plan_features.get(plan, plan_features['free'])
-            limits = plan_limits.get(plan, plan_limits['free'])
+    #         features = plan_features.get(plan, plan_features['free'])
+    #         limits = plan_limits.get(plan, plan_limits['free'])
             
-            if duration == 'monthly':
-                end_date = start_date + timedelta(days=30)
-            else:
-                end_date = start_date + timedelta(days=365)
+    #         if duration == 'monthly':
+    #             end_date = start_date + timedelta(days=30)
+    #         else:
+    #             end_date = start_date + timedelta(days=365)
             
-            trans_id = transaction_id or f"USER_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    #         trans_id = transaction_id or f"USER_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             
-            # Check if subscription exists
-            cursor.execute('SELECT id FROM subscriptions WHERE user_id = ? AND user_id IS NOT NULL', (user_id,))
-            existing = cursor.fetchone()
+    #         # Check if subscription exists
+    #         cursor.execute('SELECT id FROM subscriptions WHERE user_id = ? AND user_id IS NOT NULL', (user_id,))
+    #         existing = cursor.fetchone()
             
-            if existing:
-                cursor.execute("""
-                    UPDATE subscriptions 
-                    SET plan = ?, 
-                        status = 'active', 
-                        start_date = ?, 
-                        end_date = ?,
-                        analyses_limit = ?,
-                        max_boq_generations = ?,
-                        max_bid_optimizations = ?,
-                        can_export_data = ?,
-                        can_edit_rates = ?,
-                        can_delete_rates = ?,
-                        can_create_versions = ?,
-                        can_manage_team = ?,
-                        payment_method = ?,
-                        transaction_id = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE user_id = ?
-                """, (
-                    plan, start_date, end_date,
-                    limits['limit'], limits['max_boq'], limits['max_bid'],
-                    features['can_export'], features['can_edit_rates'],
-                    features['can_delete_rates'], features['can_create_versions'],
-                    features['can_manage_team'],
-                    payment_method, trans_id, user_id
-                ))
-            else:
-                cursor.execute("""
-                    INSERT INTO subscriptions (
-                        user_id, plan, status, start_date, end_date,
-                        analyses_limit, analyses_used,
-                        max_boq_generations, max_bid_optimizations,
-                        can_export_data, can_edit_rates, can_delete_rates,
-                        can_create_versions, can_manage_team,
-                        payment_method, transaction_id,
-                        created_at, updated_at
-                    ) VALUES (?, ?, 'active', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """, (
-                    user_id, plan, start_date, end_date,
-                    limits['limit'], limits['max_boq'], limits['max_bid'],
-                    features['can_export'], features['can_edit_rates'],
-                    features['can_delete_rates'], features['can_create_versions'],
-                    features['can_manage_team'],
-                    payment_method, trans_id
-                ))
+    #         if existing:
+    #             cursor.execute("""
+    #                 UPDATE subscriptions 
+    #                 SET plan = ?, 
+    #                     status = 'active', 
+    #                     start_date = ?, 
+    #                     end_date = ?,
+    #                     analyses_limit = ?,
+    #                     max_boq_generations = ?,
+    #                     max_bid_optimizations = ?,
+    #                     can_export_data = ?,
+    #                     can_edit_rates = ?,
+    #                     can_delete_rates = ?,
+    #                     can_create_versions = ?,
+    #                     can_manage_team = ?,
+    #                     payment_method = ?,
+    #                     transaction_id = ?,
+    #                     updated_at = CURRENT_TIMESTAMP
+    #                 WHERE user_id = ?
+    #             """, (
+    #                 plan, start_date, end_date,
+    #                 limits['limit'], limits['max_boq'], limits['max_bid'],
+    #                 features['can_export'], features['can_edit_rates'],
+    #                 features['can_delete_rates'], features['can_create_versions'],
+    #                 features['can_manage_team'],
+    #                 payment_method, trans_id, user_id
+    #             ))
+    #         else:
+    #             cursor.execute("""
+    #                 INSERT INTO subscriptions (
+    #                     user_id, plan, status, start_date, end_date,
+    #                     analyses_limit, analyses_used,
+    #                     max_boq_generations, max_bid_optimizations,
+    #                     can_export_data, can_edit_rates, can_delete_rates,
+    #                     can_create_versions, can_manage_team,
+    #                     payment_method, transaction_id,
+    #                     created_at, updated_at
+    #                 ) VALUES (?, ?, 'active', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    #             """, (
+    #                 user_id, plan, start_date, end_date,
+    #                 limits['limit'], limits['max_boq'], limits['max_bid'],
+    #                 features['can_export'], features['can_edit_rates'],
+    #                 features['can_delete_rates'], features['can_create_versions'],
+    #                 features['can_manage_team'],
+    #                 payment_method, trans_id
+    #             ))
             
-            return True
+    #         return True
     def get_all_users(self, company_id=None, role=None):
         """Get all users as dictionaries"""
         with self.get_connection() as conn:
@@ -1763,36 +1830,38 @@ class DatabaseCRUD:
                     'is_approved': row.get('is_approved', 1)
                 })
             return users
-    def _get_default_subscription(self) -> Dict:
-        """Return default subscription values"""
-        return {
-            'id': None,
-            'plan': 'free',
-            'subscription_tier': 'free',
-            'status': 'active',
-            'start_date': None,
-            'end_date': None,
-            'max_projects': 5,
-            'analyses_used': 0,
-            'max_boq_generations': 5,
-            'max_bid_optimizations': 5,
-            'boq_used': 0,
-            'bid_optimizations_used': 0,
-            'can_export_data': False,
-            'can_edit_rates': False,
-            'can_delete_rates': False,
-            'can_create_versions': False,
-            'can_manage_team': False,
-            'payment_method': None,
-            'transaction_id': None,
-            'updated_at': None,
-            'max_users': 1,
-            'extension_auto_fills': 5,
-            'plan_name': 'free',
-            'monthly_price': 0,
-            'yearly_price': 0,
-            'max_tender_analyses': 5
-        }
+    
+    
+    # def _get_default_subscription(self) -> Dict:
+    #     """Return default subscription values"""
+    #     return {
+    #         'id': None,
+    #         'plan': 'free',
+    #         'subscription_tier': 'free',
+    #         'status': 'active',
+    #         'start_date': None,
+    #         'end_date': None,
+    #         'max_projects': 5,
+    #         'analyses_used': 0,
+    #         'max_boq_generations': 5,
+    #         'max_bid_optimizations': 5,
+    #         'boq_used': 0,
+    #         'bid_optimizations_used': 0,
+    #         'can_export_data': False,
+    #         'can_edit_rates': False,
+    #         'can_delete_rates': False,
+    #         'can_create_versions': False,
+    #         'can_manage_team': False,
+    #         'payment_method': None,
+    #         'transaction_id': None,
+    #         'updated_at': None,
+    #         'max_users': 1,
+    #         'extension_auto_fills': 5,
+    #         'plan_name': 'free',
+    #         'monthly_price': 0,
+    #         'yearly_price': 0,
+    #         'max_tender_analyses': 5
+    #     }
     
     def get_company_stats(self, company_id: int) -> Dict:
         """Get company stats - with proper result handling"""
@@ -2523,108 +2592,4 @@ class DatabaseCRUD:
             'by_user': user_result if user_result else []
         }
     
-    def get_user_plan_details(self, user_id: int) -> Optional[Dict]:
-        """
-        Get user's subscription plan details with limits
-        """
-        db = self._get_db()
-        
-        return db.query_one("""
-            SELECT u.*, s.plan_name, s.max_boq_generations, s.max_bid_optimizations,
-                   s.max_tender_analyses, s.max_users, s.extension_auto_fills,
-                   s.can_export_data, s.can_edit_rates, s.can_delete_rates,
-                   s.can_create_versions, s.can_manage_team
-            FROM users u
-            LEFT JOIN subscriptions sub ON u.id = sub.user_id AND sub.is_active = TRUE
-            LEFT JOIN subscription_plans s ON sub.plan_id = s.plan_id
-            WHERE u.id = ?
-        """, (user_id,))
     
-    def get_all_subscriptions(self):
-        """
-        Get all subscriptions for admin - returns Dictionaries
-        Works with both SQLite and Supabase
-        """
-        db = self._get_db()
-        
-        # ✅ If using Supabase, use direct client
-        if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
-            try:
-                response = db.supabase.table('subscriptions')\
-                    .select('''
-                        *,
-                        users!left(id, username, email, full_name),
-                        companies!left(id, company_name)
-                    ''')\
-                    .order('updated_at', desc=True)\
-                    .execute()
-                
-                rows = response.data if response.data else []
-                
-                # Return as dictionaries
-                result = []
-                for row in rows:
-                    user_data = row.get('users')
-                    company_data = row.get('companies')
-                    
-                    result.append({
-                        'id': row.get('id'),
-                        'user_id': row.get('user_id'),
-                        'plan': row.get('plan'),
-                        'status': row.get('status'),
-                        'start_date': row.get('start_date'),
-                        'end_date': row.get('end_date'),
-                        'analyses_used': row.get('analyses_used', 0),
-                        'analyses_limit': row.get('analyses_limit', 5),
-                        'company_id': row.get('company_id'),
-                        'created_at': row.get('created_at'),
-                        'username': user_data.get('username', 'N/A') if user_data else 'N/A',
-                        'email': user_data.get('email', 'N/A') if user_data else 'N/A',
-                        'full_name': user_data.get('full_name', 'N/A') if user_data else 'N/A',
-                        'company_name': company_data.get('company_name', 'N/A') if company_data else 'N/A'
-                    })
-                
-                return result
-                
-            except Exception as e:
-                print(f"⚠️ Supabase subscriptions query error: {e}")
-                # Fall through to SQLite fallback
-        
-        # ============================================================
-        # SQLite / Generic Fallback
-        # ============================================================
-        
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
-            cursor.execute('''
-                SELECT 
-                    s.id, s.user_id, s.plan, s.status, s.start_date, s.end_date, 
-                    s.analyses_used, s.analyses_limit, s.company_id, s.created_at,
-                    COALESCE(u.username, 'N/A') as username,
-                    COALESCE(u.email, 'N/A') as email,
-                    COALESCE(u.full_name, 'N/A') as full_name,
-                    COALESCE(c.company_name, 'N/A') as company_name
-                FROM subscriptions s
-                LEFT JOIN users u ON s.user_id = u.id
-                LEFT JOIN companies c ON s.company_id = c.id
-                ORDER BY s.updated_at DESC
-            ''')
-            rows = cursor.fetchall()
-            
-            # Return as DICTIONARIES
-            return [{
-                'id': row['id'],
-                'user_id': row['user_id'],
-                'plan': row['plan'],
-                'status': row['status'],
-                'start_date': row['start_date'],
-                'end_date': row['end_date'],
-                'analyses_used': row['analyses_used'],
-                'analyses_limit': row['analyses_limit'],
-                'company_id': row['company_id'],
-                'created_at': row['created_at'],
-                'username': row['username'],
-                'email': row['email'],
-                'full_name': row['full_name'],
-                'company_name': row['company_name']
-            } for row in rows]

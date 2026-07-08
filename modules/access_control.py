@@ -1,4 +1,4 @@
-# modules/access_control.py
+# modules/access_control.py - Refactored
 """
 Unified Access Control System
 Combines RBAC permissions, subscription plans, and feature limits
@@ -7,18 +7,20 @@ Combines RBAC permissions, subscription plans, and feature limits
 import streamlit as st
 from typing import Dict, Tuple, Optional, List
 from functools import wraps
+import logging
 
 from database.unified_db_manager import get_db_manager
 from modules.rbac import _rbac, ROLE_PERMISSIONS
-from modules.subscription_manager import SubscriptionManager, check_subscription_access, PLANS
-from modules.subscription import get_plans, get_plan, is_premium_plan
-db = get_db_manager()
+from modules.subscription_manager import SubscriptionManager, check_subscription_access
+from modules.subscription import get_plans, get_plan, is_premium_plan, get_effective_plan_for_user
 
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # FEATURE TO PLAN MAPPING (What plan unlocks what feature)
 # =============================================================================
 
+# ✅ Define feature requirements - these will be validated against database plans
 FEATURE_PLAN_REQUIREMENTS = {
     # Premium features that require specific plans
     'can_optimize_bid': ['professional', 'enterprise'],
@@ -37,8 +39,6 @@ FEATURE_PLAN_REQUIREMENTS = {
     'can_create_tender': ['free', 'basic', 'professional', 'enterprise'],
     'can_edit_tender': ['free', 'basic', 'professional', 'enterprise'],
     'can_import_tender_data': ['free', 'basic', 'professional', 'enterprise'],
-
-    
     'can_view_boq': ['free', 'basic', 'professional', 'enterprise'],
     'can_create_boq': ['free', 'basic', 'professional', 'enterprise'],
     'can_edit_boq': ['free', 'basic', 'professional', 'enterprise'],
@@ -68,50 +68,154 @@ PAGE_ACCESS = {
     'contact': {'requires_auth': False},
     
     # Pages that require authentication
-    'dashboard': {'requires_auth': True, 'feature': 'can_view_dashboard', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'profile': {'requires_auth': True, 'feature': 'can_view_profile', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'dashboard': {
+        'requires_auth': True, 
+        'feature': 'can_view_dashboard', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'profile': {
+        'requires_auth': True, 
+        'feature': 'can_view_profile', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # Tender Management
-    'tender_management': {'requires_auth': True, 'feature': 'can_view_tenders', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'tender_analysis': {'requires_auth': True, 'feature': 'can_run_analysis', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'new_analysis': {'requires_auth': True, 'feature': 'can_run_analysis', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'analysis_history': {'requires_auth': True, 'feature': 'can_view_reports', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'tender_management': {
+        'requires_auth': True, 
+        'feature': 'can_view_tenders', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'tender_analysis': {
+        'requires_auth': True, 
+        'feature': 'can_run_analysis', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'new_analysis': {
+        'requires_auth': True, 
+        'feature': 'can_run_analysis', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'analysis_history': {
+        'requires_auth': True, 
+        'feature': 'can_view_reports', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # BOQ Management
-    'boq_generator': {'requires_auth': True, 'feature': 'can_create_boq', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'boq_workspace': {'requires_auth': True, 'feature': 'can_create_boq', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'boq_generator': {
+        'requires_auth': True, 
+        'feature': 'can_create_boq', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'boq_workspace': {
+        'requires_auth': True, 
+        'feature': 'can_create_boq', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # Bid Optimization
-    'boq_bid_optimizer': {'requires_auth': True, 'feature': 'can_optimize_bid', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'bid_optimizer': {'requires_auth': True, 'feature': 'can_optimize_bid', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'boq_bid_optimizer': {
+        'requires_auth': True, 
+        'feature': 'can_optimize_bid', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'bid_optimizer': {
+        'requires_auth': True, 
+        'feature': 'can_optimize_bid', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # Competitor Tracking
-    'competitor_tracking': {'requires_auth': True, 'feature': 'can_view_competitors', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'competitor_master': {'requires_auth': True, 'feature': 'can_view_competitors', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'competitor_tracking': {
+        'requires_auth': True, 
+        'feature': 'can_view_competitors', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'competitor_master': {
+        'requires_auth': True, 
+        'feature': 'can_view_competitors', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # Rate Management
-    'rate_management': {'requires_auth': True, 'feature': 'can_view_rates', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'rate_editor': {'requires_auth': True, 'feature': 'can_edit_rates', 'roles': ['manager', 'company_admin', 'admin', 'system_admin']},
-    'rate_viewer': {'requires_auth': True, 'feature': 'can_view_rates', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'import_wizard': {'requires_auth': True, 'feature': 'can_import_rates', 'roles': ['manager', 'company_admin', 'admin', 'system_admin']},
+    'rate_management': {
+        'requires_auth': True, 
+        'feature': 'can_view_rates', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'rate_editor': {
+        'requires_auth': True, 
+        'feature': 'can_edit_rates', 
+        'roles': ['manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'rate_viewer': {
+        'requires_auth': True, 
+        'feature': 'can_view_rates', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'import_wizard': {
+        'requires_auth': True, 
+        'feature': 'can_import_rates', 
+        'roles': ['manager', 'company_admin', 'admin', 'system_admin']
+    },
     
     # User Management
-    'user_management': {'requires_auth': True, 'feature': 'can_manage_users', 'roles': ['company_admin', 'admin', 'system_admin']},
-    'user_approval': {'requires_auth': True, 'feature': 'can_approve_users', 'roles': ['company_admin', 'admin', 'system_admin']},
+    'user_management': {
+        'requires_auth': True, 
+        'feature': 'can_manage_users', 
+        'roles': ['company_admin', 'admin', 'system_admin']
+    },
+    'user_approval': {
+        'requires_auth': True, 
+        'feature': 'can_approve_users', 
+        'roles': ['company_admin', 'admin', 'system_admin']
+    },
     
     # Admin Pages
-    'admin_dashboard': {'requires_auth': True, 'feature': 'can_manage_companies', 'roles': ['admin', 'system_admin']},
-    'admin_analytics': {'requires_auth': True, 'feature': 'can_view_all_companies', 'roles': ['admin', 'system_admin']},
-    'company_analytics': {'requires_auth': True, 'feature': 'can_view_reports', 'roles': ['company_admin', 'manager', 'analyst']},
-    'system_config': {'requires_auth': True, 'feature': 'can_manage_system', 'roles': ['system_admin']},
+    'admin_dashboard': {
+        'requires_auth': True, 
+        'feature': 'can_manage_companies', 
+        'roles': ['admin', 'system_admin']
+    },
+    'admin_analytics': {
+        'requires_auth': True, 
+        'feature': 'can_view_all_companies', 
+        'roles': ['admin', 'system_admin']
+    },
+    'company_analytics': {
+        'requires_auth': True, 
+        'feature': 'can_view_reports', 
+        'roles': ['company_admin', 'manager', 'analyst']
+    },
+    'system_config': {
+        'requires_auth': True, 
+        'feature': 'can_manage_system', 
+        'roles': ['system_admin']
+    },
     
     # Extension
-    'extension_download': {'requires_auth': True, 'feature': 'can_use_extension', 'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
-    'extension_usage': {'requires_auth': True, 'feature': 'can_view_extension_usage', 'roles': ['company_admin', 'admin', 'system_admin']},
-    'extension_admin': {'requires_auth': True, 'feature': 'can_manage_system', 'roles': ['system_admin']},
+    'extension_download': {
+        'requires_auth': True, 
+        'feature': 'can_use_extension', 
+        'roles': ['analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
+    'extension_usage': {
+        'requires_auth': True, 
+        'feature': 'can_view_extension_usage', 
+        'roles': ['company_admin', 'admin', 'system_admin']
+    },
+    'extension_admin': {
+        'requires_auth': True, 
+        'feature': 'can_manage_system', 
+        'roles': ['system_admin']
+    },
     
     # Subscription
-    'subscription': {'requires_auth': True, 'feature': 'can_view_dashboard', 'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']},
+    'subscription': {
+        'requires_auth': True, 
+        'feature': 'can_view_dashboard', 
+        'roles': ['viewer', 'analyst', 'manager', 'company_admin', 'admin', 'system_admin']
+    },
 }
 
 
@@ -119,7 +223,8 @@ class AccessControl:
     """Unified access control system"""
     
     def __init__(self):
-        self._subscription_manager = SubscriptionManager(db)
+        self.db = get_db_manager()
+        self._subscription_manager = SubscriptionManager(self.db)
         self._rbac = _rbac
     
     def get_user_role(self) -> str:
@@ -128,10 +233,27 @@ class AccessControl:
     
     def get_user_plan(self) -> Dict:
         """Get current user's plan info"""
-        company_id = st.session_state.get('company_id')
-        if company_id:
-            return self._subscription_manager.get_company_subscription(company_id)
-        return self._subscription_manager._get_default_free_plan()
+        user_id = st.session_state.get('user_id')
+        if user_id:
+            effective = get_effective_plan_for_user(user_id)
+            return effective.get('subscription', {})
+        return self._get_default_free_plan()
+    
+    def _get_default_free_plan(self) -> Dict:
+        """Get default free plan configuration"""
+        return {
+            'plan': 'free',
+            'subscription_tier': 'free',
+            'status': 'active',
+            'analyses_limit': 5,
+            'max_boq_generations': 5,
+            'max_bid_optimizations': 5,
+            'can_export_data': False,
+            'can_edit_rates': False,
+            'can_delete_rates': False,
+            'can_create_versions': False,
+            'can_manage_team': False
+        }
     
     def check_subscription(self) -> Tuple[bool, str, str]:
         """
@@ -140,15 +262,23 @@ class AccessControl:
         Returns:
             (has_access: bool, plan: str, message: str)
         """
-        company_id = st.session_state.get('company_id')
         user_id = st.session_state.get('user_id')
-        return check_subscription_access(
-            company_id=company_id,
-            user_id=user_id,
-            subscription_manager=self._subscription_manager
-        )
-
+        if not user_id:
+            return False, 'free', "User not logged in"
         
+        effective = get_effective_plan_for_user(user_id)
+        plan = effective.get('plan', 'free')
+        
+        # System admins bypass
+        role = self.get_user_role()
+        if role in ['admin', 'system_admin']:
+            return True, plan, "System admin access"
+        
+        # Check if plan is free or higher
+        if plan != 'free':
+            return True, plan, f"Active {plan.upper()} plan"
+        
+        return False, 'free', "No active subscription found"
 
     def has_feature_access(self, feature: str) -> Tuple[bool, str]:
         """
@@ -172,22 +302,22 @@ class AccessControl:
         if not plan_requirements:
             return True, "No plan restrictions"
         
-        # 4. Check user's plan using subscription check
-        has_access, plan, message = self.check_subscription()
+        # 4. Get user's effective plan
+        user_id = st.session_state.get('user_id')
+        if not user_id:
+            return False, "User not logged in"
         
-        # If subscription check failed, deny access
-        if not has_access and plan not in ['free']:
-            return False, message
+        effective = get_effective_plan_for_user(user_id)
+        plan = effective.get('plan', 'free')
         
         # 5. Check if current plan meets requirements
         if plan in plan_requirements:
             return True, f"Access granted via {plan} plan"
         
         # 6. Find the highest required plan
-        required = ', '.join([p for p in plan_requirements if p != 'free'])
+        required = ', '.join([p.upper() for p in plan_requirements if p != 'free'])
         return False, f"Requires {required} plan. Current: {plan.upper()}"
 
-    
     def can_access_page(self, page_name: str) -> Tuple[bool, str]:
         """
         Check if user can access a specific page
@@ -255,24 +385,24 @@ class AccessControl:
             st.info("💡 **Upgrade Required** - This feature requires a higher plan.")
             col1, col2, col3 = st.columns(3)
             with col1:
-                if st.button("💳 Upgrade Plan", use_container_width=True):
+                if st.button("💳 Upgrade Plan", key="upgrade_from_denied", use_container_width=True):
                     st.session_state.page = "subscription"
                     st.rerun()
             with col2:
-                if st.button("📋 View Plans", use_container_width=True):
+                if st.button("📋 View Plans", key="view_plans_from_denied", use_container_width=True):
                     st.session_state.page = "subscription"
                     st.rerun()
             with col3:
-                if st.button("📞 Contact Support", use_container_width=True):
+                if st.button("📞 Contact Support", key="contact_from_denied", use_container_width=True):
                     st.session_state.page = "contact"
                     st.rerun()
         elif "permission" in reason.lower() or "role" in reason.lower():
             st.info("👤 **Role Required** - Please contact your administrator to upgrade your role.")
-            if st.button("📞 Contact Admin", use_container_width=True):
+            if st.button("📞 Contact Admin", key="contact_admin_from_denied", use_container_width=True):
                 st.session_state.page = "contact"
                 st.rerun()
         elif "login" in reason.lower():
-            if st.button("🔐 Go to Login", use_container_width=True):
+            if st.button("🔐 Go to Login", key="login_from_denied", use_container_width=True):
                 st.session_state.page = "login"
                 st.rerun()
     
@@ -301,10 +431,7 @@ class AccessControl:
         }.get(role, '👤 User')
         
         plan_display = plan.upper()
-        if plan in ['professional', 'enterprise']:
-            plan_color = '#10b981'  # Green for premium
-        else:
-            plan_color = '#6c757d'  # Gray for free
+        plan_color = '#10b981' if plan in ['professional', 'enterprise'] else '#6c757d'
         
         st.sidebar.markdown(f"""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -321,10 +448,8 @@ class AccessControl:
     
     def render_menu_items(self):
         """Render sidebar menu items based on access"""
-        # Get all accessible pages
         accessible = self.get_accessible_pages()
         
-        # Define menu groups
         menu_groups = {
             "📊 Dashboard": ['dashboard', 'company_analytics', 'admin_analytics'],
             "📋 Tenders": ['tender_management', 'tender_analysis', 'analysis_history'],
@@ -337,13 +462,11 @@ class AccessControl:
             "🔧 Settings": ['subscription', 'profile', 'extension_download', 'extension_usage']
         }
         
-        # Render menu
         for group_name, pages in menu_groups.items():
             visible_pages = [p for p in pages if p in accessible]
             if visible_pages:
                 with st.sidebar.expander(group_name, expanded=True):
                     for page in visible_pages:
-                        # Get display name
                         display_name = page.replace('_', ' ').title()
                         if st.button(display_name, key=f"menu_{page}", use_container_width=True):
                             st.session_state.page = page
@@ -354,7 +477,14 @@ class AccessControl:
 # GLOBAL INSTANCE
 # =============================================================================
 
-access_control = AccessControl()
+def get_access_control():
+    """Get or create AccessControl instance"""
+    if 'access_control' not in st.session_state:
+        st.session_state.access_control = AccessControl()
+    return st.session_state.access_control
+
+
+access_control = get_access_control()
 
 
 # =============================================================================
@@ -392,10 +522,6 @@ def render_sidebar_menu():
     """Render sidebar menu with access control"""
     access_control.render_menu_items()
 
-
-# =============================================================================
-# QUICK ACCESS CHECK FOR PAGES
-# =============================================================================
 
 def check_page_access(page_name: str) -> bool:
     """

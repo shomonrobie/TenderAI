@@ -259,6 +259,137 @@ class CompanyRateManagement:
                                 st.session_state.active_tab = 5
                                 st.rerun()
                         else:
+                            if st.button("🔄 Resync", key=f"resync_{book_id}"):
+                                st.session_state.resync_book_id = book_id
+                                st.session_state.resync_source = book.get('source_type')
+                                st.session_state.resync_book_name = book.get('name')
+                                st.session_state.show_resync_confirmation = True
+                                st.rerun()
+                
+                st.divider()
+                
+                # ✅ Show resync confirmation if this book is selected
+                if (st.session_state.get('show_resync_confirmation') and 
+                    st.session_state.get('resync_book_id') == book_id):
+                    self._render_resync_confirmation(book_id, book.get('source_type'), book.get('name'))
+        
+        # ✅ Create New Rate Book section
+        if self._check_permission('create'):
+            st.divider()
+            with st.expander("➕ Create New Rate Book", expanded=False):
+                self._render_create_custom_book(tenant)
+
+    
+    def _render_my_rate_books_bak(self, tenant: Dict):
+        """Render My Rate Books - using db directly"""
+        
+        st.subheader("📚 My Company Rate Books")
+        st.caption("View and manage your company's rate books")
+        
+        tenant_id = tenant.get('company_id') or tenant.get('user_id')
+        tenant_type = tenant.get('tenant_type', 'company')
+        
+        if not tenant_id:
+            st.warning("⚠️ No tenant found.")
+            return
+        
+        # ✅ Use db directly with correct tenant_id and tenant_type
+        try:
+            books = self.db.get_rate_books_by_tenant(tenant_id, tenant_type)
+        except Exception as e:
+            st.error(f"Error loading rate books: {e}")
+            books = []
+        
+        if not books:
+            st.info("ℹ️ You don't have any rate books yet.")
+            st.info("Go to 'Clone Master Rates' tab to clone master rates, or 'Create Custom Book' to create your own.")
+            return
+        
+        # Display each book with action buttons
+        for book in books:
+            with st.container(border=True):
+                col1, col2, col3 = st.columns([2.5, 1.5, 1])
+                
+                with col1:
+                    icon = {
+                        'PWD': '🏗️',
+                        'LGED': '🛣️',
+                        'CUSTOM': '✨'
+                    }.get(book.get('source_type'), '📋')
+                    
+                    source_label = book.get('source_type', 'Unknown')
+                    if book.get('custom_source') and book.get('custom_source') != 'CUSTOM':
+                        source_label = f"{book.get('source_type')} ({book.get('custom_source')})"
+                    
+                    try:
+                        item_count = self.db.get_item_count(book.get('id'))
+                    except Exception as e:
+                        item_count = 0
+                    
+                    try:
+                        versions = self.db.get_versions_for_book(book.get('id'))
+                        version_count = len(versions) if versions else 0
+                    except Exception as e:
+                        version_count = 0
+                    
+                    st.markdown(f"**{icon} {book.get('name', 'Unnamed')}**")
+                    st.caption(f"📂 {source_label} • {item_count or 0} items • {version_count} versions")
+                    
+                    if book.get('is_demo'):
+                        st.caption("📌 Demo Data")
+                    
+                    if not book.get('is_active'):
+                        st.caption("📦 Inactive")
+                
+                with col2:
+                    book_id = book.get('id')
+                    if book_id:
+                        if st.button("👁️ View", key=f"view_{book_id}"):
+                            st.session_state.view_book_id = book_id
+                            st.session_state.view_book_name = book.get('name')
+                            st.session_state.page = "rate_viewer"
+                            st.rerun()
+                        
+                        if st.button("✏️ Edit Costs", key=f"edit_{book_id}"):
+                            st.session_state.edit_book_id = book_id
+                            st.session_state.edit_book_name = book.get('name')
+                            st.session_state.edit_book_source = book.get('source_type')
+                            st.session_state.page = "company_rate_management"
+                            st.session_state.active_tab = 3
+                            st.rerun()
+                        
+                        if self._check_permission('archive') and not book.get('is_archived'):
+                            if st.button("🗑️ Archive", key=f"archive_{book_id}", help="Archive this rate book"):
+                                if self.db.archive_rate_book(book_id):
+                                    self.db.log_audit(
+                                        rate_book_id=book_id,
+                                        action='ARCHIVE',
+                                        field_name='book',
+                                        old_value='active',
+                                        new_value='archived',
+                                        user_id=tenant.get('user_id')
+                                    )
+                                    st.success(f"✅ Archived rate book: {book.get('name')}")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to archive rate book")
+                
+                with col3:
+                    book_id = book.get('id')
+                    if book_id:
+                        if book.get('source_type') == 'CUSTOM':
+                            if st.button("📝 Add Item", key=f"add_item_{book_id}"):
+                                st.session_state.edit_book_id = book_id
+                                st.session_state.edit_book_name = book.get('name')
+                                st.session_state.active_tab = 3
+                                st.session_state.show_add_item = True
+                                st.rerun()
+                            
+                            if st.button("📥 Import", key=f"import_custom_{book_id}"):
+                                st.session_state.import_book_id = book_id
+                                st.session_state.active_tab = 5
+                                st.rerun()
+                        else:
                             # ✅ Resync button - set session state and rerun
                             if st.button("🔄 Resync", key=f"resync_{book_id}"):
                                 st.session_state.resync_book_id = book_id

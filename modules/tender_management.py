@@ -630,8 +630,10 @@ def _render_tender_detail_page(tender_data: Dict[str, Any]):
     st.markdown("---")
     st.markdown("### TENDER/PROPOSAL DASHBOARD")
     
-    # Get safe values
-    official_estimate, our_bid, total_bidders, our_rank = _get_safe_tender_values(tender_data)
+    # ✅ Get ALL safe values (11 values now)
+    (official_estimate, our_bid, total_bidders, our_rank,
+     procurement_type, bid_status, evaluation_status,
+     tender_title, procuring_entity, division, district) = _get_safe_tender_values(tender_data)
     
     # Summary cards
     _render_summary_cards(official_estimate, our_bid, total_bidders, our_rank)
@@ -669,13 +671,14 @@ def _render_tender_detail_page(tender_data: Dict[str, Any]):
         _render_team_and_milestones_for_tender(tender_data, tender_id)
 
 
+
 # =============================================================================
 # HELPER FUNCTIONS FOR _render_tender_detail_page
 # =============================================================================
 
 def _render_detail_header(tender_data: Dict[str, Any]):
     """Render the detail page header"""
-    
+    debug_print("_render_detail_header")
     tender_id = tender_data.get('tender_id', 'N/A')
     title = tender_data.get('tender_title', 'Untitled')
     procuring_entity = tender_data.get('procuring_entity', 'N/A')
@@ -719,67 +722,189 @@ def _render_detail_header(tender_data: Dict[str, Any]):
 
 
 def _get_safe_tender_values(tender_data: Dict[str, Any]) -> tuple:
-    """Extract and normalize tender values"""
-    official_estimate = float(tender_data.get('official_estimate', 0) or 0)
+    """Extract and normalize tender values safely"""
+    debug_print("_get_safe_tender_values")
     
+    # ✅ Safely get official_estimate
+    official_estimate = tender_data.get('official_estimate')
+    if official_estimate is None:
+        official_estimate = 0
+    try:
+        official_estimate = float(official_estimate)
+    except (ValueError, TypeError):
+        official_estimate = 0
+    
+    # ✅ Safely get our_bid_amount
     our_bid = tender_data.get('our_bid_amount')
     if our_bid is None:
         our_bid = 0
-    else:
-        try:
-            our_bid = float(our_bid)
-        except (ValueError, TypeError):
-            our_bid = 0
+    try:
+        our_bid = float(our_bid)
+    except (ValueError, TypeError):
+        our_bid = 0
     
+    # ✅ Safely get total_bidders
     total_bidders = tender_data.get('total_bidders')
     if total_bidders is None:
         total_bidders = 'N/A'
+    else:
+        try:
+            total_bidders = str(total_bidders)
+        except:
+            total_bidders = 'N/A'
     
+    # ✅ Safely get our_rank
     our_rank = tender_data.get('our_rank')
     if our_rank is None:
         our_rank = 'N/A'
+    else:
+        try:
+            our_rank = str(our_rank)
+        except:
+            our_rank = 'N/A'
     
-    return official_estimate, our_bid, total_bidders, our_rank
-
+    # ✅ SAFELY get procurement_type (this fixes the error)
+    procurement_type = tender_data.get('procurement_type')
+    if procurement_type is None or procurement_type == '':
+        procurement_type = 'N/A'
+    else:
+        procurement_type = str(procurement_type).upper()
+    
+    # ✅ Safely get other commonly used fields
+    bid_status = tender_data.get('bid_status')
+    if bid_status is None or bid_status == '':
+        bid_status = 'draft'
+    
+    evaluation_status = tender_data.get('evaluation_status')
+    if evaluation_status is None or evaluation_status == '':
+        evaluation_status = 'pending'
+    
+    tender_title = tender_data.get('tender_title')
+    if tender_title is None or tender_title == '':
+        tender_title = 'Untitled'
+    
+    procuring_entity = tender_data.get('procuring_entity')
+    if procuring_entity is None or procuring_entity == '':
+        procuring_entity = 'N/A'
+    
+    division = tender_data.get('division')
+    if division is None or division == '':
+        division = 'N/A'
+    
+    district = tender_data.get('district')
+    if district is None or district == '':
+        district = 'N/A'
+    
+    return (
+        official_estimate,
+        our_bid,
+        total_bidders,
+        our_rank,
+        procurement_type,        # ✅ Added
+        bid_status,              # ✅ Added
+        evaluation_status,       # ✅ Added
+        tender_title,            # ✅ Added
+        procuring_entity,        # ✅ Added
+        division,                # ✅ Added
+        district                 # ✅ Added
+    )
 
 def _render_summary_cards(official_estimate: float, our_bid: float, total_bidders, our_rank):
-    """Render summary metric cards"""
+    """Render summary cards for tender detail view"""
+    debug_print("_render_summary_cards")
+    
+    # ✅ Ensure values are safe
+    if official_estimate is None:
+        official_estimate = 0
+    if our_bid is None:
+        our_bid = 0
+    
+    if total_bidders is None or total_bidders == 'N/A':
+        total_bidders_display = 'N/A'
+        total_bidders_int = 0
+    else:
+        try:
+            total_bidders_int = int(total_bidders)
+            total_bidders_display = str(total_bidders_int)
+        except (ValueError, TypeError):
+            total_bidders_display = 'N/A'
+            total_bidders_int = 0
+    
+    if our_rank is None or our_rank == 'N/A':
+        our_rank_display = 'N/A'
+    else:
+        try:
+            our_rank_display = str(int(our_rank))
+        except (ValueError, TypeError):
+            our_rank_display = 'N/A'
+    
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.metric("Official Estimate", f"BDT {official_estimate:,.2f}", help="Official Cost Estimate")
+        st.metric("Official Estimate", f"BDT {official_estimate:,.2f}")
     with col2:
-        if our_bid > 0:
-            st.metric("Our Bid", f"BDT {our_bid:,.2f}", help="Our submitted bid amount")
-        else:
-            st.metric("Our Bid", "Not Set", help="Our submitted bid amount")
+        st.metric("Our Bid", f"BDT {our_bid:,.2f}" if our_bid > 0 else "Not Set")
     with col3:
-        st.metric("Total Bidders", total_bidders, help="Total number of bidders")
+        st.metric("Total Bidders", total_bidders_display)
     with col4:
-        st.metric("Our Rank", our_rank, help="Our rank among bidders")
+        st.metric("Our Rank", our_rank_display)
 
 
 def _render_information_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_db_id: int, tender_id: str):
     """Render the Tender Information tab"""
+    debug_print("_render_information_tab")
+    
+    # ✅ Get all safe values (re-use the ones passed in, or call again)
+    (official_estimate, our_bid, total_bidders, our_rank,
+     procurement_type, bid_status, evaluation_status,
+     tender_title, procuring_entity, division, district) = _get_safe_tender_values(tender_data)
     
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("#### Basic Information")
         st.info(f"**Tender ID:** `{tender_data.get('tender_id', 'N/A')}`")
-        st.markdown(f"**Title:** {tender_data.get('tender_title', 'N/A')}")
-        st.markdown(f"**Procuring Entity:** {tender_data.get('procuring_entity', 'N/A')}")
-        st.markdown(f"**Division:** {tender_data.get('division', 'N/A')}")
-        st.markdown(f"**District:** {tender_data.get('district', 'N/A')}")
-        st.markdown(f"**Procurement Type:** {tender_data.get('procurement_type', 'N/A').upper()}")
+        st.markdown(f"**Title:** {tender_title}")
+        st.markdown(f"**Procuring Entity:** {procuring_entity}")
+        st.markdown(f"**Division:** {division}")
+        st.markdown(f"**District:** {district}")
+        st.markdown(f"**Procurement Type:** {procurement_type}")
+        st.markdown(f"**Bid Status:** {bid_status.upper()}")
+        st.markdown(f"**Evaluation Status:** {evaluation_status.upper()}")
         
     with col2:
         st.markdown("#### Financial Information")
         st.info(f"**Official Estimate:** BDT {official_estimate:,.2f}")
-        st.markdown(f"**Tender Security:** BDT {float(tender_data.get('tender_security', 0) or 0):,.2f}")
-        st.markdown(f"**Document Fee:** BDT {float(tender_data.get('document_fee', 0) or 0):,.2f}")
+        
+        # ✅ SAFELY get tender_security
+        tender_security = tender_data.get('tender_security')
+        if tender_security is None:
+            tender_security = 0
+        try:
+            tender_security = float(tender_security)
+        except (ValueError, TypeError):
+            tender_security = 0
+        st.markdown(f"**Tender Security:** BDT {tender_security:,.2f}")
+        
+        # ✅ SAFELY get document_fee
+        document_fee = tender_data.get('document_fee')
+        if document_fee is None:
+            document_fee = 0
+        try:
+            document_fee = float(document_fee)
+        except (ValueError, TypeError):
+            document_fee = 0
+        st.markdown(f"**Document Fee:** BDT {document_fee:,.2f}")
+        
         if our_bid > 0:
             st.markdown(f"**Our Bid:** BDT {our_bid:,.2f}")
         else:
             st.markdown("**Our Bid:** Not set")
+        
+        if total_bidders != 'N/A':
+            st.markdown(f"**Total Bidders:** {total_bidders}")
+        if our_rank != 'N/A':
+            st.markdown(f"**Our Rank:** {our_rank}")
+
     
     st.markdown("#### Important Dates")
     col1, col2, col3 = st.columns(3)
@@ -791,6 +916,9 @@ def _render_information_tab(tender_data: Dict[str, Any], official_estimate: floa
                 st.markdown(f"**Submission Deadline:** {deadline_dt.strftime('%d %b %Y %H:%M')}")
             except:
                 st.markdown(f"**Submission Deadline:** {deadline}")
+        else:
+            st.markdown("**Submission Deadline:** N/A")
+    
     with col2:
         pub_date = tender_data.get('tender_publication_date')
         if pub_date:
@@ -799,6 +927,9 @@ def _render_information_tab(tender_data: Dict[str, Any], official_estimate: floa
                 st.markdown(f"**Published:** {pub_dt.strftime('%d %b %Y')}")
             except:
                 st.markdown(f"**Published:** {pub_date}")
+        else:
+            st.markdown("**Published:** N/A")
+    
     with col3:
         opening_date = tender_data.get('bid_opening_date')
         if opening_date:
@@ -807,6 +938,8 @@ def _render_information_tab(tender_data: Dict[str, Any], official_estimate: floa
                 st.markdown(f"**Opening Date:** {opening_dt.strftime('%d %b %Y %H:%M')}")
             except:
                 st.markdown(f"**Opening Date:** {opening_date}")
+        else:
+            st.markdown("**Opening Date:** N/A")
     
     # Team summary
     _add_team_summary_to_information_tab(tender_data)
@@ -824,52 +957,17 @@ def _render_information_tab(tender_data: Dict[str, Any], official_estimate: floa
                 st.session_state.page = "tender_form"
                 st.rerun()
 
-
-def _render_winner_tab(tender_data: Dict[str, Any], official_estimate: float, tender_id: str):
-    """Render the Winner Information tab"""
-    
-    st.markdown("#### Winner Information")
-    
-    winner = tender_data.get('winning_competitor')
-    winner_amount = tender_data.get('winning_bid_amount')
-    if winner_amount:
-        try:
-            winner_amount = float(winner_amount)
-        except (ValueError, TypeError):
-            winner_amount = None
-    
-    if winner:
-        st.success(f"🏆 **Winner:** {winner}")
-        st.info(f"**Winning Bid Amount:** BDT {winner_amount:,.2f}" if winner_amount else "**Winning Bid Amount:** N/A")
-        
-        if official_estimate > 0 and winner_amount:
-            nppi = (winner_amount / official_estimate) * 100
-            st.metric("NPPI Factor", f"{nppi:.2f}%")
-    else:
-        st.warning("No winner declared yet for this tender.")
-        st.info("💡 You can declare a winner in the 'Tender Results CRUD' tab.")
-    
-    # Bid history - using CRUD
-    st.markdown("#### Bid History")
-    try:
-        company_id = st.session_state.get('company_id')
-        if company_id:
-            bids_df = get_competitor_bids(tender_id, company_id)
-            if not bids_df.empty:
-                bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}" if x else "N/A")
-                bids_df['was_winner'] = bids_df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
-                st.dataframe(bids_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No bid history available. Import bid data first.")
-    except Exception as e:
-        st.warning(f"Could not load bid history: {e}")
-
-
 def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_id: str):
     """Render the Bid Analysis tab (quick stats)"""
-    
+    debug_print("_render_bid_analysis_tab")
     st.markdown("#### Bid Analysis")
     st.info("Comprehensive analysis available in the 'Analysis Report' tab above.")
+    
+    # ✅ Safe check for official_estimate and our_bid
+    if official_estimate is None:
+        official_estimate = 0
+    if our_bid is None:
+        our_bid = 0
     
     if official_estimate > 0 and our_bid > 0:
         nppi = (our_bid / official_estimate) * 100
@@ -894,8 +992,64 @@ def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: flo
                     bids_df = pd.concat([bids_df, pd.DataFrame([our_row])], ignore_index=True)
                     bids_df = bids_df.sort_values('bid_amount').reset_index(drop=True)
                     
-                    bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: f"BDT {x:,.2f}")
-                    bids_df['was_winner'] = bids_df['was_winner'].apply(lambda x: "🏆 Winner" if x else "")
+                    bids_df['bid_amount'] = bids_df['bid_amount'].apply(
+                        lambda x: f"BDT {x:,.2f}" if x and x > 0 else "N/A"
+                    )
+                    bids_df['was_winner'] = bids_df['was_winner'].apply(
+                        lambda x: "🏆 Winner" if x else ""
+                    )
+                    
+                    st.dataframe(bids_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No competitor data available.")
+        except Exception as e:
+            st.warning(f"Could not load bid comparison: {e}")
+    elif official_estimate > 0 and our_bid == 0:
+        st.info("💡 Set your bid amount to see NPPI analysis.")
+    else:
+        st.warning("⚠️ Official Estimate not set. Please update tender with OCE.")
+
+def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: float, our_bid: float, tender_id: str):
+    """Render the Bid Analysis tab (quick stats)"""
+    debug_print("_render_bid_analysis_tab")
+    st.markdown("#### Bid Analysis")
+    st.info("Comprehensive analysis available in the 'Analysis Report' tab above.")
+    
+    # ✅ Safe check for official_estimate and our_bid
+    if official_estimate is None:
+        official_estimate = 0
+    if our_bid is None:
+        our_bid = 0
+    
+    if official_estimate > 0 and our_bid > 0:
+        nppi = (our_bid / official_estimate) * 100
+        st.metric("Our NPPI", f"{nppi:.2f}%", help="Our bid as percentage of OCE")
+        
+        if nppi < 85:
+            st.warning("⚠️ Your bid is significantly below OCE. This may trigger SLT scrutiny.")
+        elif nppi > 105:
+            st.warning("⚠️ Your bid is above OCE. Consider reviewing your pricing.")
+        else:
+            st.success("✅ Your bid is within a reasonable range.")
+        
+        # Bid comparison using CRUD
+        st.markdown("#### Bid Comparison")
+        try:
+            company_id = st.session_state.get('company_id')
+            if company_id:
+                bids_df = get_competitor_bids(tender_id, company_id)
+                if not bids_df.empty:
+                    # Add our bid to comparison
+                    our_row = {'competitor_name': '🏢 Our Bid', 'bid_amount': our_bid, 'was_winner': 0}
+                    bids_df = pd.concat([bids_df, pd.DataFrame([our_row])], ignore_index=True)
+                    bids_df = bids_df.sort_values('bid_amount').reset_index(drop=True)
+                    
+                    bids_df['bid_amount'] = bids_df['bid_amount'].apply(
+                        lambda x: f"BDT {x:,.2f}" if x and x > 0 else "N/A"
+                    )
+                    bids_df['was_winner'] = bids_df['was_winner'].apply(
+                        lambda x: "🏆 Winner" if x else ""
+                    )
                     
                     st.dataframe(bids_df, use_container_width=True, hide_index=True)
                 else:
@@ -914,7 +1068,7 @@ def _render_bid_analysis_tab(tender_data: Dict[str, Any], official_estimate: flo
 
 def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
     """Render tender analysis for a specific tender"""
-    
+    debug_print("_render_tender_analysis_for_tender")
     st.markdown("### 📊 Tender Analysis Report (PPR 2025 Compliant)")
     st.markdown("*Official SLT • NPPI Analysis • Winner Prediction • Sensitivity*")
     
@@ -923,7 +1077,8 @@ def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: s
         st.warning("Please select a company first.")
         return
     
-    if official_estimate <= 0:
+    # ✅ Safe check for official_estimate
+    if official_estimate is None or official_estimate <= 0:
         st.warning("⚠️ OCE is required for analysis. Please update the tender with Official Cost Estimate.")
         return
     
@@ -934,18 +1089,39 @@ def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: s
         st.warning("No bid history found for this tender. Import bid data first.")
         return
     
+    # ✅ SAFELY get procurement_type and tender_date
+    procurement_type = tender_data.get('procurement_type')
+    if procurement_type is None or procurement_type == '':
+        procurement_type = 'works'
+    
+    tender_date = tender_data.get('tender_publication_date') or tender_data.get('created_at')
+    
+    # ✅ SAFELY get winner_name
+    winner_name = tender_data.get('winning_competitor')
+    if winner_name is None or winner_name == '':
+        winner_name = "Not Declared"
+    
+    # ✅ SAFELY get winner_amount
+    winner_amount = tender_data.get('winning_bid_amount')
+    if winner_amount is None:
+        winner_amount = 0
+    try:
+        winner_amount = float(winner_amount)
+    except (ValueError, TypeError):
+        winner_amount = 0
+    
     # Summary
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("Tender ID", tender_id)
+    with col1: 
+        st.metric("Tender ID", tender_id)
     with col2:
-        winner_name = tender_data.get('winning_competitor') or "Not Declared"
         st.metric("Winner", winner_name)
     with col3:
-        winner_amount = tender_data.get('winning_bid_amount') or 0
-        st.metric("Winning Bid", f"BDT {winner_amount:,.2f}" if winner_amount else "N/A")
+        st.metric("Winning Bid", f"BDT {winner_amount:,.3f}" if winner_amount > 0 else "N/A")
     with col4:
-        st.metric("OCE", f"BDT {official_estimate:,.2f}" if official_estimate else "Not Set")
+        st.metric("OCE", f"BDT {official_estimate:,.3f}")
+
     
     # Prepare bids
     competitor_bids = []
@@ -1146,7 +1322,7 @@ def _render_tender_analysis_for_tender(tender_data: Dict[str, Any], tender_id: s
 
 def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
     """Render tender result CRUD for a specific tender"""
-    
+    debug_print("_render_tender_result_crud_for_tender")
     st.markdown("### 🏆 Tender Result CRUD")
     st.caption("Edit bid amounts • Winner selection is **optional**")
     
@@ -1155,7 +1331,16 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
         st.warning("Please select a company first.")
         return
 
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}** | OCE: BDT {official_estimate:,.2f}")
+    # ✅ SAFELY get tender_title
+    tender_title = tender_data.get('tender_title')
+    if tender_title is None or tender_title == '':
+        tender_title = 'Untitled'
+
+    # ✅ SAFE check for official_estimate
+    if official_estimate is None:
+        official_estimate = 0
+
+    st.success(f"✅ Selected: **{tender_title}** | OCE: BDT {official_estimate:,.2f}")
 
     # Load current bids using CRUD
     bids_df = get_competitor_bids(tender_id, company_id)
@@ -1173,6 +1358,7 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
     
     # Format for display
     bids_df['bid_amount'] = bids_df['bid_amount'].apply(lambda x: float(f"{x:.3f}"))
+
 
     st.markdown("#### 📋 Edit Bid Amounts")
     st.caption("**Note:** Selecting a winner is optional. You can save without any winner.")
@@ -1267,7 +1453,6 @@ def _render_tender_result_crud_for_tender(tender_data: Dict[str, Any], tender_id
 # =============================================================================
 # TAB 6: IMPORT TENDER DATA
 # =============================================================================
-
 def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: str, official_estimate: float):
     """Render tender data importer for a specific tender with replace option"""
     
@@ -1278,18 +1463,27 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
         <p style="margin: 0;">Upload Excel file to import competitor bid data</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    debug_print("_render_tender_importer_for_tender")
     company_id = st.session_state.get('company_id')
     if not company_id:
         st.warning("Please select a company first.")
         return
     
-    st.success(f"✅ Selected: **{tender_data.get('tender_title')}**")
+    # ✅ SAFELY get tender_title
+    tender_title = tender_data.get('tender_title')
+    if tender_title is None or tender_title == '':
+        tender_title = 'Untitled'
+    
+    # ✅ SAFE check for official_estimate
+    if official_estimate is None:
+        official_estimate = 0
+    
+    st.success(f"✅ Selected: **{tender_title}**")
     st.caption(f"Tender ID: `{tender_id}` | OCE: BDT {official_estimate:,.2f}")
     
     # Check if data already exists using CRUD
     bids_df = get_competitor_bids(tender_id, company_id)
-    existing_data_count = len(bids_df)
+    existing_data_count = len(bids_df) if bids_df is not None else 0
     
     # Show warning if data exists
     replace_data = False
@@ -1311,7 +1505,13 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
     st.divider()
     st.subheader("Upload Opening Report")
     
-    importer = TenderDataImporter(db)
+    # ✅ Initialize importer only if needed
+    try:
+        from modules.tender_data_importer import TenderDataImporter
+        importer = TenderDataImporter(db)
+    except ImportError:
+        st.error("❌ TenderDataImporter module not found. Please check your imports.")
+        return
     
     uploaded_file = st.file_uploader(
         "Upload Opening Report (Excel)",
@@ -1320,8 +1520,9 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
     )
     
     # Initialize session state for parsed data
-    if f"parsed_data_{tender_id}" not in st.session_state:
-        st.session_state[f"parsed_data_{tender_id}"] = None
+    parsed_data_key = f"parsed_data_{tender_id}"
+    if parsed_data_key not in st.session_state:
+        st.session_state[parsed_data_key] = None
     
     if uploaded_file is not None:
         try:
@@ -1335,31 +1536,34 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
             with st.spinner("Parsing tender opening report..."):
                 parsed_data = importer.parse_opening_report_with_header(df)
             
-            if not parsed_data.get('competitors'):
+            if not parsed_data or not parsed_data.get('competitors'):
                 st.warning("No competitor data found.")
                 return
             
             # Store in session state
-            st.session_state[f"parsed_data_{tender_id}"] = parsed_data
+            st.session_state[parsed_data_key] = parsed_data
             
             st.success(f"✅ Parsed {len(parsed_data['competitors'])} competitors")
-            st.write("### Debug Information")
-            st.write("Parsed Data Structure:")
-            for i, comp in enumerate(parsed_data['competitors']):
-                st.write(f"Competitor {i+1}: {comp['name']}")
-                st.write(f"  Quoted Amount: {comp.get('quoted_amount', 0)}")
-                st.write(f"  Discount %: {comp.get('discount_percentage', 0)}")
-                st.write(f"  Discount Amount: {comp.get('discount_amount', 0)}")
-                st.write(f"  Final Amount: {comp.get('final_amount', 0)}")
-                st.write("---")
+            
+            # Show debug info (optional)
+            with st.expander("🔍 Debug Information"):
+                st.write("Parsed Data Structure:")
+                for i, comp in enumerate(parsed_data['competitors'][:5]):  # Show first 5 only
+                    st.write(f"Competitor {i+1}: {comp.get('name', 'Unknown')}")
+                    st.write(f"  Quoted Amount: {comp.get('quoted_amount', 0)}")
+                    st.write(f"  Discount %: {comp.get('discount_percentage', 0)}")
+                    st.write(f"  Discount Amount: {comp.get('discount_amount', 0)}")
+                    st.write(f"  Final Amount: {comp.get('final_amount', 0)}")
+                    st.write("---")
 
             # Preview table
             display_data = []
             for comp in parsed_data['competitors']:
+                final_amount = comp.get('final_amount', 0)
                 display_data.append({
-                    'Competitor': comp['name'],
-                    'Quoted Amount': f"BDT {comp.get('quoted_amount', 0):,.2f}",
-                    'Final Amount': f"BDT {comp.get('final_amount', 0):,.2f}",
+                    'Competitor': comp.get('name', 'Unknown'),
+                    'Quoted Amount': f"BDT {comp.get('quoted_amount', 0):,.2f}" if comp.get('quoted_amount') else "N/A",
+                    'Final Amount': f"BDT {final_amount:,.2f}" if final_amount > 0 else "N/A",
                     'Winner': "🏆" if comp.get('is_winner') else ""
                 })
             
@@ -1371,25 +1575,33 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
             st.caption("Select the winner. Choose 'Skip Winner' if no winner should be declared.")
             
             # Get competitor names
-            competitor_names = [comp['name'] for comp in parsed_data['competitors']]
+            competitor_names = [comp.get('name', f'Competitor {i+1}') for i, comp in enumerate(parsed_data['competitors'])]
             
             # Find current winner
             current_winner = next((c for c in parsed_data['competitors'] if c.get('is_winner')), None)
-            current_winner_name = current_winner['name'] if current_winner else "-- Skip Winner (No winner declared) --"
+            current_winner_name = current_winner.get('name') if current_winner else None
             
             # Winner selection dropdown
+            skip_winner_label = "-- Skip Winner (No winner declared) --"
+            options = [skip_winner_label] + competitor_names
+            
+            if current_winner_name and current_winner_name in competitor_names:
+                default_index = competitor_names.index(current_winner_name) + 1
+            else:
+                default_index = 0
+            
             col1, col2 = st.columns([3, 1])
             with col1:
                 selected_winner = st.selectbox(
                     "Select Winner",
-                    ["-- Skip Winner (No winner declared) --"] + competitor_names,
-                    index=0 if current_winner_name == "-- Skip Winner (No winner declared) --" else competitor_names.index(current_winner_name) + 1,
+                    options,
+                    index=default_index,
                     key=f"winner_select_{tender_id}"
                 )
             
             with col2:
                 if st.button("✅ Apply Winner", key=f"apply_winner_{tender_id}", use_container_width=True):
-                    if selected_winner == "-- Skip Winner (No winner declared) --":
+                    if selected_winner == skip_winner_label:
                         # Clear winner
                         for comp in parsed_data['competitors']:
                             comp['is_winner'] = False
@@ -1398,23 +1610,23 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
                     else:
                         # Set winner
                         for comp in parsed_data['competitors']:
-                            comp['is_winner'] = (comp['name'] == selected_winner)
-                        winner_comp = next((c for c in parsed_data['competitors'] if c['is_winner']), None)
+                            comp['is_winner'] = (comp.get('name') == selected_winner)
+                        winner_comp = next((c for c in parsed_data['competitors'] if c.get('is_winner')), None)
                         if winner_comp:
                             parsed_data['winner_info'] = {
-                                'name': winner_comp['name'],
-                                'final_amount': winner_comp['final_amount']
+                                'name': winner_comp.get('name'),
+                                'final_amount': winner_comp.get('final_amount', 0)
                             }
                         st.success(f"✅ {selected_winner} marked as winner!")
                     
                     # Update session state
-                    st.session_state[f"parsed_data_{tender_id}"] = parsed_data
+                    st.session_state[parsed_data_key] = parsed_data
                     st.rerun()
             
             # Show current winner status
             has_winner = any(comp.get('is_winner') for comp in parsed_data['competitors'])
             if has_winner:
-                winner_name = next((c['name'] for c in parsed_data['competitors'] if c.get('is_winner')), None)
+                winner_name = next((c.get('name') for c in parsed_data['competitors'] if c.get('is_winner')), None)
                 st.success(f"🏆 Currently selected winner: **{winner_name}**")
             else:
                 st.info("ℹ️ No winner currently selected. All competitors will have was_winner = 0.")
@@ -1431,7 +1643,7 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
                         nppi_pct = (final_amount / official_estimate) * 100
                         is_winner = "🏆" if comp.get('is_winner') else ""
                         nppi_data.append({
-                            'Competitor': comp['name'],
+                            'Competitor': comp.get('name', 'Unknown'),
                             'Final Amount': f"BDT {final_amount:,.2f}",
                             'NPPI %': f"{nppi_pct:.2f}%",
                             'Winner': is_winner
@@ -1468,19 +1680,20 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
                 if success:
                     st.success("✅ Import completed successfully!")
                     st.balloons()
-                    tender_selector_manager.clear_selection()
                     
-                    # Clear session state
-                    if f"parsed_data_{tender_id}" in st.session_state:
-                        del st.session_state[f"parsed_data_{tender_id}"]
+                    # ✅ Clear session state
+                    if parsed_data_key in st.session_state:
+                        del st.session_state[parsed_data_key]
                     
                     if st.button("🔄 Refresh to see imported data", use_container_width=True):
                         st.rerun()
                 else:
                     st.error("❌ Import failed.")
-                    if summary.get('errors'):
+                    if summary and summary.get('errors'):
                         for err in summary['errors']:
                             st.error(err)
+                    else:
+                        st.error("Please check the data format and try again.")
         
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
@@ -1521,7 +1734,6 @@ def _render_tender_importer_for_tender(tender_data: Dict[str, Any], tender_id: s
         - Without Replace, duplicate bids for the same competitor are skipped
         - Competitor names should be consistent for proper matching
         """)
-        
 
 # =============================================================================
 # 🏗️ FOOTER
@@ -1627,28 +1839,67 @@ def render_footer():
 # =============================================================================
 # 🚀 MAIN ENTRY POINT
 # =============================================================================
-
 def _get_simulated_nppi(procurement_type: str, tender_date: str = None) -> float:
     """
     Simulate realistic NPPI based on PPR 2025 rules.
     NPPI is dynamic and derived from recent awarded tenders.
+    
+    Args:
+        procurement_type: Type of procurement ('works', 'goods', 'services', 'consultancy')
+        tender_date: Optional date string for seasonal adjustment
+    
+    Returns:
+        float: Simulated NPPI factor between 0.82 and 0.99
     """
+    debug_print("_get_simulated_nppi")
+    
+    # ✅ SAFELY get procurement_type
+    if procurement_type is None or procurement_type == '':
+        procurement_type = 'works'
+    else:
+        procurement_type = str(procurement_type).lower()
+    
     # Base values based on historical trends in Bangladesh e-GP
     base_nppi = {
         'works': 0.912,      # Works usually have more competition
         'goods': 0.935,      # Goods tend to be closer to OCE
         'services': 0.908,
         'consultancy': 0.885
-    }.get(procurement_type.lower(), 0.92)
+    }.get(procurement_type, 0.92)
     
     # Small variation based on date (market conditions)
-    month_adjustment = 0
+    month_adjustment = 0.0
     if tender_date:
         try:
-            dt = datetime.strptime(str(tender_date)[:10], '%Y-%m-%d')
+            # ✅ Handle different date formats
+            if isinstance(tender_date, (datetime, pd.Timestamp)):
+                dt = tender_date
+            elif isinstance(tender_date, str):
+                # Try common date formats
+                for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d-%b-%Y', '%d/%m/%Y']:
+                    try:
+                        dt = datetime.strptime(str(tender_date)[:10], fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    # If no format matches, try to parse as timestamp
+                    try:
+                        dt = datetime.fromtimestamp(float(tender_date))
+                    except (ValueError, TypeError):
+                        dt = datetime.now()
+            else:
+                dt = datetime.now()
+            
             # Slight seasonal/market fluctuation (±2-3%)
             month_adjustment = (dt.month - 6) * 0.003
-        except:
+            # Additional: year-to-year trend (slight increase in competitiveness)
+            year_adjustment = (dt.year - 2020) * 0.001
+            month_adjustment += year_adjustment
+            
+        except Exception as e:
+            # If date parsing fails, use no adjustment
+            debug_print(f"Date parsing warning: {e}")
             pass
     
     nppi = base_nppi + month_adjustment
@@ -1658,7 +1909,6 @@ def _get_simulated_nppi(procurement_type: str, tender_date: str = None) -> float
     
     return round(nppi, 3)
 
-
 def render_tender_management() -> None:
     """Main tender management entry point"""
     
@@ -1667,7 +1917,7 @@ def render_tender_management() -> None:
         from modules.tender_form import render_tender_form
         render_tender_form()
         return
-    
+    debug_print("render_tender_management() called")
     render_role_badge()
     st.markdown("---")
     
@@ -1850,7 +2100,7 @@ def _generate_html_report(tender_data, competitor_bids_sorted, official_estimate
 def _render_tender_reports() -> None:
     """Generate reports for tenders"""
     st.markdown("### 📊 Tender Reports")
-    
+    debug_print("_render_tender_reports");
     company_id = st.session_state.get('company_id')
     if not company_id:
         st.warning("Please select a company first.")
@@ -1944,6 +2194,7 @@ def _render_tender_reports() -> None:
 
 def _render_team_management(tender_id: int, key_prefix: str) -> None:
     """Render team assignment UI in expander"""
+    debug_print("_render_team_management")
     team = get_tender_team(tender_id)
     
     if team:
@@ -1971,6 +2222,7 @@ def _render_team_management(tender_id: int, key_prefix: str) -> None:
 
 def _render_milestones(tender_id: int, key_prefix: str) -> None:
     """Render milestone management UI"""
+    debug_print("_render_milestones")
     milestones = get_tender_milestones(tender_id)
     
     if not milestones.empty:
@@ -2440,7 +2692,7 @@ def _render_tenders_table():
     if filtered_df.empty:
         st.info("No tenders match the current filters.")
         return
-    
+    debug_print("_render_tenders_table")
     # Prepare display data
     display_data = _prepare_tender_display_data(filtered_df)
     
@@ -2466,9 +2718,10 @@ def _apply_filters(tenders_df: pd.DataFrame) -> pd.DataFrame:
     
     return filtered_df
 
-
 def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
     """Prepare tender data for display"""
+    
+    debug_print("_prepare_tender_display_data")
     display_data = []
     for _, row in filtered_df.iterrows():
         status = row.get('bid_status', 'draft')
@@ -2488,12 +2741,19 @@ def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
             'awarded': 'status-awarded'
         }.get(status, 'status-draft')
         
+        # ✅ SAFELY get procurement_type with fallback
+        procurement_type = row.get('procurement_type')
+        if procurement_type is None:
+            procurement_type = 'N/A'
+        else:
+            procurement_type = str(procurement_type).upper()
+        
         display_data.append({
             'id': row['id'],
             'tender_id': row.get('tender_id', 'N/A'),
             'title': row.get('tender_title', 'Untitled'),
             'procuring_entity': row.get('procuring_entity', 'N/A'),
-            'procurement_type': row.get('procurement_type', 'N/A').upper(),
+            'procurement_type': procurement_type,  # ✅ Safe value
             'status': status,
             'status_display': status_display,
             'status_class': status_class,
@@ -2506,6 +2766,7 @@ def _prepare_tender_display_data(filtered_df: pd.DataFrame) -> List[Dict]:
 
 def _render_tender_table_rows(display_data: List[Dict], company_id: int):
     """Render table rows with pagination and search"""
+    debug_print("_render_tender_table_rows")
     
     # Search bar
     search = st.text_input(
@@ -2560,8 +2821,24 @@ def _render_tender_table_rows(display_data: List[Dict], company_id: int):
     
     # Render rows
     for idx, item in enumerate(page_items, start=start_idx + 1):
-        pub_date_str = pd.to_datetime(item['pub_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['pub_date']) else 'N/A'
-        closing_date_str = pd.to_datetime(item['closing_date']).strftime('%d-%b-%Y %H:%M:%S') if pd.notna(item['closing_date']) else 'N/A'
+        # ✅ SAFELY format dates
+        pub_date = item.get('pub_date')
+        if pub_date and pd.notna(pub_date):
+            try:
+                pub_date_str = pd.to_datetime(pub_date).strftime('%d-%b-%Y %H:%M:%S')
+            except:
+                pub_date_str = 'N/A'
+        else:
+            pub_date_str = 'N/A'
+        
+        closing_date = item.get('closing_date')
+        if closing_date and pd.notna(closing_date):
+            try:
+                closing_date_str = pd.to_datetime(closing_date).strftime('%d-%b-%Y %H:%M:%S')
+            except:
+                closing_date_str = 'N/A'
+        else:
+            closing_date_str = 'N/A'
         
         col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2.5, 2.5, 2, 1.5, 1.5, 1], gap="small")
         
@@ -2574,34 +2851,43 @@ def _render_tender_table_rows(display_data: List[Dict], company_id: int):
             <span class="status-badge {item['status_class']}">{item['status_display']}</span>
             """, unsafe_allow_html=True)
         with col3:
+            # ✅ SAFELY get title and procurement_type
+            title = item.get('title', 'Untitled')
+            proc_type = item.get('procurement_type', 'N/A')
+            display_title = f"{proc_type}, {title[:80]}{'...' if len(title) > 80 else ''}"
             st.markdown(f"""
             <div class="tender-title-cell">
-                <span class="title-text">{item['procurement_type']}, {item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</span>
+                <span class="title-text">{display_title}</span>
             </div>
             """, unsafe_allow_html=True)
         with col4:
-            st.caption(item['procuring_entity'][:50])
+            st.caption(item.get('procuring_entity', 'N/A')[:50])
         with col5:
-            st.write(item['procurement_type'])
+            st.write(item.get('procurement_type', 'N/A'))
             st.caption("LTM")
         with col6:
             st.caption(pub_date_str)
             st.caption(closing_date_str)
         with col7:
+            tender_id = item.get('tender_id')
             if st.button("🔍", key=f"dash_{item['id']}_{idx}", use_container_width=True):
-                tender_data = get_tender_by_id(item['tender_id'], company_id)
-                if tender_data:
-                    tender_data = _normalize_tender_data(tender_data)
-                    st.session_state.view_tender_detail = tender_data
-                    st.rerun()
+                if tender_id:
+                    tender_data = get_tender_by_id(tender_id, company_id)
+                    if tender_data:
+                        tender_data = _normalize_tender_data(tender_data)
+                        st.session_state.view_tender_detail = tender_data
+                        st.rerun()
+                    else:
+                        st.error("Failed to load tender details")
                 else:
-                    st.error("Failed to load tender details")
+                    st.error("Invalid tender ID")
         
         st.divider()
     
     # Pagination
     if total_pages > 1:
         _render_pagination(total_pages)
+
 
 
 def _render_pagination(total_pages: int):
@@ -2909,3 +3195,52 @@ def render_competitor_list():
                     st.rerun()
     else:
         st.info("No competitors match your search criteria")
+
+def _render_winner_tab(tender_data: Dict[str, Any], official_estimate: float, tender_id: str):
+    """Render the Winner Information tab"""
+    debug_print("_render_winner_tab")
+    st.markdown("#### Winner Information")
+    
+    # ✅ Safe get winner
+    winner = tender_data.get('winning_competitor')
+    if winner is None or winner == '':
+        winner = None
+    
+    # ✅ Safe get winner_amount
+    winner_amount = tender_data.get('winning_bid_amount')
+    if winner_amount is None:
+        winner_amount = 0
+    try:
+        winner_amount = float(winner_amount)
+    except (ValueError, TypeError):
+        winner_amount = 0
+    
+    if winner and winner_amount > 0:
+        st.success(f"🏆 **Winner:** {winner}")
+        st.info(f"**Winning Bid Amount:** BDT {winner_amount:,.2f}")
+        
+        if official_estimate > 0 and winner_amount > 0:
+            nppi = (winner_amount / official_estimate) * 100
+            st.metric("NPPI Factor", f"{nppi:.2f}%")
+    else:
+        st.warning("No winner declared yet for this tender.")
+        st.info("💡 You can declare a winner in the 'Tender Results CRUD' tab.")
+    
+    # Bid history - using CRUD
+    st.markdown("#### Bid History")
+    try:
+        company_id = st.session_state.get('company_id')
+        if company_id:
+            bids_df = get_competitor_bids(tender_id, company_id)
+            if not bids_df.empty:
+                bids_df['bid_amount'] = bids_df['bid_amount'].apply(
+                    lambda x: f"BDT {x:,.2f}" if x and x > 0 else "N/A"
+                )
+                bids_df['was_winner'] = bids_df['was_winner'].apply(
+                    lambda x: "🏆 Winner" if x else ""
+                )
+                st.dataframe(bids_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No bid history available. Import bid data first.")
+    except Exception as e:
+        st.warning(f"Could not load bid history: {e}")

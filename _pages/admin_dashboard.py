@@ -23,9 +23,61 @@ from modules.subscription_ui import render_subscription_card
 from modules.subscription import get_plan
 
 from database.unified_db_manager import get_db_manager
+
+from database.connection import get_supabase_client, get_db_type, is_supabase
+import json
+
+def get_fallback_tables():
+    """Return fallback table list for Supabase"""
+    return [
+        "users", "companies", "subscriptions", "user_oauth",
+        "boq_templates", "boq_items", "boq_approval_history",
+        "rates", "system_rates", "price_change_logs",
+        "company_profile", "company_onboarding_status", "company_documents",
+        "company_financials", "company_licenses", "company_personnel",
+        "company_nppi", "certificate",
+        "competitors", "competitor_rates", "competitor_master",
+        "competitor_bids", "competitor_bid_history",
+        "tenders", "tender_milestones", "tender_documents", "bid_submissions",
+        "analysis_history", "otp_verification", "system_config",
+        "user_activity_logs", "version_history", "migrations",
+        "pwd_import_history", "extension_downloads", "demo_data_generation_log"
+    ]
+
+def categorize_tables(all_tables):
+    """Categorize tables into groups for better UX"""
+    table_groups = {}
+    
+    for table in all_tables:
+        if table in ["users", "companies", "subscriptions", "user_oauth"]:
+            group = "Core Tables"
+        elif table in ["boq_templates", "boq_items", "boq_approval_history"]:
+            group = "BOQ Tables"
+        elif table in ["rates", "system_rates", "price_change_logs"]:
+            group = "Rate Tables"
+        elif table in ["company_profile", "company_onboarding_status", "company_documents", 
+                     "company_financials", "company_licenses", "company_personnel", 
+                     "company_nppi", "certificate"]:
+            group = "Company Tables"
+        elif table in ["competitors", "competitor_rates", "competitor_master", 
+                    "competitor_bids", "competitor_bid_history"]:
+            group = "Competitor Tables"
+        elif table in ["tenders", "tender_milestones", "tender_documents", "bid_submissions"]:
+            group = "Tender Tables"
+        elif table in ["otp_verification", "system_config", "user_activity_logs", 
+                    "version_history", "migrations", "pwd_import_history"]:
+            group = "System Tables"
+        else:
+            group = "Other Tables"
+        
+        if group not in table_groups:
+            table_groups[group] = []
+        table_groups[group].append(table)
+    
+    return table_groups
+
+
 db = get_db_manager()
-
-
 def render_pwd_ingestion_panel():
     """Main PWD ingestion panel with hierarchy - UI only"""
     
@@ -432,13 +484,15 @@ def show():
     st.markdown("---")
     
     # ✅ 3 Main Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "👑 Overview",
         "👥 Users & Roles",
         "🏢 Companies",
         "🏗️ Rate Import",
         "📦 Version Management",
-        "⚙️ System Config"
+        "⚙️ System Config",
+        "💾 Database Backup"
+
     ])
     
     # ========== TAB 1: OVERVIEW ==========
@@ -476,6 +530,8 @@ def show():
     # ========== TAB 6: SYSTEM CONFIG ==========
     with tab6:
         render_system_configuration()
+    with tab7:
+        render_database_backup()
 
 
 def show_bak():
@@ -1282,643 +1338,723 @@ def render_role_management_page():
                     st.error("Failed to update permissions")
 
 # Updated render_system_configuration function
-
 def render_system_configuration():
-    """Render system configuration settings including extension API URL"""
+    """Render system configuration page"""
     
     st.markdown("### ⚙️ System Configuration")
-    st.caption("Manage system-wide settings including API endpoints and extension configuration")
+    st.markdown("Manage system-wide settings and configurations.")
     
-    # Get current API URL
-    current_api_url = get_system_config('extension_api_url', get_default_api_url())
+    db = get_db_manager()
     
-    col1, col2 = st.columns([2, 1])
+    # ============================================================
+    # SYSTEM CONFIGURATION SECTIONS
+    # ============================================================
+    
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📧 Email Settings",
+        "🔐 Security Settings",
+        "📊 System Settings",
+        "📈 Performance"
+    ])
+    
+    # ========== TAB 1: EMAIL SETTINGS ==========
+    with tab1:
+        st.markdown("#### 📧 Email Configuration")
+        
+        # Get current email config
+        try:
+            # ✅ Fix: Use direct method instead of context manager
+            if is_supabase():
+                # For Supabase, get config directly
+                supabase = get_supabase_client()
+                response = supabase.table("system_config").select("*").eq("config_key", "email_settings").execute()
+                config_data = response.data[0] if response.data else None
+            else:
+                # For SQLite, use get_connection
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM system_config WHERE config_key = 'email_settings'")
+                row = cursor.fetchone()
+                config_data = dict(row) if row else None
+                
+        except Exception as e:
+            st.warning(f"Could not load email settings: {e}")
+            config_data = None
+        
+        # Display and edit email settings
+        if config_data:
+            config_value = config_data.get('config_value', {})
+            if isinstance(config_value, str):
+                try:
+                    config_value = json.loads(config_value)
+                except:
+                    config_value = {}
+        else:
+            config_value = {
+                'smtp_host': 'smtp.gmail.com',
+                'smtp_port': 587,
+                'smtp_user': '',
+                'smtp_password': '',
+                'from_email': '',
+                'from_name': 'TenderAI'
+            }
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            new_smtp_host = st.text_input("SMTP Host", value=config_value.get('smtp_host', 'smtp.gmail.com'))
+            new_smtp_port = st.number_input("SMTP Port", value=config_value.get('smtp_port', 587))
+            new_smtp_user = st.text_input("SMTP Username", value=config_value.get('smtp_user', ''))
+        
+        with col2:
+            new_smtp_password = st.text_input("SMTP Password", type="password", value=config_value.get('smtp_password', ''))
+            new_from_email = st.text_input("From Email", value=config_value.get('from_email', ''))
+            new_from_name = st.text_input("From Name", value=config_value.get('from_name', 'TenderAI'))
+        
+        if st.button("💾 Save Email Settings", type="primary"):
+            try:
+                updated_config = {
+                    'smtp_host': new_smtp_host,
+                    'smtp_port': new_smtp_port,
+                    'smtp_user': new_smtp_user,
+                    'smtp_password': new_smtp_password,
+                    'from_email': new_from_email,
+                    'from_name': new_from_name
+                }
+                
+                if is_supabase():
+                    # Supabase: Upsert
+                    supabase = get_supabase_client()
+                    supabase.table("system_config").upsert({
+                        "config_key": "email_settings",
+                        "config_value": json.dumps(updated_config),
+                        "updated_at": datetime.now().isoformat()
+                    }).execute()
+                else:
+                    # SQLite
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
+                        VALUES (?, ?, ?)
+                    """, ("email_settings", json.dumps(updated_config), datetime.now().isoformat()))
+                    conn.commit()
+                
+                st.success("✅ Email settings saved successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Failed to save email settings: {e}")
+    
+    # ========== TAB 2: SECURITY SETTINGS ==========
+    with tab2:
+        st.markdown("#### 🔐 Security Settings")
+        
+        # Get current security config
+        try:
+            if is_supabase():
+                supabase = get_supabase_client()
+                response = supabase.table("system_config").select("*").eq("config_key", "security_settings").execute()
+                security_data = response.data[0] if response.data else None
+            else:
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM system_config WHERE config_key = 'security_settings'")
+                row = cursor.fetchone()
+                security_data = dict(row) if row else None
+        except:
+            security_data = None
+        
+        if security_data:
+            security_value = security_data.get('config_value', {})
+            if isinstance(security_value, str):
+                try:
+                    security_value = json.loads(security_value)
+                except:
+                    security_value = {}
+        else:
+            security_value = {
+                'require_2fa': True,
+                'session_timeout': 30,
+                'max_login_attempts': 5,
+                'password_policy': 'strong'
+            }
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            require_2fa = st.checkbox("Require 2FA for all users", value=security_value.get('require_2fa', True))
+            session_timeout = st.number_input("Session Timeout (minutes)", value=security_value.get('session_timeout', 30))
+        
+        with col2:
+            max_login_attempts = st.number_input("Max Login Attempts", value=security_value.get('max_login_attempts', 5))
+            password_policy = st.selectbox(
+                "Password Policy",
+                ["weak", "medium", "strong"],
+                index=["weak", "medium", "strong"].index(security_value.get('password_policy', 'strong'))
+            )
+        
+        if st.button("💾 Save Security Settings", type="primary"):
+            try:
+                updated_config = {
+                    'require_2fa': require_2fa,
+                    'session_timeout': session_timeout,
+                    'max_login_attempts': max_login_attempts,
+                    'password_policy': password_policy
+                }
+                
+                if is_supabase():
+                    supabase = get_supabase_client()
+                    supabase.table("system_config").upsert({
+                        "config_key": "security_settings",
+                        "config_value": json.dumps(updated_config),
+                        "updated_at": datetime.now().isoformat()
+                    }).execute()
+                else:
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
+                        VALUES (?, ?, ?)
+                    """, ("security_settings", json.dumps(updated_config), datetime.now().isoformat()))
+                    conn.commit()
+                
+                st.success("✅ Security settings saved successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Failed to save security settings: {e}")
+    
+    # ========== TAB 3: SYSTEM SETTINGS ==========
+    with tab3:
+        st.markdown("#### 📊 System Settings")
+        
+        # Get current system config
+        try:
+            if is_supabase():
+                supabase = get_supabase_client()
+                response = supabase.table("system_config").select("*").eq("config_key", "system_settings").execute()
+                system_data = response.data[0] if response.data else None
+            else:
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM system_config WHERE config_key = 'system_settings'")
+                row = cursor.fetchone()
+                system_data = dict(row) if row else None
+        except:
+            system_data = None
+        
+        if system_data:
+            system_value = system_data.get('config_value', {})
+            if isinstance(system_value, str):
+                try:
+                    system_value = json.loads(system_value)
+                except:
+                    system_value = {}
+        else:
+            system_value = {
+                'enable_maintenance_mode': False,
+                'enable_registration': True,
+                'enable_analytics': True,
+                'default_language': 'en'
+            }
+        
+        enable_maintenance = st.checkbox("Maintenance Mode", value=system_value.get('enable_maintenance_mode', False))
+        enable_registration = st.checkbox("Enable Registration", value=system_value.get('enable_registration', True))
+        enable_analytics = st.checkbox("Enable Analytics", value=system_value.get('enable_analytics', True))
+        default_language = st.selectbox("Default Language", ["en", "bn"], index=0 if system_value.get('default_language', 'en') == 'en' else 1)
+        
+        if st.button("💾 Save System Settings", type="primary"):
+            try:
+                updated_config = {
+                    'enable_maintenance_mode': enable_maintenance,
+                    'enable_registration': enable_registration,
+                    'enable_analytics': enable_analytics,
+                    'default_language': default_language
+                }
+                
+                if is_supabase():
+                    supabase = get_supabase_client()
+                    supabase.table("system_config").upsert({
+                        "config_key": "system_settings",
+                        "config_value": json.dumps(updated_config),
+                        "updated_at": datetime.now().isoformat()
+                    }).execute()
+                else:
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
+                        VALUES (?, ?, ?)
+                    """, ("system_settings", json.dumps(updated_config), datetime.now().isoformat()))
+                    conn.commit()
+                
+                st.success("✅ System settings saved successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Failed to save system settings: {e}")
+    
+    # ========== TAB 4: PERFORMANCE ==========
+    with tab4:
+        st.markdown("#### 📈 Performance Settings")
+        
+        # Get current performance config
+        try:
+            if is_supabase():
+                supabase = get_supabase_client()
+                response = supabase.table("system_config").select("*").eq("config_key", "performance_settings").execute()
+                perf_data = response.data[0] if response.data else None
+            else:
+                conn = db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM system_config WHERE config_key = 'performance_settings'")
+                row = cursor.fetchone()
+                perf_data = dict(row) if row else None
+        except:
+            perf_data = None
+        
+        if perf_data:
+            perf_value = perf_data.get('config_value', {})
+            if isinstance(perf_value, str):
+                try:
+                    perf_value = json.loads(perf_value)
+                except:
+                    perf_value = {}
+        else:
+            perf_value = {
+                'cache_enabled': True,
+                'cache_duration': 300,
+                'max_query_limit': 1000,
+                'enable_query_logging': True
+            }
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            cache_enabled = st.checkbox("Enable Cache", value=perf_value.get('cache_enabled', True))
+            cache_duration = st.number_input("Cache Duration (seconds)", value=perf_value.get('cache_duration', 300))
+        
+        with col2:
+            max_query_limit = st.number_input("Max Query Limit", value=perf_value.get('max_query_limit', 1000))
+            enable_query_logging = st.checkbox("Enable Query Logging", value=perf_value.get('enable_query_logging', True))
+        
+        if st.button("💾 Save Performance Settings", type="primary"):
+            try:
+                updated_config = {
+                    'cache_enabled': cache_enabled,
+                    'cache_duration': cache_duration,
+                    'max_query_limit': max_query_limit,
+                    'enable_query_logging': enable_query_logging
+                }
+                
+                if is_supabase():
+                    supabase = get_supabase_client()
+                    supabase.table("system_config").upsert({
+                        "config_key": "performance_settings",
+                        "config_value": json.dumps(updated_config),
+                        "updated_at": datetime.now().isoformat()
+                    }).execute()
+                else:
+                    conn = db.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
+                        VALUES (?, ?, ?)
+                    """, ("performance_settings", json.dumps(updated_config), datetime.now().isoformat()))
+                    conn.commit()
+                
+                st.success("✅ Performance settings saved successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Failed to save performance settings: {e}")
+def render_database_backup():
+    """Render database backup interface for Supabase"""
+    
+    st.markdown("""
+    <style>
+    .backup-container {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        padding: 2rem;
+        border: 1px solid rgba(102, 126, 234, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        margin-bottom: 1.5rem;
+    }
+    .backup-status {
+        background: rgba(102, 126, 234, 0.1);
+        border-radius: 8px;
+        padding: 1rem;
+        border-left: 4px solid #667eea;
+        margin: 1rem 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 💾 Database Backup & Export")
+    st.markdown("Export your Supabase database to JSON format for backup or migration.")
+    
+    # Check if using Supabase
+    from config.database import DB_TYPE
+    from database.connection import get_supabase_client, is_supabase
+    
+    if not is_supabase():
+        st.warning("⚠️ This feature is only available when using Supabase as the database backend.")
+        st.info("📌 You are currently using: " + (DB_TYPE.upper() if DB_TYPE else "SQLite"))
+        return
+    
+    st.success("✅ Connected to Supabase database")
+    
+    # ============================================================
+    # GET TABLE NAMES FROM RPC FUNCTION
+    # ============================================================
+    
+    try:
+        supabase = get_supabase_client()
+        
+        # Call your RPC function
+        response = supabase.rpc("get_table_names").execute()
+        
+        if hasattr(response, 'data') and response.data:
+            ALL_TABLES = [row['table_name'] for row in response.data]
+            st.success(f"✅ Found {len(ALL_TABLES)} tables in the database")
+        else:
+            st.warning("⚠️ Could not fetch table names. Using fallback list.")
+            ALL_TABLES = get_fallback_tables()
+            
+    except Exception as e:
+        st.warning(f"⚠️ Could not fetch table names: {str(e)}")
+        st.info("📌 Using fallback table list")
+        ALL_TABLES = get_fallback_tables()
+    
+    # ============================================================
+    # BACKUP OPTIONS
+    # ============================================================
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        new_api_url = st.text_input(
-            "Extension API Base URL",
-            value=current_api_url,
-            help="The URL that the Chrome extension will connect to for API calls"
+        st.markdown("#### 📋 Export Options")
+        
+        export_format = st.selectbox(
+            "Export Format",
+            ["JSON", "CSV", "Both (JSON + CSV)"],
+            help="JSON is recommended for full data preservation"
         )
         
-        st.caption("⚠️ After changing this URL, users must re-download the extension for changes to take effect.")
+        # Group tables for better UX
+        table_groups = categorize_tables(ALL_TABLES)
+        
+        # Flatten for selection
+        all_table_names = []
+        for group, tables in table_groups.items():
+            all_table_names.extend(tables)
+        
+        tables_to_export = st.multiselect(
+            "Select Tables to Export",
+            all_table_names,
+            default=["users", "companies", "subscriptions"] if "users" in all_table_names else all_table_names[:3]
+        )
+        
+        include_metadata = st.checkbox(
+            "Include metadata (timestamp, table structure, counts)",
+            value=True
+        )
+        
+        st.caption(f"📊 {len(tables_to_export)} tables selected out of {len(ALL_TABLES)} total")
     
     with col2:
-        if st.button("💾 Save API URL", type="primary", use_container_width=True):
-            if save_system_config('extension_api_url', new_api_url):
-                st.success("✅ API URL saved successfully!")
-                st.info("📥 Reminder: Users need to re-download the extension from the Download page.")
-                st.rerun()
-            else:
-                st.error("Failed to save configuration")
-    
-    # Show current configuration status
-    st.markdown("---")
-    st.markdown("#### 📡 Current Configuration")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Extension API URL", current_api_url)
-    with col2:
-        # Test connection
-        import requests
+        st.markdown("#### 📊 Table Status")
+        
         try:
-            response = requests.get(f"{current_api_url}/health", timeout=5)
-            status = "✅ Connected" if response.status_code == 200 else "⚠️ Check URL"
-        except:
-            status = "❌ Not Reachable"
-        st.metric("API Status", status)
-    with col3:
-        # Get extension download count
-        if db.table_exists('extension_downloads'):
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM extension_downloads")
-                download_count = cursor.fetchone()[0]
-        else:
-            download_count = 0
-        st.metric("Extension Downloads", download_count)
-    
-    # ========== SECTION 2: SYSTEM SETTINGS ==========
-    st.markdown("---")
-    st.markdown("#### 🔧 System Settings")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Debug mode setting
-        debug_mode = get_system_config('debug_mode', 'false') == 'true'
-        new_debug_mode = st.checkbox("Enable Debug Mode", value=debug_mode, help="Shows detailed error messages and debug information")
-        if new_debug_mode != debug_mode:
-            if save_system_config('debug_mode', str(new_debug_mode).lower()):
-                st.success("Debug mode setting saved")
-    
-    with col2:
-        # Maintenance mode
-        maintenance_mode = get_system_config('maintenance_mode', 'false') == 'true'
-        new_maintenance = st.checkbox("Maintenance Mode", value=maintenance_mode, help="Shows maintenance page to users")
-        if new_maintenance != maintenance_mode:
-            if save_system_config('maintenance_mode', str(new_maintenance).lower()):
-                st.warning("Maintenance mode setting saved. Restart required for full effect.")
-    
-    # ========== SECTION 3: RATE LIMITS ==========
-    st.markdown("---")
-    st.markdown("#### 🚦 Rate Limits")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        rate_limit = get_system_config('api_rate_limit', '60')
-        new_rate_limit = st.number_input("API Rate Limit (requests per minute)", min_value=10, max_value=1000, value=int(rate_limit))
-        if new_rate_limit != int(rate_limit):
-            if save_system_config('api_rate_limit', str(new_rate_limit)):
-                st.success(f"Rate limit updated to {new_rate_limit} requests/minute")
-    
-    with col2:
-        max_upload_size = get_system_config('max_upload_size_mb', '100')
-        new_max_upload = st.number_input("Max Upload Size (MB)", min_value=10, max_value=500, value=int(max_upload_size))
-        if new_max_upload != int(max_upload_size):
-            if save_system_config('max_upload_size_mb', str(new_max_upload)):
-                st.success(f"Max upload size updated to {new_max_upload} MB")
-    
-    # ========== SECTION 4: CLEAR CACHE ==========
-    st.markdown("---")
-    st.markdown("#### 🧹 Cache Management")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🗑️ Clear Extension Logs", use_container_width=True, type="secondary"):
-            if db.table_exists('extension_auto_fill_log'):
-                with db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM extension_auto_fill_log")
-                    conn.commit()
-                st.success("Extension logs cleared!")
-            else:
-                st.info("No extension logs to clear")
-    
-    with col2:
-        if st.button("📊 Recalculate Extension Usage", use_container_width=True, type="secondary"):
-            st.info("Usage statistics recalculated")
-    
-    # ========== SECTION 5: EXTENSION DOWNLOAD STATS ==========
-    st.markdown("---")
-    st.markdown("#### 📊 Extension Download Statistics")
-    
-    if db.table_exists('extension_downloads'):
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
+            st.markdown('<div class="backup-status">', unsafe_allow_html=True)
             
-            # Total downloads
-            cursor.execute("SELECT COUNT(*) FROM extension_downloads")
-            total_downloads = cursor.fetchone()[0]
-            
-            # Downloads by day (last 7 days)
-            db_type = db.get_db_type()
-            if db_type == 'sqlite':
-                cursor.execute("""
-                    SELECT date(downloaded_at) as day, COUNT(*) as count
-                    FROM extension_downloads
-                    WHERE downloaded_at >= date('now', '-7 days')
-                    GROUP BY date(downloaded_at)
-                    ORDER BY day DESC
-                """)
-            else:  # PostgreSQL
-                cursor.execute("""
-                    SELECT date(downloaded_at) as day, COUNT(*) as count
-                    FROM extension_downloads
-                    WHERE downloaded_at >= CURRENT_DATE - INTERVAL '7 days'
-                    GROUP BY date(downloaded_at)
-                    ORDER BY day DESC
-                """)
-            daily_downloads = cursor.fetchall()
-            
-            # Downloads by user
-            cursor.execute("""
-                SELECT username, COUNT(*) as count
-                FROM extension_downloads
-                GROUP BY username
-                ORDER BY count DESC
-                LIMIT 10
-            """)
-            user_downloads = cursor.fetchall()
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Total Downloads", total_downloads)
-                
-                if daily_downloads:
-                    st.markdown("**Last 7 Days**")
-                    for day, count in daily_downloads:
-                        st.write(f"{day}: {count} downloads")
-            
-            with col2:
-                if user_downloads:
-                    st.markdown("**Top Downloaders**")
-                    for username, count in user_downloads:
-                        st.write(f"{username}: {count} downloads")
-    else:
-        st.info("No extension downloads tracked yet")
-# _pages/admin_dashboard.py - Subscription Plans Management Section
-
-def render_subscription_plans_management():
-    """Render subscription plans management interface for system admin"""
-    
-    st.markdown("### 💳 Subscription Plans Management")
-    st.caption("Configure subscription plans, pricing, and limits")
-    
-    # Get existing plans using unified db
-    with db.get_connection() as conn:
-        cursor = db.db_conn.get_cursor(conn)
-        cursor.execute("SELECT * FROM subscription_plans ORDER BY monthly_price")
-        plans = cursor.fetchall()
-        
-        # Get column names for dict conversion
-        columns = [description[0] for description in cursor.description]
-    
-    # If no plans exist, insert defaults
-    if not plans:
-        _insert_default_plans()
-        # Re-fetch plans
-        with db.get_connection() as conn:
-            cursor = db.db_conn.get_cursor(conn)
-            cursor.execute("SELECT * FROM subscription_plans ORDER BY monthly_price")
-            plans = cursor.fetchall()
-    
-    st.markdown("#### 📋 Current Plans")
-    
-    # Display existing plans
-    for plan in plans:
-        plan_dict = dict(plan)
-        _render_plan_editor(plan_dict)
-    
-    # Add new plan
-    _render_add_plan_form()
-
-
-def _insert_default_plans():
-    """Insert default plans if none exist"""
-    default_plans = [
-        ('free', 'company', 0, 0, 5, 5, 5, 1, 5, 0, 0, 0, 0, 0, 'Free plan with basic features'),
-        ('basic', 'company', 4999, 49990, 30, 30, 30, 3, 30, 1, 0, 0, 0, 0, 'Basic plan for small businesses'),
-        ('professional', 'company', 14999, 149990, 100, 100, -1, 10, 100, 1, 1, 0, 1, 1, 'Professional plan for growing businesses'),
-        ('enterprise', 'company', 49999, 499990, -1, -1, -1, -1, -1, 1, 1, 1, 1, 1, 'Enterprise plan with unlimited features')
-    ]
-    
-    with db.get_connection() as conn:
-        cursor = db.db_conn.get_cursor(conn)
-        for plan in default_plans:
-            cursor.execute("""
-                INSERT OR IGNORE INTO subscription_plans (
-                    plan_name, plan_type, monthly_price, yearly_price,
-                    max_boq_generations, max_bid_optimizations, max_tender_analyses,
-                    max_users, extension_auto_fills, can_export_data, can_edit_rates,
-                    can_delete_rates, can_create_versions, can_manage_team, description
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, plan)
-        conn.commit()
-
-#"Dict" is not definedPylancereportUndefinedVariable
-def _render_plan_editor(plan_dict: Dict):
-    """Render editor for a single plan"""
-    
-    plan_name = plan_dict['plan_name']
-    
-    with st.expander(f"📌 {plan_name.upper()} Plan", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Pricing**")
-            new_monthly = st.number_input(
-                "Monthly Price (BDT)", 
-                value=float(plan_dict['monthly_price']),
-                min_value=0.0,
-                step=500.0,
-                key=f"monthly_{plan_name}"
-            )
-            new_yearly = st.number_input(
-                "Yearly Price (BDT)", 
-                value=float(plan_dict['yearly_price']),
-                min_value=0.0,
-                step=1000.0,
-                key=f"yearly_{plan_name}"
-            )
-            
-            st.markdown("**Limits**")
-            new_boq = st.number_input(
-                "Max BOQ Generations", 
-                value=int(plan_dict['max_boq_generations']),
-                min_value=-1,
-                step=1,
-                key=f"boq_{plan_name}",
-                help="-1 = Unlimited"
-            )
-            new_bid = st.number_input(
-                "Max Bid Optimizations", 
-                value=int(plan_dict['max_bid_optimizations']),
-                min_value=-1,
-                step=1,
-                key=f"bid_{plan_name}"
-            )
-            new_analyses = st.number_input(
-                "Max Tender Analyses", 
-                value=int(plan_dict['max_tender_analyses']),
-                min_value=-1,
-                step=1,
-                key=f"analyses_{plan_name}"
-            )
-            new_users = st.number_input(
-                "Max Users", 
-                value=int(plan_dict['max_users']),
-                min_value=-1,
-                step=1,
-                key=f"users_{plan_name}"
-            )
-            new_extension = st.number_input(
-                "Extension Auto-Fills (per month)", 
-                value=int(plan_dict['extension_auto_fills']),
-                min_value=-1,
-                step=1,
-                key=f"extension_{plan_name}"
-            )
-        
-        with col2:
-            st.markdown("**Permissions**")
-            new_export = st.checkbox(
-                "Can Export Data", 
-                value=bool(plan_dict['can_export_data']),
-                key=f"export_{plan_name}"
-            )
-            new_edit_rates = st.checkbox(
-                "Can Edit Rates", 
-                value=bool(plan_dict['can_edit_rates']),
-                key=f"edit_rates_{plan_name}"
-            )
-            new_delete_rates = st.checkbox(
-                "Can Delete Rates", 
-                value=bool(plan_dict['can_delete_rates']),
-                key=f"delete_rates_{plan_name}"
-            )
-            new_create_versions = st.checkbox(
-                "Can Create Versions", 
-                value=bool(plan_dict['can_create_versions']),
-                key=f"create_versions_{plan_name}"
-            )
-            new_manage_team = st.checkbox(
-                "Can Manage Team", 
-                value=bool(plan_dict['can_manage_team']),
-                key=f"manage_team_{plan_name}"
-            )
-            
-            st.markdown("**Description**")
-            new_description = st.text_area(
-                "Plan Description",
-                value=plan_dict.get('description', ''),
-                height=100,
-                key=f"desc_{plan_name}"
-            )
-        
-        # Save button
-        if st.button(f"💾 Save {plan_name.upper()} Plan", key=f"save_{plan_name}", use_container_width=True):
-            with db.get_connection() as conn:
-                cursor = db.db_conn.get_cursor(conn)
-                
+            # Show status for selected tables
+            for table in tables_to_export[:8]:
                 try:
-                    cursor.execute("""
-                        UPDATE subscription_plans 
-                        SET monthly_price = ?, yearly_price = ?,
-                            max_boq_generations = ?, max_bid_optimizations = ?,
-                            max_tender_analyses = ?, max_users = ?,
-                            extension_auto_fills = ?,
-                            can_export_data = ?, can_edit_rates = ?,
-                            can_delete_rates = ?, can_create_versions = ?,
-                            can_manage_team = ?, description = ?
-                        WHERE plan_name = ?
-                    """, (
-                        new_monthly, new_yearly,
-                        new_boq, new_bid, new_analyses, new_users, new_extension,
-                        1 if new_export else 0,
-                        1 if new_edit_rates else 0,
-                        1 if new_delete_rates else 0,
-                        1 if new_create_versions else 0,
-                        1 if new_manage_team else 0,
-                        new_description,
-                        plan_name
-                    ))
-                    conn.commit()
-                    st.success(f"✅ {plan_name.upper()} plan updated successfully!")
-                    # Clear plan cache
-                    from modules.subscription import get_plans
-                    get_plans(force_refresh=True)
-                    st.rerun()
+                    response = supabase.table(table).select("*", count="exact").limit(0).execute()
+                    count = response.count if hasattr(response, 'count') else 0
+                    status_icon = "✅" if count > 0 else "📭"
+                    st.caption(f"{status_icon} **{table}**: {count:,} records")
                 except Exception as e:
-                    st.error(f"Error updating plan: {e}")
-
-
-def _render_add_plan_form():
-    """Render form to add new plan"""
-    
-    st.markdown("---")
-    st.markdown("#### ➕ Add New Plan")
-    
-    with st.form("add_plan_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            new_plan_name = st.text_input("Plan Name *", placeholder="e.g., premium")
-            new_monthly = st.number_input("Monthly Price (BDT)", min_value=0.0, step=500.0)
-            new_yearly = st.number_input("Yearly Price (BDT)", min_value=0.0, step=1000.0)
-            new_description = st.text_area("Description", placeholder="Plan features and benefits")
-        
-        with col2:
-            st.markdown("**Default Limits**")
-            new_boq = st.number_input("Max BOQ Generations", min_value=-1, value=5)
-            new_bid = st.number_input("Max Bid Optimizations", min_value=-1, value=5)
-            new_analyses = st.number_input("Max Tender Analyses", min_value=-1, value=5)
-            new_users = st.number_input("Max Users", min_value=-1, value=1)
+                    st.caption(f"⚠️ **{table}**: Could not fetch")
             
-            st.markdown("**Default Permissions**")
-            new_export = st.checkbox("Can Export Data")
-            new_edit_rates = st.checkbox("Can Edit Rates")
-            new_delete_rates = st.checkbox("Can Delete Rates")
-            new_create_versions = st.checkbox("Can Create Versions")
-            new_manage_team = st.checkbox("Can Manage Team")
-        
-        if st.form_submit_button("➕ Create New Plan", type="primary"):
-            if not new_plan_name:
-                st.error("Plan name is required")
-            else:
-                plan_name = new_plan_name.lower().strip()
-                
-                # Check if plan already exists
-                with db.get_connection() as conn:
-                    cursor = db.db_conn.get_cursor(conn)
-                    cursor.execute("SELECT plan_name FROM subscription_plans WHERE plan_name = ?", (plan_name,))
-                    if cursor.fetchone():
-                        st.error(f"Plan '{plan_name}' already exists!")
-                        return
-                
-                # Insert new plan
-                with db.get_connection() as conn:
-                    cursor = db.db_conn.get_cursor(conn)
-                    try:
-                        cursor.execute("""
-                            INSERT INTO subscription_plans (
-                                plan_name, monthly_price, yearly_price, 
-                                max_boq_generations, max_bid_optimizations,
-                                max_tender_analyses, max_users,
-                                extension_auto_fills,
-                                can_export_data, can_edit_rates,
-                                can_delete_rates, can_create_versions,
-                                can_manage_team, description
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            plan_name, new_monthly, new_yearly,
-                            new_boq, new_bid, new_analyses, new_users,
-                            5,  # default extension auto-fills
-                            1 if new_export else 0,
-                            1 if new_edit_rates else 0,
-                            1 if new_delete_rates else 0,
-                            1 if new_create_versions else 0,
-                            1 if new_manage_team else 0,
-                            new_description
-                        ))
-                        conn.commit()
-                        st.success(f"✅ Plan '{plan_name}' created!")
-                        # Clear plan cache
-                        from modules.subscription import get_plans
-                        get_plans(force_refresh=True)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error creating plan: {e}")
-
-def get_system_config(key: str, default_value: str = None) -> str:
-    """Get a system configuration value"""
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM system_config WHERE key = ?", (key,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else default_value
-    except Exception as e:
-        print(f"Error getting config {key}: {e}")
-        return default_value
-
-
-def save_system_config(key: str, value: str) -> bool:
-    """Save a system configuration value"""
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO system_config (key, value, updated_by)
-            VALUES (?, ?, ?)
-        """, (key, value, st.session_state.get('user_id')))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error saving config {key}: {e}")
-        return False
-# Add these functions to _pages/admin_dashboard.py
-
-def render_pwd_version_tab(db_instance):
-    """Render PWD version management tab - UI only"""
+            if len(tables_to_export) > 8:
+                st.caption(f"... and {len(tables_to_export) - 8} more tables")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.caption(f"⚠️ Could not fetch stats: {str(e)}")
     
-    st.subheader("🏗️ PWD Rate Schedule Version Control")
+    # ============================================================
+    # BACKUP BUTTONS
+    # ============================================================
+    st.markdown("---")
     
-    tabs = st.tabs(["📥 Import New Version", "📜 Version History", "⚙️ Migration"])
-    
-    with tabs[0]:
-        render_version_import(db_instance)
-    
-    with tabs[1]:
-        render_version_history(db_instance)
-    
-    with tabs[2]:
-        render_version_migration(db_instance)
-
-
-def render_version_import(db_instance):
-    """Import a new version of PWD rates - UI only"""
-    
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        version_name = st.text_input("Version Name", placeholder="PWD Schedule 2025")
-        edition_year = st.number_input("Edition Year", min_value=2020, max_value=2030, value=2025)
+        export_btn = st.button(
+            "🚀 Export Selected",
+            type="primary",
+            use_container_width=True,
+            help="Export selected tables to the chosen format"
+        )
     
     with col2:
-        effective_date = st.date_input("Effective From")
-        is_active = st.checkbox("Set as Active Version", value=True)
+        export_all_btn = st.button(
+            "📦 Export All Tables",
+            use_container_width=True,
+            help="Export all available tables (may take a while)"
+        )
     
-    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], key="pwd_version_import")
+    with col3:
+        if st.button("🗑️ Clear Backup History", use_container_width=True):
+            if 'backup_history' in st.session_state:
+                del st.session_state['backup_history']
+            st.success("Backup history cleared!")
+            st.rerun()
     
-    if uploaded_file and st.button("Import Version", type="primary"):
-        temp_path = "temp_pwd_version.pdf"
+    # ============================================================
+    # PROCESS EXPORT
+    # ============================================================
+    
+    if export_btn or export_all_btn:
+        if export_all_btn:
+            tables_to_export = ALL_TABLES
         
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        if not tables_to_export:
+            st.error("❌ Please select at least one table to export.")
+            return
         
-        try:
-            with st.spinner("Importing PWD schedule..."):
-                from modules.pwd_data_manager import PWDParserWithHierarchy, save_hierarchy_to_database
+        with st.spinner(f"⏳ Exporting {len(tables_to_export)} tables from Supabase..."):
+            try:
+                export_data = {}
+                table_stats = {}
+                export_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                parser = PWDParserWithHierarchy()
-                hierarchy = parser.parse_pdf_with_hierarchy(temp_path, max_pages=None)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                errors = []
+                exported_count = 0
                 
-                if hierarchy['parents']:
-                    success, parents_count, children_count = save_hierarchy_to_database(hierarchy, edition_year)
+                for idx, table in enumerate(tables_to_export):
+                    status_text.text(f"📊 Exporting: {table}... ({idx+1}/{len(tables_to_export)})")
+                    progress_bar.progress((idx + 1) / len(tables_to_export))
                     
-                    if success:
-                        # Also save version info to rate_versions table
-                        conn = db_instance.get_connection()
-                        cursor = conn.cursor()
+                    try:
+                        # Query data from Supabase
+                        response = supabase.table(table).select("*").execute()
+                        data = response.data if hasattr(response, 'data') and response.data else []
                         
-                        cursor.execute("""
-                            INSERT INTO rate_versions (source, version_name, edition_year, effective_from, is_active)
-                            VALUES ('PWD', ?, ?, ?, ?)
-                        """, (version_name, edition_year, effective_date, 1 if is_active else 0))
+                        if data and len(data) > 0:
+                            export_data[table] = data
+                            table_stats[table] = {
+                                'count': len(data),
+                                'columns': list(data[0].keys()) if data else []
+                            }
+                            exported_count += 1
+                            print(f"✅ Exported {table}: {len(data)} records")
+                        else:
+                            export_data[table] = []
+                            table_stats[table] = {'count': 0, 'columns': []}
+                            print(f"ℹ️ Table '{table}' has no records")
                         
-                        conn.commit()
-                        conn.close()
-                        
-                        st.success(f"✅ Version {version_name} imported successfully!")
-                        st.success(f"   📊 {parents_count} parents, {children_count} children")
-                        st.balloons()
-                    else:
-                        st.error(f"Failed to save: {children_count}")
-                else:
-                    st.warning("No items found in the PDF")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "PGRST" not in error_msg:
+                            errors.append(f"Table '{table}': {error_msg}")
+                        export_data[table] = []
+                        table_stats[table] = {'count': 0, 'error': error_msg}
+                        print(f"❌ Could not export table '{table}': {error_msg}")
+                
+                status_text.text("✅ Export complete!")
+                progress_bar.progress(1.0)
+                
+                # Show any errors
+                if errors:
+                    with st.expander("⚠️ Export Warnings"):
+                        for err in errors:
+                            st.warning(err)
+                
+                # Prepare final export object
+                final_export = {
+                    'exported_at': export_timestamp,
+                    'database_type': 'supabase',
+                    'tables_exported': len(tables_to_export),
+                    'total_records': sum(stat.get('count', 0) for stat in table_stats.values() if isinstance(stat, dict)),
+                    'table_stats': table_stats,
+                    'include_metadata': include_metadata,
+                    'data': export_data
+                }
+                
+                # Store in session state
+                st.session_state['latest_backup'] = final_export
+                st.session_state['backup_timestamp'] = export_timestamp
+                
+                # Save to local file
+                backup_filename = f"backup_supabase_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                backup_path = os.path.join('data', 'backups')
+                os.makedirs(backup_path, exist_ok=True)
+                
+                json_file = os.path.join(backup_path, backup_filename)
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(final_export, f, indent=2, default=str)
+                
+                st.success(f"✅ Export successful! {exported_count} tables with data exported.")
+                st.info(f"📁 Backup saved locally: `{json_file}`")
+                
+                # Show summary
+                st.markdown("#### 📊 Export Summary")
+                summary_cols = st.columns(4)
+                with summary_cols[0]:
+                    st.metric("Tables Exported", len(tables_to_export))
+                with summary_cols[1]:
+                    total_records = sum(len(data) for data in export_data.values() if data)
+                    st.metric("Total Records", f"{total_records:,}")
+                with summary_cols[2]:
+                    st.metric("Format", export_format)
+                with summary_cols[3]:
+                    st.metric("Timestamp", export_timestamp.split(" ")[1])
+                
+                # Show per-table breakdown
+                with st.expander("📋 Per-Table Breakdown", expanded=True):
+                    table_data = []
+                    for table in tables_to_export:
+                        data = export_data.get(table, [])
+                        stats = table_stats.get(table, {})
+                        record_count = len(data) if data else 0
+                        table_data.append({
+                            'Table': table,
+                            'Records': record_count,
+                            'Columns': len(stats.get('columns', [])) if stats.get('columns') else 0,
+                            'Status': '✅' if record_count > 0 else '📭 Empty'
+                        })
                     
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-            import traceback
-            with st.expander("Debug Information"):
-                st.code(traceback.format_exc())
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-
-# def render_version_history(db_instance):
-#     """Display version history - UI only"""
+                    if table_data:
+                        st.dataframe(
+                            pd.DataFrame(table_data),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                
+                # Download buttons
+                st.markdown("#### 📥 Download Backup")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    json_str = json.dumps(final_export, indent=2, default=str)
+                    st.download_button(
+                        label="📄 Download JSON",
+                        data=json_str,
+                        file_name=f"backup_supabase_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                
+                with col2:
+                    if export_format in ["CSV", "Both (JSON + CSV)"]:
+                        try:
+                            import zipfile
+                            from io import BytesIO
+                            
+                            zip_buffer = BytesIO()
+                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                                for table, data in export_data.items():
+                                    if data and len(data) > 0:
+                                        df = pd.DataFrame(data)
+                                        csv_data = df.to_csv(index=False)
+                                        zip_file.writestr(f"{table}.csv", csv_data)
+                            
+                            zip_buffer.seek(0)
+                            
+                            st.download_button(
+                                label="📊 Download CSV (ZIP)",
+                                data=zip_buffer,
+                                file_name=f"backup_supabase_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                mime="application/zip",
+                                use_container_width=True
+                            )
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not create CSV: {str(e)}")
+                
+                with col3:
+                    if st.button("📂 View Backup History", use_container_width=True):
+                        st.session_state.show_backup_history = True
+                
+            except Exception as e:
+                st.error(f"❌ Export failed: {str(e)}")
+                import traceback
+                traceback.print_exc()
     
-#     from modules.pwd_data_manager import get_rate_versions, archive_version
+    # ============================================================
+    # BACKUP HISTORY
+    # ============================================================
     
-#     versions = get_rate_versions(db_instance)
-    
-#     if not versions:
-#         st.info("No versions found. Import a PWD schedule first.")
-#         return
-    
-#     st.markdown("#### Version History")
-    
-#     for version in versions:
-#         with st.expander(f"📌 {version['name']} ({version['year']})", expanded=False):
-#             col1, col2 = st.columns(2)
-            
-#             with col1:
-#                 st.write(f"**Effective Date:** {version['effective_date']}")
-#                 st.write(f"**Status:** {'✅ Active' if version['is_active'] else '📦 Archived'}")
-#                 st.write(f"**Imported:** {version['imported_at']}")
-            
-#             with col2:
-#                 st.write(f"**Parent Items:** {version['parent_count']}")
-#                 st.write(f"**Child Items:** {version['child_count']}")
-#                 st.write(f"**Total Items:** {version['parent_count'] + version['child_count']}")
-            
-#             if version['is_active']:
-#                 if st.button("Archive", key=f"archive_{version['id']}"):
-#                     if archive_version(db_instance, version['id']):
-#                         st.success(f"Version {version['name']} archived")
-#                         st.rerun()
-#                     else:
-#                         st.error("Failed to archive version")
-
-
-# def render_version_migration(db_instance):
-#     """Migrate BOQ items to new version - UI only"""
-    
-#     st.info("🔧 Migration Tool")
-#     st.caption("Migrate BOQ items from one version to another")
-    
-#     from modules.pwd_data_manager import get_rate_versions
-    
-#     versions = get_rate_versions(db_instance)
-    
-#     if len(versions) < 2:
-#         st.warning("Need at least 2 versions to migrate")
-#         return
-    
-#     col1, col2 = st.columns(2)
-    
-#     with col1:
-#         source_version = st.selectbox(
-#             "Source Version",
-#             options=[f"{v['name']} ({v['year']})" for v in versions],
-#             key="source_version"
-#         )
-    
-#     with col2:
-#         target_version = st.selectbox(
-#             "Target Version",
-#             options=[f"{v['name']} ({v['year']})" for v in versions],
-#             key="target_version"
-#         )
-    
-#     if st.button("🚀 Start Migration", type="primary"):
-#         st.info("Migration feature - Copies BOQ items from source to target version")
-#         # Add migration logic here
-#         st.success("Migration completed successfully!")
-
-def get_default_api_url() -> str:
-    """Get default API URL based on environment"""
-    import os
-    if os.environ.get('STREAMLIT_SHARING') or os.environ.get('STREAMLIT_CLOUD'):
-        return "https://itender-bd.streamlit.app"
-    else:
-        return "http://localhost:8501"
+    if st.session_state.get('show_backup_history', False):
+        st.markdown("---")
+        st.markdown("#### 📂 Backup History")
+        
+        backup_dir = os.path.join('data', 'backups')
+        if os.path.exists(backup_dir):
+            backup_files = [f for f in os.listdir(backup_dir) if f.startswith('backup_supabase_')]
+            if backup_files:
+                backup_files.sort(reverse=True)
+                
+                history_data = []
+                for file in backup_files[:20]:
+                    file_path = os.path.join(backup_dir, file)
+                    file_size = os.path.getsize(file_path)
+                    file_mtime = os.path.getmtime(file_path)
+                    history_data.append({
+                        'File': file,
+                        'Size': f"{file_size / 1024:.1f} KB",
+                        'Created': datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        'Path': file_path
+                    })
+                
+                st.dataframe(
+                    pd.DataFrame(history_data),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                selected_backup = st.selectbox(
+                    "Select a backup to download",
+                    [f['File'] for f in history_data],
+                    key="select_old_backup"
+                )
+                
+                if selected_backup:
+                    file_path = os.path.join(backup_dir, selected_backup)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    
+                    st.download_button(
+                        label=f"📥 Download {selected_backup}",
+                        data=file_content,
+                        file_name=selected_backup,
+                        mime="application/json",
+                        use_container_width=True
+                    )
+                
+                if st.button("🗑️ Delete Selected Backup", type="secondary"):
+                    if selected_backup:
+                        try:
+                            os.remove(os.path.join(backup_dir, selected_backup))
+                            st.success(f"✅ Deleted: {selected_backup}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Could not delete: {str(e)}")
+            else:
+                st.info("No backups found.")
+        else:
+            st.info("No backups directory found. Create one by exporting data.")
+        
+        if st.button("🔙 Close History", use_container_width=True):
+            st.session_state.show_backup_history = False
+            st.rerun()

@@ -481,8 +481,74 @@ class RateCRUD:
             logger.error(f"Error getting rate items: {e}")
             return []
 
-    
     def get_rate_items_with_pricing(self, book_id: int, version_id: int) -> List[Dict[str, Any]]:
+        """Get items with their pricing grouped by level"""
+        db = self._get_db()
+        
+        try:
+            # ✅ Get items
+            items = db.query("""
+                SELECT 
+                    id, item_code, item_description, unit, is_custom
+                FROM tenant_rate_items 
+                WHERE rate_book_id = ? AND is_active = 1 AND is_archived = 0
+                ORDER BY item_code
+            """, (book_id,))
+            
+            if not items:
+                return []
+            
+            item_ids = [item['id'] for item in items]
+            placeholders = ','.join(['?' for _ in item_ids])
+            
+            # ✅ Get ALL 4 pricing levels
+            pricing = db.query(f"""
+                SELECT 
+                    rate_item_id, pricing_level, price, discount_percentage
+                FROM tenant_pricing_levels
+                WHERE rate_version_id = ? 
+                AND rate_item_id IN ({placeholders})
+                ORDER BY rate_item_id, pricing_level
+            """, (version_id, *item_ids))
+            
+            # ✅ Group pricing by item
+            pricing_by_item = {}
+            for p in pricing:
+                item_id = p.get('rate_item_id')
+                if item_id not in pricing_by_item:
+                    pricing_by_item[item_id] = {}
+                level = p.get('pricing_level')
+                if level:
+                    pricing_by_item[item_id][level] = {
+                        'price': p.get('price', 0),
+                        'discount_percentage': p.get('discount_percentage', 0)
+                    }
+            
+            # ✅ Combine items with pricing
+            result = []
+            for item in items:
+                item_id = item.get('id')
+                item_pricing = pricing_by_item.get(item_id, {})
+                
+                # ✅ Ensure ALL 4 pricing levels exist with default values
+                all_levels = ['STANDARD', 'COMPETITIVE', 'AGGRESSIVE', 'PREMIUM']
+                for level in all_levels:
+                    if level not in item_pricing:
+                        item_pricing[level] = {
+                            'price': 0,
+                            'discount_percentage': 0
+                        }
+                
+                item['pricing'] = item_pricing
+                result.append(item)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting items with pricing: {e}")
+            return []
+
+    def get_rate_items_with_pricing_bak(self, book_id: int, version_id: int) -> List[Dict[str, Any]]:
         """Get items with their pricing grouped by level - FIXED table name"""
         db = self._get_db()
         
@@ -1777,40 +1843,88 @@ class RateCRUD:
         except Exception as e:
             print(f"Error archiving version: {e}")
             return False
-
+        
     def get_version_stats(self, version_id: int) -> Dict:
         """Get detailed statistics for a specific version"""
-        db = self._get_db()
         
         try:
-            version = db.query_one("SELECT source FROM rate_versions WHERE id = ?", (version_id,))
+            # Get the version source
+            version = self.query_one("SELECT source FROM rate_versions WHERE id = ?", (version_id,))
             if not version:
+                print(f"⚠️ Version {version_id} not found")
                 return {'parents': 0, 'children': 0, 'rates': 0}
             
             source = version.get('source')
+            print(f"🔍 Getting stats for version {version_id} (source: {source})")
             
-            if source == 'PWD':
-                stats = db.query_one("""
-                    SELECT 
-                        (SELECT COUNT(*) FROM pwd_parents WHERE version_id = ?) as parents,
-                        (SELECT COUNT(*) FROM pwd_children WHERE version_id = ?) as children,
-                        (SELECT COUNT(*) FROM pwd_rates WHERE version_id = ?) as rates
-                """, (version_id, version_id, version_id))
+            # For Supabase, use direct client for COUNT queries
+            if self.db_type == 'supabase':
+                try:
+                    from database.connection import get_supabase_client
+                    supabase = get_supabase_client()
+                    
+                    if source == 'PWD':
+                        # Get counts using Supabase client
+                        parents_resp = supabase.table("pwd_parents").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                        children_resp = supabase.table("pwd_children").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                        rates_resp = supabase.table("pwd_rates").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                    else:
+                        parents_resp = supabase.table("lged_parents").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                        children_resp = supabase.table("lged_children").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                        rates_resp = supabase.table("lged_zone_rates").select("*", count="exact").eq("version_id", version_id).limit(0).execute()
+                    
+                    return {
+                        'parents': parents_resp.count if hasattr(parents_resp, 'count') else 0,
+                        'children': children_resp.count if hasattr(children_resp, 'count') else 0,
+                        'rates': rates_resp.count if hasattr(rates_resp, 'count') else 0
+                    }
+                except Exception as e:
+                    print(f"⚠️ Supabase direct query failed, falling back to query_one: {e}")
+                    # Fallback to query_one method
+                    if source == 'PWD':
+                        parents = self.query_one("SELECT COUNT(*) as count FROM pwd_parents WHERE version_id = ?", (version_id,))
+                        children = self.query_one("SELECT COUNT(*) as count FROM pwd_children WHERE version_id = ?", (version_id,))
+                        rates = self.query_one("SELECT COUNT(*) as count FROM pwd_rates WHERE version_id = ?", (version_id,))
+                    else:
+                        parents = self.query_one("SELECT COUNT(*) as count FROM lged_parents WHERE version_id = ?", (version_id,))
+                        children = self.query_one("SELECT COUNT(*) as count FROM lged_children WHERE version_id = ?", (version_id,))
+                        rates = self.query_one("SELECT COUNT(*) as count FROM lged_zone_rates WHERE version_id = ?", (version_id,))
+                    
+                    return {
+                        'parents': parents.get('count', 0) if parents else 0,
+                        'children': children.get('count', 0) if children else 0,
+                        'rates': rates.get('count', 0) if rates else 0
+                    }
+            
             else:
-                stats = db.query_one("""
-                    SELECT 
-                        (SELECT COUNT(*) FROM lged_parents WHERE version_id = ?) as parents,
-                        (SELECT COUNT(*) FROM lged_children WHERE version_id = ?) as children,
-                        (SELECT COUNT(*) FROM lged_zone_rates WHERE version_id = ?) as rates
-                """, (version_id, version_id, version_id))
+                # SQLite: Use subqueries with ?
+                if source == 'PWD':
+                    sql = """
+                        SELECT 
+                            (SELECT COUNT(*) FROM pwd_parents WHERE version_id = ?) as parents,
+                            (SELECT COUNT(*) FROM pwd_children WHERE version_id = ?) as children,
+                            (SELECT COUNT(*) FROM pwd_rates WHERE version_id = ?) as rates
+                    """
+                else:
+                    sql = """
+                        SELECT 
+                            (SELECT COUNT(*) FROM lged_parents WHERE version_id = ?) as parents,
+                            (SELECT COUNT(*) FROM lged_children WHERE version_id = ?) as children,
+                            (SELECT COUNT(*) FROM lged_zone_rates WHERE version_id = ?) as rates
+                    """
+                
+                stats = self.query_one(sql, (version_id, version_id, version_id))
+                
+                return {
+                    'parents': stats.get('parents', 0) if stats else 0,
+                    'children': stats.get('children', 0) if stats else 0,
+                    'rates': stats.get('rates', 0) if stats else 0
+                }
             
-            return {
-                'parents': stats.get('parents', 0) if stats else 0,
-                'children': stats.get('children', 0) if stats else 0,
-                'rates': stats.get('rates', 0) if stats else 0
-            }
         except Exception as e:
-            print(f"Error getting version stats: {e}")
+            print(f"❌ Error getting version stats: {e}")
+            import traceback
+            traceback.print_exc()
             return {'parents': 0, 'children': 0, 'rates': 0}
 
     def add_version_change_log(self, version_id: int, source: str, action: str, 
