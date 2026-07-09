@@ -31,7 +31,14 @@ class SubscriptionManager:
             return self._db_manager
         else:
             raise AttributeError("No database connection available")
+    # def _enrich_subscription(self, subscription: Dict) -> Dict:
+    #     """Wrapper for enrich_subscription - used by DatabaseCRUD binding"""
+    #     return self.enrich_subscription(subscription)
 
+    # def _get_default_subscription(self) -> Dict:
+    #     """Wrapper for get_default_subscription - used by DatabaseCRUD binding"""
+    #     return self.get_default_subscription()
+    
     # ──────────────────────────────────────────────────────────────
     # PLAN MANAGEMENT
     # ──────────────────────────────────────────────────────────────
@@ -174,7 +181,7 @@ class SubscriptionManager:
                     company_id = user_response.data[0]['company_id']
                     return self.get_company_subscription(company_id)
                 
-                return self._get_default_subscription()
+                return self.get_default_subscription()
                 
             else:
                 db = self._get_db()
@@ -184,11 +191,11 @@ class SubscriptionManager:
                 )
                 if result:
                     return self.enrich_subscription(result[0])
-                return self._get_default_subscription()
+                return self.get_default_subscription()
 
         except Exception as e:
             logger.error(f"❌ Error getting user subscription for {user_id}: {e}")
-            return self._get_default_subscription()
+            return self.get_default_subscription()
 
     # ──────────────────────────────────────────────────────────────
     # UPDATE SUBSCRIPTION
@@ -398,10 +405,86 @@ class SubscriptionManager:
             'company_id': None,
             'user_id': None
         }
-    def _enrich_subscription(self, subscription: Dict) -> Dict:
-        """Wrapper for enrich_subscription - used by DatabaseCRUD binding"""
-        return self.enrich_subscription(subscription)
-
-    def _get_default_subscription(self) -> Dict:
-        """Wrapper for get_default_subscription - used by DatabaseCRUD binding"""
-        return self.get_default_subscription()
+    def get_all_subscriptions(self):
+        """Get all subscriptions for admin - returns dictionaries"""
+        try:
+            if self._use_supabase and self.supabase:
+                # Supabase with proper JOIN
+                response = self.supabase.table('subscriptions') \
+                    .select('*, users(id, username, email, full_name), companies(id, company_name)') \
+                    .order('updated_at', desc=True) \
+                    .execute()
+                
+                if not response.data:
+                    return []
+                
+                # Transform to dictionaries with proper keys
+                results = []
+                for sub in response.data:
+                    user = sub.get('users', {}) or {}
+                    company = sub.get('companies', {}) or {}
+                    
+                    results.append({
+                        'id': sub.get('id'),
+                        'user_id': sub.get('user_id'),
+                        'plan': sub.get('plan'),
+                        'status': sub.get('status'),
+                        'start_date': sub.get('start_date'),
+                        'end_date': sub.get('end_date'),
+                        'analyses_used': sub.get('analyses_used'),
+                        'analyses_limit': sub.get('analyses_limit'),
+                        'company_id': sub.get('company_id'),
+                        'created_at': sub.get('created_at'),
+                        'username': user.get('username', 'N/A'),
+                        'email': user.get('email', 'N/A'),
+                        'full_name': user.get('full_name', 'N/A'),
+                        'company_name': company.get('company_name', 'N/A')
+                    })
+                
+                return results
+            
+            else:
+                # SQLite - convert to dictionaries
+                with self.get_connection() as conn:
+                    cursor = self.db_conn.get_cursor(conn)
+                    cursor.execute('''
+                        SELECT 
+                            s.id, s.user_id, s.plan, s.status, s.start_date, s.end_date, 
+                            s.analyses_used, s.analyses_limit, s.company_id, s.created_at,
+                            COALESCE(u.username, 'N/A') as username,
+                            COALESCE(u.email, 'N/A') as email,
+                            COALESCE(u.full_name, 'N/A') as full_name,
+                            COALESCE(c.company_name, 'N/A') as company_name
+                        FROM subscriptions s
+                        LEFT JOIN users u ON s.user_id = u.id
+                        LEFT JOIN companies c ON s.company_id = c.id
+                        ORDER BY s.updated_at DESC
+                    ''')
+                    rows = cursor.fetchall()
+                    
+                    # ✅ Return as dictionaries instead of tuples
+                    return [
+                        {
+                            'id': row['id'],
+                            'user_id': row['user_id'],
+                            'plan': row['plan'],
+                            'status': row['status'],
+                            'start_date': row['start_date'],
+                            'end_date': row['end_date'],
+                            'analyses_used': row['analyses_used'],
+                            'analyses_limit': row['analyses_limit'],
+                            'company_id': row['company_id'],
+                            'created_at': row['created_at'],
+                            'username': row['username'],
+                            'email': row['email'],
+                            'full_name': row['full_name'],
+                            'company_name': row['company_name']
+                        }
+                        for row in rows
+                    ]
+                    
+        except Exception as e:
+            logger.error(f"Error getting all subscriptions: {e}")
+            import traceback
+            traceback.print_exc()
+            return []

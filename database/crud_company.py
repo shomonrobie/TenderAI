@@ -4,7 +4,7 @@ Core company profile management
 """
 from typing import Dict, List, Optional
 import logging
-
+from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
@@ -210,15 +210,31 @@ class CompanyCRUD:
     # # ============ Company Licenses ============
     
     def get_company_licenses(self, company_id: int, status: str = 'active') -> List[Dict]:
-        """Get company licenses"""
+        """Get company licenses with date conversion"""
         db = self._get_db()
-        return db.query(
+        results = db.query(
             "SELECT id, company_id, license_type, license_number, issuing_authority, "
             "issue_date, expiry_date, status, created_at, updated_at "
             "FROM company_licenses WHERE company_id = ? AND status = ? "
             "ORDER BY created_at DESC",
             (company_id, status)
         )
+        
+        # Convert date strings to date objects
+        for result in results:
+            if result.get('issue_date') and isinstance(result['issue_date'], str):
+                try:
+                    result['issue_date'] = datetime.strptime(result['issue_date'], '%Y-%m-%d').date()
+                except ValueError:
+                    pass
+            if result.get('expiry_date') and isinstance(result['expiry_date'], str):
+                try:
+                    result['expiry_date'] = datetime.strptime(result['expiry_date'], '%Y-%m-%d').date()
+                except ValueError:
+                    pass
+        
+        return results
+    
     
     def add_company_license(self, company_id: int, data: Dict) -> bool:
         """Add a new license/registration"""

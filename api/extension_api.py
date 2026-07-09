@@ -1,16 +1,14 @@
-# api/extension_api.py - Complete updated version
+# api/extension_api.py - Complete updated version with all auto-fill endpoints
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify
 from functools import wraps
 import jwt
 from datetime import datetime, timedelta
 import logging
-import io
 import os
 
-from database.unified_db_manager import UnifiedDatabaseManager
-
-from modules.field_matcher import field_matcher
+from database.unified_db_manager import get_db_manager
+from database.crud_autofill import AutoFillCRUD
 
 extension_bp = Blueprint('extension', __name__, url_prefix='/api')
 logger = logging.getLogger(__name__)
@@ -19,7 +17,15 @@ logger = logging.getLogger(__name__)
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
 JWT_EXPIRATION_HOURS = 24
 
-db = UnifiedDatabaseManager()
+
+def get_db():
+    """Get database manager instance"""
+    return get_db_manager()
+
+
+def get_autofill():
+    """Get AutoFillCRUD instance"""
+    return AutoFillCRUD(get_db())
 
 
 def require_auth(f):
@@ -48,7 +54,7 @@ def require_auth(f):
 
 
 # =============================================================================
-# HEALTH CHECK ENDPOINT (For extension auto-detection)
+# HEALTH CHECK
 # =============================================================================
 
 @extension_bp.route('/health', methods=['GET', 'HEAD'])
@@ -62,7 +68,7 @@ def health_check():
 
 
 # =============================================================================
-# AUTHENTICATION ENDPOINTS
+# AUTHENTICATION
 # =============================================================================
 
 @extension_bp.route('/auth/login', methods=['POST'])
@@ -74,6 +80,8 @@ def extension_login():
     
     if not username or not password:
         return jsonify({'success': False, 'message': 'Username and password required'}), 400
+    
+    db = get_db()
     
     # Authenticate using existing auth system
     user, status, message = db.authenticate_user(username, password)
@@ -87,9 +95,7 @@ def extension_login():
         return jsonify({'success': False, 'message': 'Account pending approval'}), 403
     
     # Get subscription info
-    #subscription = db.get_user_subscription(user[0])
     subscription = db.get_user_subscription(user.get('id'))
-
     plan = subscription.get('plan', 'free')
     
     # Generate JWT token
@@ -117,20 +123,29 @@ def extension_login():
     })
 
 
-@extension_bp.route('/verify-token', methods=['POST'])
-def verify_token():
-    """Verify JWT token validity"""
-    auth_header = request.headers.get('Authorization', '')
-    if not auth_header.startswith('Bearer '):
-        return jsonify({'valid': False}), 401
-    
-    token = auth_header[7:]
-    
+@extension_bp.route('/auth/auto-login', methods=['POST'])
+@require_auth
+def auto_login():
+    """Auto-login for already authenticated users (no password required)"""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-        return jsonify({'valid': True, 'user_id': payload['user_id']})
-    except:
-        return jsonify({'valid': False}), 401
+        db = get_db()
+        subscription = db.get_user_subscription(request.user_id)
+        plan = subscription.get('plan', 'free')
+        
+        return jsonify({
+            'success': True,
+            'token': request.headers.get('Authorization', '').replace('Bearer ', ''),
+            'user': {
+                'id': request.user_id,
+                'company_id': request.company_id,
+                'role': request.user_role,
+                'username': request.username,
+                'plan': plan
+            }
+        })
+    except Exception as e:
+        logger.error(f"Auto-login error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # =============================================================================
@@ -140,134 +155,143 @@ def verify_token():
 @extension_bp.route('/auto-fill/<data_type>', methods=['GET'])
 @require_auth
 def get_auto_fill_data(data_type):
-    """Get data for auto-filling forms with usage check"""
+    """Get data for auto-filling forms"""
     search_term = request.args.get('search')
+    limit = request.args.get('limit', 50, type=int)
+    company_id = request.company_id
+    user_id = request.user_id
     
-    # Get company data
-    data = {}
+    autofill = get_autofill()
     
-    if data_type == 'personnel':
-        # Get personnel data
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, full_name, designation, employee_id, skills
-            FROM personnel
-            WHERE company_id = ? AND employment_status = 'active'
-            ORDER BY full_name
-            LIMIT 50
-        """, (request.company_id,))
+    # Map data_type to AutoFillCRUD method
+    data_map = {
+        'company': lambda: autofill.get_company_data(company_id),
+        'company_extended': lambda: autofill.get_company_extended_data(company_id),
+        'personnel': lambda: autofill.get_personnel_data(company_id, search_term, limit),
+        'personnel_detailed': lambda: autofill.get_personnel_detailed_data(company_id, search_term, limit),
+        'key_personnel': lambda: autofill.get_key_personnel_data(company_id),
+        'equipment': lambda: autofill.get_equipment_data(company_id, search_term, limit),
+        'experience': lambda: autofill.get_experience_data(company_id, search_term, limit),
+        'experience_comparison': lambda: autofill.get_experience_for_comparison(company_id),
+        'financial': lambda: autofill.get_financial_data(company_id),
+        'financial_detailed': lambda: autofill.get_financial_detailed_data(company_id),
+        'liquid_assets': lambda: autofill.get_liquid_assets(company_id),
+        'licenses': lambda: autofill.get_license_data(company_id),
+        'ongoing_works': lambda: autofill.get_ongoing_works_data(company_id),
+        'references': lambda: autofill.get_references_data(company_id),
+        'all': lambda: autofill.get_all_company_data(company_id),
+    }
+    
+    if data_type not in data_map:
+        return jsonify({'error': f'Unknown data type: {data_type}'}), 400
+    
+    try:
+        data = data_map[data_type]()
         
-        personnel = []
-        for row in cursor.fetchall():
-            personnel.append({
-                'id': row[0],
-                'name': row[1],
-                'designation': row[2],
-                'employee_id': row[3],
-                'skills': row[4] if row[4] else ''
-            })
-        data['personnel'] = personnel
-        conn.close()
-    
-    elif data_type == 'equipment':
-        # Get equipment data
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, equipment_name, equipment_type, model, capacity, current_status
-            FROM equipment
-            WHERE company_id = ? AND current_status = 'available'
-            ORDER BY equipment_name
-            LIMIT 50
-        """, (request.company_id,))
+        # Track usage
+        autofill.track_form_fill(company_id, user_id, {
+            'form_type': data_type,
+            'field_label': f'auto_fill_{data_type}',
+            'confidence': 1.0,
+            'url': request.referrer or ''
+        })
         
-        equipment = []
-        for row in cursor.fetchall():
-            equipment.append({
-                'id': row[0],
-                'name': row[1],
-                'type': row[2],
-                'model': row[3],
-                'capacity': row[4],
-                'status': row[5]
-            })
-        data['equipment'] = equipment
-        conn.close()
-    
-    elif data_type == 'experience':
-        # Get experience data
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, project_name, client_name, contract_value, completion_date
-            FROM experience_record
-            WHERE company_id = ? AND is_completed = 1
-            ORDER BY completion_date DESC
-            LIMIT 20
-        """, (request.company_id,))
+        return jsonify(data)
         
-        experiences = []
-        for row in cursor.fetchall():
-            experiences.append({
-                'id': row[0],
-                'project': row[1],
-                'client': row[2],
-                'value': row[3],
-                'date': row[4]
-            })
-        data['experiences'] = experiences
-        conn.close()
-    
-    elif data_type == 'financial':
-        # Get financial data
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT fiscal_year, annual_turnover, net_worth, working_capital, credit_limit
-            FROM financial_capacity
-            WHERE company_id = ?
-            ORDER BY fiscal_year DESC
-            LIMIT 3
-        """, (request.company_id,))
-        
-        financial = []
-        for row in cursor.fetchall():
-            financial.append({
-                'year': row[0],
-                'turnover': row[1],
-                'net_worth': row[2],
-                'working_capital': row[3],
-                'credit_limit': row[4]
-            })
-        data['financial'] = financial
-        conn.close()
-    
-    elif data_type == 'company':
-        # Get company profile
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT company_name, registration_number, vat_number, email, phone, address, division
-            FROM companies
-            WHERE id = ?
-        """, (request.company_id,))
-        
-        row = cursor.fetchone()
-        if row:
-            data['company'] = {
-                'name': row[0],
-                'registration_number': row[1],
-                'vat_number': row[2],
-                'email': row[3],
-                'phone': row[4],
-                'address': row[5],
-                'division': row[6]
-            }
-        conn.close()
-    
-    return jsonify(data)
+    except Exception as e:
+        logger.error(f"Error in auto-fill {data_type}: {e}")
+        return jsonify({'error': str(e)}), 500
 
+
+@extension_bp.route('/auto-fill/all-data', methods=['GET'])
+@require_auth
+def get_all_auto_fill_data():
+    """Get all company data for auto-fill in one request using the view"""
+    try:
+        db = get_db()
+        
+        result = db.query_one("""
+            SELECT * FROM vw_company_auto_fill_data 
+            WHERE company_id = ?
+        """, (request.company_id,))
+        
+        if result:
+            # Track usage
+            autofill = get_autofill()
+            autofill.track_form_fill(
+                request.company_id,
+                request.user_id,
+                {
+                    'form_type': 'all_data',
+                    'field_label': 'auto_fill_all_data',
+                    'confidence': 1.0,
+                    'url': request.referrer or ''
+                }
+            )
+            
+            return jsonify({
+                'success': True,
+                'data': dict(result)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'No data found for company'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error getting all auto-fill data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# =============================================================================
+# AUTO-FILL SETTINGS
+# =============================================================================
+
+@extension_bp.route('/auto-fill/settings', methods=['GET', 'POST', 'PUT'])
+@require_auth
+def manage_auto_fill_settings():
+    """Get or update auto-fill settings"""
+    autofill = get_autofill()
+    
+    if request.method == 'GET':
+        # Get settings
+        settings = autofill.get_auto_fill_settings(request.company_id)
+        return jsonify(settings)
+    
+    elif request.method in ['POST', 'PUT']:
+        # Update settings
+        data = request.get_json()
+        
+        # Validate data
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Update settings
+        success = autofill.update_auto_fill_settings(
+            request.company_id,
+            {
+                'auto_fill_email': data.get('auto_fill_email'),
+                'default_bid_amount': data.get('default_bid_amount'),
+                'default_contract_role': data.get('default_contract_role', 'Sole')
+            }
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Auto-fill settings updated successfully'
+            })
+        else:
+            return jsonify({'error': 'Failed to update settings'}), 500
+
+
+# =============================================================================
+# FIELD MATCHING
+# =============================================================================
 
 @extension_bp.route('/match-field', methods=['POST'])
 @require_auth
@@ -277,13 +301,12 @@ def match_field():
     label = data.get('label', '')
     field_type = data.get('fieldType', 'text')
     
-    match = field_matcher.match_field(label, field_type)
+    autofill = get_autofill()
+    match = autofill.match_field_to_data(label, field_type)
     
-    if match and match.get('source'):
-        # Get actual value if match is good
-        if match.get('confidence', 0) > 0.5:
-            value = get_field_value(request.company_id, match['source'], match['field'])
-            match['display_value'] = value
+    if match and match.get('source') and match.get('confidence', 0) > 0.5:
+        value = autofill.get_field_value(request.company_id, match['source'], match['field'])
+        match['display_value'] = value
     
     return jsonify({'match': match})
 
@@ -296,10 +319,15 @@ def get_fill_value():
     source = data.get('source')
     field = data.get('field')
     
-    value = get_field_value(request.company_id, source, field)
+    autofill = get_autofill()
+    value = autofill.get_field_value(request.company_id, source, field)
     
     return jsonify({'value': value})
 
+
+# =============================================================================
+# KNOWLEDGE SEARCH
+# =============================================================================
 
 @extension_bp.route('/knowledge/search', methods=['GET'])
 @require_auth
@@ -311,9 +339,15 @@ def search_knowledge_base():
     if not query:
         return jsonify({'results': []})
     
-    results = search_company_data(request.company_id, query, categories)
+    autofill = get_autofill()
+    results = autofill.search_company_data(request.company_id, query, categories)
     
     return jsonify({'results': results})
+
+
+# =============================================================================
+# TRACKING ENDPOINTS
+# =============================================================================
 
 @extension_bp.route('/track/form-fill', methods=['POST'])
 @require_auth
@@ -321,30 +355,20 @@ def track_form_fill():
     """Track form fill events for analytics and usage counting"""
     data = request.get_json()
     
-    # Log the fill to extension_auto_fill_log
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO extension_auto_fill_log 
-            (company_id, user_id, field_label, confidence_score, page_url, filled_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            request.company_id,
-            request.user_id,
-            data.get('field_label', ''),
-            data.get('confidence', 0),
-            data.get('url', ''),
-            datetime.now()
-        ))
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error tracking form fill: {e}")
+    autofill = get_autofill()
+    success = autofill.track_form_fill(
+        request.company_id,
+        request.user_id,
+        {
+            'field_label': data.get('field_label', ''),
+            'field_value': data.get('field_value', ''),
+            'confidence': data.get('confidence', 0),
+            'url': data.get('url', ''),
+            'form_type': data.get('form_type', '')
+        }
+    )
     
-    return jsonify({'success': True})
+    return jsonify({'success': success})
 
 
 @extension_bp.route('/usage/stats', methods=['GET'])
@@ -352,23 +376,14 @@ def track_form_fill():
 def get_extension_usage():
     """Get extension usage statistics for current company"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        db = get_db()
+        autofill = get_autofill()
         
-        # Get current month usage
-        this_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM extension_auto_fill_log 
-            WHERE company_id = ? AND filled_at >= ?
-        """, (request.company_id, this_month))
-        
-        used = cursor.fetchone()[0] or 0
-        conn.close()
+        usage = autofill.get_usage_stats(request.company_id, request.user_id)
         
         # Get subscription plan
-        sub = db.get_company_subscription(request.company_id)
-        plan = sub.get('plan', 'free')
+        subscription = db.get_user_subscription(request.user_id)
+        plan = subscription.get('plan', 'free')
         
         plan_limits = {
             'free': 5,
@@ -380,9 +395,9 @@ def get_extension_usage():
         
         return jsonify({
             'usage': {
-                'used': used,
+                'used': usage.get('used', 0),
                 'limit': limit,
-                'remaining': -1 if limit == -1 else max(0, limit - used),
+                'remaining': -1 if limit == -1 else max(0, limit - usage.get('used', 0)),
                 'is_unlimited': limit == -1
             },
             'plan': plan,
@@ -394,32 +409,67 @@ def get_extension_usage():
         return jsonify({'usage': {'used': 0, 'limit': 5, 'remaining': 5, 'is_unlimited': False}})
 
 
+@extension_bp.route('/track/submission', methods=['POST'])
+@require_auth
+def track_tender_submission():
+    """Track tender submission for analytics"""
+    data = request.get_json()
+    
+    autofill = get_autofill()
+    success = autofill.track_tender_submission(
+        request.company_id,
+        {
+            'tender_id': data.get('tender_id'),
+            'tender_title': data.get('tender_title'),
+            'procuring_entity': data.get('procuring_entity'),
+            'submission_date': data.get('submission_date'),
+            'bid_amount': data.get('bid_amount'),
+            'status': data.get('status', 'submitted'),
+            'auto_fill_used': data.get('auto_fill_used', False),
+            'auto_fill_count': data.get('auto_fill_count', 0)
+        }
+    )
+    
+    return jsonify({'success': success})
+
+
 @extension_bp.route('/company/stats', methods=['GET'])
 @require_auth
 def get_company_stats():
     """Get company statistics for extension display"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        db = get_db()
+        autofill = get_autofill()
         
         # Get user count
-        cursor.execute("SELECT COUNT(*) FROM users WHERE company_id = ? AND is_active = 1", (request.company_id,))
-        user_count = cursor.fetchone()[0] or 0
+        result = db.query_one(
+            "SELECT COUNT(*) as total FROM users WHERE company_id = ? AND is_active = 1",
+            (request.company_id,)
+        )
+        user_count = result.get('total', 0) if result else 0
         
         # Get tender count
-        cursor.execute("SELECT COUNT(*) FROM company_tenders WHERE company_id = ?", (request.company_id,))
-        tender_count = cursor.fetchone()[0] or 0
+        result = db.query_one(
+            "SELECT COUNT(*) as total FROM company_tenders WHERE company_id = ?",
+            (request.company_id,)
+        )
+        tender_count = result.get('total', 0) if result else 0
         
         # Get analysis count
-        cursor.execute("SELECT COUNT(*) FROM tender_analyses WHERE company_id = ?", (request.company_id,))
-        analysis_count = cursor.fetchone()[0] or 0
+        result = db.query_one(
+            "SELECT COUNT(*) as total FROM tender_analyses WHERE company_id = ?",
+            (request.company_id,)
+        )
+        analysis_count = result.get('total', 0) if result else 0
         
-        conn.close()
+        # Get auto-fill usage
+        usage = autofill.get_usage_stats(request.company_id)
         
         return jsonify({
             'total_users': user_count,
             'total_tenders': tender_count,
-            'total_analyses': analysis_count
+            'total_analyses': analysis_count,
+            'auto_fill_this_month': usage.get('used', 0)
         })
         
     except Exception as e:
@@ -428,160 +478,57 @@ def get_company_stats():
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# FILE UPLOAD
 # =============================================================================
 
-def get_field_value(company_id, source, field):
-    """Get actual value from database for a matched field"""
+@extension_bp.route('/upload/contract', methods=['POST'])
+@require_auth
+def upload_contract_agreement():
+    """Upload contract agreement file for ongoing works"""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        value = None
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
         
-        if source == 'personnel':
-            # Get first key personnel
-            cursor.execute("""
-                SELECT full_name FROM personnel 
-                WHERE company_id = ? AND employment_status = 'active' 
-                ORDER BY is_key_personnel DESC, full_name
-                LIMIT 1
-            """, (company_id,))
-            row = cursor.fetchone()
-            if row:
-                value = row[0]
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
         
-        elif source == 'equipment':
-            # Get equipment list as comma-separated
-            cursor.execute("""
-                SELECT equipment_name FROM equipment 
-                WHERE company_id = ? AND current_status = 'available'
-                LIMIT 5
-            """, (company_id,))
-            rows = cursor.fetchall()
-            if rows:
-                value = ', '.join([row[0] for row in rows])
+        work_id = request.form.get('work_id')
+        contract_number = request.form.get('contract_number')
         
-        elif source == 'experience':
-            # Get recent project
-            cursor.execute("""
-                SELECT project_name FROM experience_record 
-                WHERE company_id = ? AND is_completed = 1
-                ORDER BY completion_date DESC
-                LIMIT 1
-            """, (company_id,))
-            row = cursor.fetchone()
-            if row:
-                value = row[0]
+        # Save file
+        upload_dir = f"data/uploads/contracts/{request.company_id}"
+        os.makedirs(upload_dir, exist_ok=True)
         
-        elif source == 'financial':
-            # Get latest financial data
-            if field == 'annual_turnover':
-                cursor.execute("""
-                    SELECT annual_turnover FROM financial_capacity 
-                    WHERE company_id = ?
-                    ORDER BY fiscal_year DESC
-                    LIMIT 1
-                """, (company_id,))
-                row = cursor.fetchone()
-                if row and row[0]:
-                    value = f"৳{row[0]:,.0f}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = file.filename.replace(" ", "_")
+        file_path = f"{upload_dir}/{timestamp}_{safe_name}"
         
-        elif source == 'company_profile':
-            # Get company info
-            cursor.execute("""
-                SELECT {} FROM companies WHERE id = ?
-            """.format(field), (company_id,))
-            row = cursor.fetchone()
-            if row and row[0]:
-                value = row[0]
+        file.save(file_path)
         
-        elif source == 'certificate':
-            # Get certificate info
-            if field == 'certificate_name':
-                cursor.execute("""
-                    SELECT certificate_name FROM certificate 
-                    WHERE company_id = ? AND verification_status = 'approved'
-                    LIMIT 1
-                """, (company_id,))
-                row = cursor.fetchone()
-                if row:
-                    value = row[0]
+        autofill = get_autofill()
+        success = False
         
-        conn.close()
-        return value
+        if work_id:
+            success = autofill.update_contract_agreement(
+                request.company_id, int(work_id), file_path, file.filename
+            )
+        elif contract_number:
+            success = autofill.update_experience_contract(
+                request.company_id, contract_number, file_path
+            )
+        else:
+            return jsonify({'error': 'work_id or contract_number required'}), 400
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'file_path': file_path,
+                'file_name': file.filename
+            })
+        else:
+            return jsonify({'error': 'Failed to update record'}), 500
         
     except Exception as e:
-        logger.error(f"Error getting field value: {e}")
-        return None
-
-
-def search_company_data(company_id, query, categories=None):
-    """Search across company data"""
-    results = []
-    
-    try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        search_term = f"%{query}%"
-        
-        # Search personnel
-        if not categories or 'personnel' in categories:
-            cursor.execute("""
-                SELECT 'personnel' as source, id, full_name as name, designation
-                FROM personnel
-                WHERE company_id = ? AND employment_status = 'active'
-                AND (full_name LIKE ? OR designation LIKE ? OR skills LIKE ?)
-                LIMIT 10
-            """, (company_id, search_term, search_term, search_term))
-            
-            for row in cursor.fetchall():
-                results.append({
-                    'source': row[0],
-                    'id': row[1],
-                    'name': row[2],
-                    'designation': row[3]
-                })
-        
-        # Search equipment
-        if not categories or 'equipment' in categories:
-            cursor.execute("""
-                SELECT 'equipment' as source, id, equipment_name as name, equipment_type
-                FROM equipment
-                WHERE company_id = ?
-                AND (equipment_name LIKE ? OR model LIKE ? OR equipment_type LIKE ?)
-                LIMIT 10
-            """, (company_id, search_term, search_term, search_term))
-            
-            for row in cursor.fetchall():
-                results.append({
-                    'source': row[0],
-                    'id': row[1],
-                    'name': row[2],
-                    'type': row[3]
-                })
-        
-        # Search experiences
-        if not categories or 'experience' in categories:
-            cursor.execute("""
-                SELECT 'experience' as source, id, project_name as name, client_name
-                FROM experience_record
-                WHERE company_id = ?
-                AND (project_name LIKE ? OR client_name LIKE ? OR nature_of_work LIKE ?)
-                ORDER BY completion_date DESC
-                LIMIT 10
-            """, (company_id, search_term, search_term, search_term))
-            
-            for row in cursor.fetchall():
-                results.append({
-                    'source': row[0],
-                    'id': row[1],
-                    'name': row[2],
-                    'client': row[3]
-                })
-        
-        conn.close()
-        
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-    
-    return results
+        logger.error(f"Error uploading contract: {e}")
+        return jsonify({'error': str(e)}), 500

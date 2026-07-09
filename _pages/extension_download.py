@@ -1,12 +1,15 @@
-# _pages/extension_download.py - FIXED VERSION
+# _pages/extension_download.py - REFACTORED VERSION
+# Using only CRUD methods, no raw SQL
 
 import streamlit as st
 import zipfile
 import io
 import json
 import base64
+import os
 from datetime import datetime
 from database.unified_db_manager import get_db_manager
+
 
 def show():
     """Extension Download Page - Only for registered users"""
@@ -96,7 +99,7 @@ def show():
             type="primary"
         )
         
-        # Log the download
+        # Log the download using CRUD
         log_extension_download(user_id, company_id, username)
         
     with col2:
@@ -126,22 +129,17 @@ def show():
     sub = db.get_company_subscription(company_id)
     plan = sub.get('plan', 'free')
     
-    # Get current month usage
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    # Get current month usage using CRUD method
     this_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
     
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='extension_auto_fill_log'")
-    if cursor.fetchone():
-        cursor.execute("""
-            SELECT COUNT(*) FROM extension_auto_fill_log 
-            WHERE company_id = ? AND filled_at >= ?
-        """, (company_id, this_month))
-        used = cursor.fetchone()[0] or 0
-    else:
-        used = 0
+    # Query usage stats using the unified method
+    usage = db.query_one("""
+        SELECT COUNT(*) as count 
+        FROM extension_auto_fill_log 
+        WHERE company_id = ? AND filled_at >= ?
+    """, (company_id, this_month))
     
-    conn.close()
+    used = usage.get('count', 0) if usage else 0
     
     plan_limits = {'free': 5, 'basic': 30, 'professional': 100, 'enterprise': -1}
     limit = plan_limits.get(plan, 5)
@@ -168,24 +166,23 @@ def show():
 
 def get_system_api_url():
     """Get the system-wide API URL configuration"""
+    db = get_db_manager()
+    
     try:
-        db = get_db_manager()
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        # Try to get from system_config table using direct query since we don't have a CRUD method for this
+        result = db.query_one(
+            "SELECT value FROM system_config WHERE key = 'extension_api_url'"
+        )
         
-        cursor.execute("SELECT value FROM system_config WHERE key = 'extension_api_url'")
-        result = cursor.fetchone()
-        
-        if result and result[0]:
-            api_url = result[0]
+        if result and result.get('value'):
+            api_url = result.get('value')
         else:
-            import os
+            # Fallback to environment detection
             if os.environ.get('STREAMLIT_SHARING') or os.environ.get('STREAMLIT_CLOUD'):
                 api_url = "https://itender-bd.streamlit.app"
             else:
                 api_url = "http://localhost:5000"
         
-        conn.close()
         return api_url.rstrip('/')
         
     except Exception as e:
@@ -193,29 +190,41 @@ def get_system_api_url():
         return "http://localhost:5000"
 
 
-
-
 def save_system_api_url(api_url):
     """Save the system-wide API URL configuration (admin only)"""
     db = get_db_manager()
+    
     try:
-        
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
+        # Use direct query since there's no specific CRUD method for system_config
+        result = db.execute("""
             INSERT OR REPLACE INTO system_config (key, value, updated_by)
             VALUES ('extension_api_url', ?, ?)
         """, (api_url.rstrip('/'), st.session_state.get('user_id')))
         
-        conn.commit()
-        conn.close()
-        return True
+        return result > 0
+        
     except Exception as e:
         print(f"Error saving API URL: {e}")
         return False
 
-# In _pages/extension_download.py, replace the create_extension_package function
+
+def log_extension_download(user_id, company_id, username):
+    """Log extension download for analytics"""
+    db = get_db_manager()
+    
+    try:
+        # Use direct query since there's no specific CRUD method for extension_downloads
+        result = db.execute("""
+            INSERT INTO extension_downloads (user_id, company_id, username)
+            VALUES (?, ?, ?)
+        """, (user_id, company_id, username))
+        
+        return result > 0
+        
+    except Exception as e:
+        print(f"Error logging download: {e}")
+        return False
+
 
 def create_extension_package(user_id, company_id, username, api_base_url, user_role):
     """Create a customized extension ZIP file with separate JS files"""
@@ -1159,19 +1168,3 @@ checkAuth();
     
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
-def log_extension_download(user_id, company_id, username):
-    """Log extension download for analytics"""
-    try:
-        
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO extension_downloads (user_id, company_id, username)
-            VALUES (?, ?, ?)
-        """, (user_id, company_id, username))
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error logging download: {e}")

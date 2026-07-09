@@ -557,14 +557,22 @@ def render_equipment(company_id):
     else:
         st.info("No equipment added. Add your equipment inventory.")
 
-
 def render_experience(company_id):
     """Project experience management"""
     st.markdown("### 📋 Project Experience")
     st.caption("Add completed projects for experience requirements")
     
     db = get_db_manager()
-    experiences = db.get_company_experience(company_id)
+    
+    # Get experiences using the correct method
+    experiences = []
+    if hasattr(db, 'get_company_experience'):
+        experiences = db.get_company_experience(company_id)
+        if experiences is None:
+            experiences = []
+    else:
+        st.error("Database method not available. Please contact support.")
+        return
     
     # Add new experience
     with st.expander("➕ Add Project Experience", expanded=False):
@@ -573,123 +581,128 @@ def render_experience(company_id):
             
             with col1:
                 project_name = st.text_input("Project Name *")
-                client_name = st.text_input("Client Name *")
-                contract_value = st.number_input("Contract Value (BDT)", min_value=0.0, step=100000.0)
+                procuring_entity = st.text_input("Procuring Entity *")
+                contract_number = st.text_input("Contract Number")
+                contract_value = st.number_input("Contract Value (BDT)", min_value=0.0, step=100000.0, format="%.2f")
             
             with col2:
-                contract_date = st.date_input("Contract Date")
+                award_date = st.date_input("Award Date")
                 completion_date = st.date_input("Completion Date")
-                nature_of_work = st.text_area("Nature of Work / Scope")
+                role = st.selectbox("Role", ["Prime Contractor", "Subcontractor", "JV Partner"])
+                is_completed = st.checkbox("Project Completed", value=True)
             
-            is_completed = st.checkbox("Project Completed", value=True)
+            procuring_entity_address = st.text_area("Procuring Entity Address")
+            procuring_entity_contact = st.text_input("Procuring Entity Contact")
+            procuring_entity_email = st.text_input("Procuring Entity Email")
+            similarity_justification = st.text_area("Similarity Justification")
             
             submitted = st.form_submit_button("Add Experience")
             
-            if submitted and project_name and client_name:
+            if submitted and project_name and procuring_entity:
                 data = {
                     'project_name': project_name,
-                    'client_name': client_name,
+                    'procuring_entity': procuring_entity,
+                    'contract_number': contract_number,
                     'contract_value': contract_value,
-                    'contract_date': contract_date,
+                    'award_date': award_date,
                     'completion_date': completion_date,
-                    'nature_of_work': nature_of_work,
+                    'role': role,
+                    'procuring_entity_address': procuring_entity_address,
+                    'procuring_entity_contact': procuring_entity_contact,
+                    'procuring_entity_email': procuring_entity_email,
+                    'similarity_justification': similarity_justification,
                     'is_completed': is_completed
                 }
                 
-                if db.add_experience(company_id, data):
-                    st.success(f"✅ {project_name} added successfully!")
-                    st.rerun()
+                if hasattr(db, 'add_experience'):
+                    if db.add_experience(company_id, data):
+                        st.success(f"✅ {project_name} added successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to add experience")
                 else:
-                    st.error("❌ Failed to add experience")
+                    st.error("add_experience method not available")
     
-    # Display experiences
-    if experiences:
+    # Display experiences with proper formatting
+    if experiences and len(experiences) > 0:
         st.markdown("### 📋 Project History")
         
+        # Create a clean dataframe for display
+        display_data = []
         for exp in experiences:
-            with st.expander(f"📋 {exp['project_name']} - {exp['client_name']}"):
+            # Parse dates if they're strings
+            award_date = exp.get('award_date')
+            completion_date = exp.get('completion_date')
+            
+            # Format dates for display
+            if award_date and isinstance(award_date, str):
+                try:
+                    award_date = datetime.strptime(award_date, '%Y-%m-%d').strftime('%d-%b-%Y')
+                except:
+                    award_date = str(award_date)
+            elif award_date and isinstance(award_date, date):
+                award_date = award_date.strftime('%d-%b-%Y')
+            
+            if completion_date and isinstance(completion_date, str):
+                try:
+                    completion_date = datetime.strptime(completion_date, '%Y-%m-%d').strftime('%d-%b-%Y')
+                except:
+                    completion_date = str(completion_date)
+            elif completion_date and isinstance(completion_date, date):
+                completion_date = completion_date.strftime('%d-%b-%Y')
+            
+            display_data.append({
+                'Project': exp.get('project_name', 'Unknown'),
+                'Procuring Entity': exp.get('procuring_entity', 'N/A'),
+                'Contract #': exp.get('contract_number', 'N/A'),
+                'Value (BDT)': f"৳{exp.get('contract_value', 0):,.2f}" if exp.get('contract_value') else 'N/A',
+                'Role': exp.get('role', 'N/A'),
+                'Award Date': award_date if award_date else 'N/A',
+                'Completion': completion_date if completion_date else 'N/A',
+                'Completed': '✅' if exp.get('is_completed') else '❌',
+                'ID': exp.get('id')
+            })
+        
+        # Show as dataframe
+        df = pd.DataFrame(display_data)
+        st.dataframe(df.drop(columns=['ID']), use_container_width=True, hide_index=True)
+        
+        # Show detailed view with expanders
+        st.markdown("### 📋 Detailed View")
+        for exp in experiences:
+            with st.expander(f"📋 {exp.get('project_name', 'Unknown')} - {exp.get('procuring_entity', 'N/A')}"):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.write(f"**Client:** {exp['client_name']}")
-                    st.write(f"**Contract Value:** ৳{exp['contract_value']:,.0f}" if exp['contract_value'] else "N/A")
+                    st.write(f"**Procuring Entity:** {exp.get('procuring_entity', 'N/A')}")
+                    st.write(f"**Contract Number:** {exp.get('contract_number', 'N/A')}")
+                    st.write(f"**Contract Value:** ৳{exp.get('contract_value', 0):,.2f}" if exp.get('contract_value') else "N/A")
+                    st.write(f"**Award Date:** {exp.get('award_date', 'N/A')}")
                 
                 with col2:
-                    st.write(f"**Completed:** {exp.get('completion_date', 'N/A')}")
-                    st.write(f"**Status:** {'✅ Completed' if exp['is_completed'] else '🔄 In Progress'}")
+                    st.write(f"**Completion Date:** {exp.get('completion_date', 'N/A')}")
+                    st.write(f"**Role:** {exp.get('role', 'N/A')}")
+                    st.write(f"**Completed:** {'✅' if exp.get('is_completed') else '❌'}")
+                    st.write(f"**Similarity:** {exp.get('similarity_justification', 'N/A')}")
                 
-                st.write(f"**Scope:** {exp.get('nature_of_work', 'N/A')}")
+                # Show additional details if available
+                if exp.get('procuring_entity_address'):
+                    st.write(f"**PE Address:** {exp.get('procuring_entity_address', 'N/A')}")
+                if exp.get('procuring_entity_contact'):
+                    st.write(f"**PE Contact:** {exp.get('procuring_entity_contact', 'N/A')}")
+                if exp.get('procuring_entity_email'):
+                    st.write(f"**PE Email:** {exp.get('procuring_entity_email', 'N/A')}")
                 
-                # Add edit option
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button(f"✏️ Edit", key=f"edit_exp_{exp['id']}"):
-                        st.session_state.edit_experience = exp['id']
-                        st.rerun()
-                with col2:
-                    if st.button(f"🗑️ Delete", key=f"del_exp_{exp['id']}"):
-                        if db.delete_experience(exp['id']):
+                if st.button(f"🗑️ Delete", key=f"del_exp_{exp.get('id')}"):
+                    if hasattr(db, 'delete_experience'):
+                        if db.delete_experience(exp.get('id')):
                             st.success("✅ Experience record deleted successfully!")
                             st.rerun()
                         else:
                             st.error("❌ Failed to delete experience")
-                
-                # Edit form if this experience is being edited
-                if st.session_state.get('edit_experience') == exp['id']:
-                    with st.form(f"edit_experience_form_{exp['id']}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            edit_project = st.text_input("Project Name", value=exp['project_name'])
-                            edit_client = st.text_input("Client Name", value=exp['client_name'])
-                            edit_value = st.number_input(
-                                "Contract Value (BDT)", 
-                                min_value=0.0, 
-                                step=100000.0,
-                                value=float(exp['contract_value']) if exp['contract_value'] else 0.0
-                            )
-                        
-                        with col2:
-                            edit_contract = st.date_input(
-                                "Contract Date", 
-                                value=exp.get('contract_date') or datetime.now().date()
-                            )
-                            edit_completion = st.date_input(
-                                "Completion Date",
-                                value=exp.get('completion_date') or datetime.now().date()
-                            )
-                            edit_completed = st.checkbox("Project Completed", value=exp['is_completed'])
-                        
-                        edit_scope = st.text_area("Nature of Work / Scope", value=exp.get('nature_of_work', ''))
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.form_submit_button("💾 Save Changes"):
-                                data = {
-                                    'project_name': edit_project,
-                                    'client_name': edit_client,
-                                    'contract_value': edit_value,
-                                    'contract_date': edit_contract,
-                                    'completion_date': edit_completion,
-                                    'nature_of_work': edit_scope,
-                                    'is_completed': edit_completed
-                                }
-                                
-                                if db.update_experience(exp['id'], data):
-                                    st.success("✅ Experience record updated successfully!")
-                                    st.session_state.edit_experience = None
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to update experience")
-                        
-                        with col2:
-                            if st.form_submit_button("Cancel"):
-                                st.session_state.edit_experience = None
-                                st.rerun()
     else:
         st.info("No experience records added. Add your completed projects.")
-
-
+        
 def render_documents(company_id):
     """Document management for company"""
     st.markdown("### 📄 Company Documents")

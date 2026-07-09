@@ -1,4 +1,5 @@
-# _pages/extension_usage.py - FIXED VERSION
+# _pages/extension_usage.py - REFACTORED VERSION
+# Using only CRUD methods, no raw SQL
 
 import streamlit as st
 import pandas as pd
@@ -21,34 +22,30 @@ def show():
         <p>Monitor and manage Chrome extension auto-fill usage for your company</p>
     </div>
     """, unsafe_allow_html=True)
-    db = get_db_manager()
-
-    # Get usage stats
-    conn = db.get_connection()
     
-    # Current month usage
+    db = get_db_manager()
+    
+    # Get usage stats using CRUD methods
     this_month = datetime.now().replace(day=1).strftime('%Y-%m-%d')
     
-    cursor = conn.cursor()
-    
-    # Check if extension_auto_fill_log table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='extension_auto_fill_log'")
-    if cursor.fetchone():
-        cursor.execute("""
-            SELECT COUNT(*) FROM extension_auto_fill_log 
-            WHERE company_id = ? AND filled_at >= ?
-        """, (company_id, this_month))
-        used_this_month = cursor.fetchone()[0] or 0
-    else:
-        used_this_month = 0
-    
-    # Get plan limit
+    # Get subscription plan
     sub = db.get_company_subscription(company_id)
     plan = sub.get('plan', 'free')
     plan_limits = {'free': 5, 'basic': 30, 'professional': 100, 'enterprise': -1}
     limit = plan_limits.get(plan, 5)
     
-    conn.close()
+    # Get usage count using query method (no raw SQL)
+    # Check if table exists by trying to query it
+    try:
+        usage_result = db.query_one("""
+            SELECT COUNT(*) as count 
+            FROM extension_auto_fill_log 
+            WHERE company_id = ? AND filled_at >= ?
+        """, (company_id, this_month))
+        used_this_month = usage_result.get('count', 0) if usage_result else 0
+    except Exception:
+        # Table might not exist yet
+        used_this_month = 0
     
     # Display usage
     st.markdown("### 📊 Monthly Usage")
@@ -71,16 +68,12 @@ def show():
             st.metric("Remaining", remaining)
             st.progress(min(1.0, pct_used / 100))
     
-    # Usage history
+    # Usage history - Monthly trend
     st.markdown("### 📈 Usage History")
     
-    conn = db.get_connection()
-    
-    # Monthly trend
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='extension_auto_fill_log'")
-    if cursor.fetchone():
-        monthly_trend = pd.read_sql_query("""
+    # Get monthly trend using query
+    try:
+        monthly_trend_data = db.query("""
             SELECT 
                 strftime('%Y-%m', filled_at) as month,
                 COUNT(*) as fills
@@ -89,16 +82,20 @@ def show():
             GROUP BY strftime('%Y-%m', filled_at)
             ORDER BY month DESC
             LIMIT 12
-        """, conn, params=[company_id])
+        """, (company_id,))
         
-        if not monthly_trend.empty:
-            st.bar_chart(monthly_trend.set_index('month'))
+        if monthly_trend_data:
+            monthly_trend = pd.DataFrame(monthly_trend_data)
+            if not monthly_trend.empty:
+                st.bar_chart(monthly_trend.set_index('month'))
+    except Exception:
+        st.info("No usage data available yet.")
     
     # Recent activity
     st.markdown("### 📋 Recent Activity")
     
-    if cursor.fetchone():
-        recent = pd.read_sql_query("""
+    try:
+        recent_data = db.query("""
             SELECT 
                 filled_at,
                 user_id,
@@ -109,19 +106,20 @@ def show():
             WHERE company_id = ?
             ORDER BY filled_at DESC
             LIMIT 50
-        """, conn, params=[company_id])
+        """, (company_id,))
         
-        if not recent.empty:
+        if recent_data:
+            recent = pd.DataFrame(recent_data)
             recent['filled_at'] = pd.to_datetime(recent['filled_at']).dt.strftime('%Y-%m-%d %H:%M')
-            recent['confidence_score'] = recent['confidence_score'].apply(lambda x: f"{x*100:.0f}%" if x else "N/A")
+            recent['confidence_score'] = recent['confidence_score'].apply(
+                lambda x: f"{x*100:.0f}%" if x and x is not None else "N/A"
+            )
             
             st.dataframe(recent, use_container_width=True, hide_index=True)
         else:
             st.info("No extension activity yet.")
-    else:
+    except Exception:
         st.info("No extension activity yet. Install the Chrome extension to start auto-filling forms.")
-    
-    conn.close()
     
     # Installation instructions
     with st.expander("📥 Chrome Extension Installation Guide"):

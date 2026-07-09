@@ -14,12 +14,14 @@ from database.crud_tender import TenderCRUD
 from database.crud_rates import RateCRUD
 from database.crud_boq import BOQCRUD
 from database.crud_company import CompanyCRUD
-from database.crud_equipment import EquipmentCRUD
-from database.crud_experience import ExperienceCRUD
+# from database.crud_equipment import EquipmentCRUD
+# from database.crud_experience import ExperienceCRUD
 from database.crud_competitor import CompetitorCRUD
 from database.crud_user import UserCRUD
 from database.crud_system_rates import SystemRateCRUD
 from database.crud_subscription import SubscriptionManager
+from database.crud_autofill import AutoFillCRUD
+
 import os
  
 
@@ -43,10 +45,10 @@ class DatabaseCRUD:
         self._rate_crud = RateCRUD(self)
         self._boq_crud = BOQCRUD(self)
         self._company_crud = CompanyCRUD(self)
-        self._equipment_crud = EquipmentCRUD(self)
-        self._experience_crud = ExperienceCRUD(self)
+        # self._equipment_crud = EquipmentCRUD(self)
+        # self._experience_crud = ExperienceCRUD(self)
         self._competitor_crud = CompetitorCRUD(self)
-        
+        self._autofill_crud = AutoFillCRUD(self)
         self._bind_competitor_methods()
 
         # ✅ Bind both Tender and Rate methods
@@ -57,9 +59,9 @@ class DatabaseCRUD:
         self._bind_rate_methods()  # ✅ Make sure this is called!        
         self._bind_boq_methods()
         self._bind_company_methods()
-        self._bind_equipment_methods()
-        self._bind_experience_methods()
-        
+        # self._bind_equipment_methods()
+        # self._bind_experience_methods()
+        self._bind_autofill_methods()
         print(f"✅ DatabaseCRUD initialized: mode={self.db_type}")
     
     
@@ -137,23 +139,23 @@ class DatabaseCRUD:
             if callable(method):
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
     
-    def _bind_equipment_methods(self):
-        """Bind equipment CRUD methods to DatabaseCRUD"""
-        for method_name in dir(self._equipment_crud):
-            if method_name.startswith('_'):
-                continue
-            method = getattr(self._equipment_crud, method_name)
-            if callable(method):
-                setattr(self, method_name, method.__get__(self, DatabaseCRUD))
+    # def _bind_equipment_methods(self):
+    #     """Bind equipment CRUD methods to DatabaseCRUD"""
+    #     for method_name in dir(self._equipment_crud):
+    #         if method_name.startswith('_'):
+    #             continue
+    #         method = getattr(self._equipment_crud, method_name)
+    #         if callable(method):
+    #             setattr(self, method_name, method.__get__(self, DatabaseCRUD))
     
-    def _bind_experience_methods(self):
-        """Bind experience CRUD methods to DatabaseCRUD"""
-        for method_name in dir(self._experience_crud):
-            if method_name.startswith('_'):
-                continue
-            method = getattr(self._experience_crud, method_name)
-            if callable(method):
-                setattr(self, method_name, method.__get__(self, DatabaseCRUD))
+    # def _bind_experience_methods(self):
+    #     """Bind experience CRUD methods to DatabaseCRUD"""
+    #     for method_name in dir(self._experience_crud):
+    #         if method_name.startswith('_'):
+    #             continue
+    #         method = getattr(self._experience_crud, method_name)
+    #         if callable(method):
+    #             setattr(self, method_name, method.__get__(self, DatabaseCRUD))
 
     def _bind_competitor_methods(self):
         """Bind all CompetitorCRUD methods to this instance"""
@@ -165,6 +167,16 @@ class DatabaseCRUD:
             if callable(method):
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
                 #print(f"   ✅ Bound: {method_name}")
+
+    
+    def _bind_autofill_methods(self):
+        """Bind _autofill_crud methods to DatabaseCRUD"""
+        for method_name in dir(self._autofill_crud):
+            if method_name.startswith('_'):
+                continue
+            method = getattr(self._autofill_crud, method_name)
+            if callable(method):
+                setattr(self, method_name, method.__get__(self, DatabaseCRUD))
 
     def get_connection(self):
         """Returns a connection that supports context manager protocol"""

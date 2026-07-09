@@ -44,7 +44,7 @@ def render_top_navigation():
             ("📝 Rates", "rate_management"), ("📥 Import", "import_wizard"),
             ("📋 Tenders", "tender_management"), ("📊 BOQ", "boq_generator"),
             ("📈 Basic", "quick_bid"), ("🎯 Adv Opt", "advanced_bid"), ("🎯 AI Advisor", "ai_advisor"), 
-            ("🔮 Simulator", "competitive_intel"), ("🏢 Knowledge", "company_knowledge"),
+            ("🔮 Simulator", "competitive_intel"), ("🏢 AutoFill Data", "company_knowledge"),
             ("🤖 Ext", "extension_admin"), ("💳 Subs", "subscription"),
             ("🤖 CompetitorMan", "competitor_master"),
             ("⚙️ Admin", "admin_dashboard"), 
@@ -58,7 +58,7 @@ def render_top_navigation():
             ("📥 Import", "import_wizard"), ("📋 Tenders", "tender_management"),
             ("📊 BOQ", "boq_generator"), ("📈 Basic", "quick_bid"),
             ("🎯 Adv Opt", "advanced_bid"), ("🔮 Simulator", "competitive_intel"), ("🎯 AI Advisor", "ai_advisor"), 
-            ("🏢 Knowledge", "company_knowledge"), ("🤖 Ext", "extension_usage"),
+            ("🏢 AutoFill Data", "company_knowledge"), ("🤖 Ext", "extension_usage"),
             ("🤖 CompetitorMan", "competitor_master"),
             ("💳 Subs", "subscription"), ("⚙️ Admin", "admin_dashboard"),
             ("🚀 Onboarding", "company_onboarding"), 
@@ -71,7 +71,7 @@ def render_top_navigation():
             ("📋 Tenders", "tender_management"), ("📊 Rates", "rate_viewer"),
             ("📊 BOQ", "boq_generator"), ("📈 Basic", "quick_bid"),
             ("🎯 Adv Opt", "advanced_bid"), ("🔮 Simulator", "competitive_intel"), ("🎯 AI Advisor", "ai_advisor"), 
-            ("🏢 Knowledge", "company_knowledge"), ("📥 Ext", "extension_download"),
+            ("🏢 AutoFill Data", "company_knowledge"), ("📥 Ext", "extension_download"),
             ("🤖 Extension", "extension_usage"),("🤖 CompetitorMan", "competitor_master"), ("📈 Reports", "analysis_history"),
             ("👥 Team", "user_management"), ("💳 Plan", "subscription"),
             ("🚀 Onboarding", "company_onboarding"),             
@@ -88,7 +88,7 @@ def render_top_navigation():
             nav_items += [
             ("🎯 Adv Opt", "advanced_bid"), 
                  ("🔮 Simulator", "competitive_intel"), ("🎯 AI Advisor", "ai_advisor"), 
-                ("🏢 Knowledge", "company_knowledge"), ("🤖 Extension", "extension_usage")
+                ("🏢 AutoFill Data", "company_knowledge"), ("🤖 Extension", "extension_usage")
             ]
         nav_items += [
             ("📥 Ext", "extension_download"), ("📈 Reports", "analysis_history"),
@@ -100,7 +100,7 @@ def render_top_navigation():
         nav_items = [
             ("🏠 Dash", "dashboard"), ("📋 Tenders", "tender_management"),
             ("📊 Rates", "rate_viewer"), ("📈 Basic", "quick_bid"),
-            ("📥 Ext", "extension_download"), ("🏢 Knowledge", "company_knowledge"),
+            ("📥 Ext", "extension_download"), ("🏢 AutoFill Data", "company_knowledge"),
             ("📈 Reports", "analysis_history"), 
             ("📖 Tutorial", "tutorial")
         ]
