@@ -440,28 +440,46 @@ class UserCRUD:
     # =========================================================================
     # PASSWORD MANAGEMENT METHODS
     # =========================================================================
-    
     def _hash_password(self, password: str) -> str:
         """Hash a password using bcrypt"""
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     def _verify_password(self, password: str, hashed: str) -> bool:
-        """Verify a password against its hash"""
+        """Verify a password against its bcrypt hash"""
         try:
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-        except bcrypt.InvalidHashError:
+        except (bcrypt.InvalidHashError, ValueError, TypeError):
             return False
-    
+
+    def user_has_password(self, user_id: int) -> bool:
+        """Check if user has a password set"""
+        db = self._get_db()
+        try:
+            query = "SELECT password FROM users WHERE id = %s"
+            result = db.query_one(query, (user_id,))
+            if result:
+                password = result.get('password')
+                return password is not None and password != ''
+            return False
+        except Exception as e:
+            logger.error(f"Error checking if user has password: {e}")
+            return False
+
     def change_user_password(self, user_id: int, current_password: str, new_password: str) -> Tuple[bool, str]:
         """Change user password with verification of current password"""
         db = self._get_db()
         try:
             # Get current password hash
-            row = db.query_one("SELECT password FROM users WHERE id = ?", (user_id,))
-            if not row:
+            query = "SELECT password FROM users WHERE id = %s"
+            result = db.query_one(query, (user_id,))
+            
+            if not result:
                 return False, "User not found"
             
-            stored_hash = row.get('password')
+            stored_hash = result.get('password')
+            
+            if not stored_hash:
+                return False, "No password set for this account. Please set a password first."
             
             # Verify current password
             if not self._verify_password(current_password, stored_hash):
@@ -471,7 +489,13 @@ class UserCRUD:
             hashed = self._hash_password(new_password)
             
             # Update password
-            db.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
+            update_query = """
+                UPDATE users 
+                SET password = %s, 
+                    updated_at = NOW() 
+                WHERE id = %s
+            """
+            db.execute(update_query, (hashed, user_id))
             
             # Log the activity
             self.log_user_activity(user_id, 'password_change', 'Password changed successfully')
@@ -481,7 +505,39 @@ class UserCRUD:
         except Exception as e:
             logger.error(f"Password change failed for user {user_id}: {e}")
             return False, f"Failed to change password: {str(e)}"
-    
+
+    def set_user_password(self, user_id: int, new_password: str) -> Tuple[bool, str]:
+        """Set password for OAuth user (no current password verification)"""
+        db = self._get_db()
+        try:
+            # Check if user exists
+            query = "SELECT id FROM users WHERE id = %s"
+            result = db.query_one(query, (user_id,))
+            
+            if not result:
+                return False, "User not found"
+            
+            # Hash new password
+            hashed = self._hash_password(new_password)
+            
+            # Update password
+            update_query = """
+                UPDATE users 
+                SET password = %s, 
+                    updated_at = NOW() 
+                WHERE id = %s
+            """
+            db.execute(update_query, (hashed, user_id))
+            
+            # Log the activity
+            self.log_user_activity(user_id, 'password_set', 'Password set for OAuth user')
+            
+            return True, "Password set successfully"
+            
+        except Exception as e:
+            logger.error(f"Failed to set password for user {user_id}: {e}")
+            return False, f"Failed to set password: {str(e)}"
+
     def reset_user_password(self, user_id: int, new_password: str = None) -> Tuple[bool, str]:
         """Reset user password. If new_password not provided, generate random."""
         db = self._get_db()
@@ -495,13 +551,18 @@ class UserCRUD:
             hashed = self._hash_password(new_password)
             
             # Update in database
-            db.execute("UPDATE users SET password = ? WHERE id = ?", (hashed, user_id))
+            update_query = """
+                UPDATE users 
+                SET password = %s, 
+                    updated_at = NOW() 
+                WHERE id = %s
+            """
+            db.execute(update_query, (hashed, user_id))
             
-            if db._use_supabase:
-                # Check if any rows were affected
-                check = db.query_one("SELECT id FROM users WHERE id = ?", (user_id,))
-                if not check:
-                    return False, "User not found"
+            # Check if any rows were affected
+            check = db.query_one("SELECT id FROM users WHERE id = %s", (user_id,))
+            if not check:
+                return False, "User not found"
             
             # Log the activity
             self.log_user_activity(user_id, 'password_reset', 'Password was reset by admin')
@@ -511,12 +572,12 @@ class UserCRUD:
         except Exception as e:
             logger.error(f"Password reset failed for user {user_id}: {e}")
             return False, f"Failed to reset password: {str(e)}"
-    
+
     def generate_random_password(self) -> str:
         """Generate a random password"""
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
         return ''.join(secrets.choice(alphabet) for _ in range(12))
-    
+
     # =========================================================================
     # PASSWORD RESET TOKEN METHODS
     # =========================================================================
@@ -526,38 +587,61 @@ class UserCRUD:
         db = self._get_db()
         try:
             expires_at = (datetime.now() + timedelta(minutes=expires_in_minutes)).isoformat()
-            db.execute("""
-                INSERT OR REPLACE INTO password_reset_tokens (email, token, expires_at) 
-                VALUES (?, ?, ?)
-            """, (email, token, expires_at))
+            
+            # Delete old tokens first
+            db.execute("DELETE FROM password_reset_tokens WHERE email = %s", (email,))
+            
+            # Insert new token
+            insert_query = """
+                INSERT INTO password_reset_tokens (email, token, expires_at, created_at) 
+                VALUES (%s, %s, %s, %s)
+            """
+            db.execute(insert_query, (email, token, expires_at, datetime.now().isoformat()))
             return True
         except Exception as e:
             logger.error(f"Failed to store reset token: {e}")
             return False
-    
+
     def verify_reset_token(self, token: str) -> Optional[str]:
         """Verify reset token and return email if valid"""
         db = self._get_db()
         try:
-            result = db.query_one("""
-                SELECT email FROM password_reset_tokens 
-                WHERE token = ? AND expires_at > ?
-            """, (token, datetime.now().isoformat()))
+            query = """
+                SELECT email, expires_at 
+                FROM password_reset_tokens 
+                WHERE token = %s AND expires_at > %s AND used = FALSE
+            """
+            result = db.query_one(query, (token, datetime.now()))
             return result.get('email') if result else None
         except Exception as e:
             logger.error(f"Failed to verify reset token: {e}")
             return None
-    
+
+    def mark_token_as_used(self, token: str) -> bool:
+        """Mark reset token as used"""
+        db = self._get_db()
+        try:
+            query = "UPDATE password_reset_tokens SET used = TRUE WHERE token = %s"
+            db.execute(query, (token,))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to mark token as used: {e}")
+            return False
+
+
     def update_password(self, email: str, new_password: str) -> bool:
         """Update user password with bcrypt"""
         db = self._get_db()
         try:
             hashed = self._hash_password(new_password)
-            db.execute("UPDATE users SET password = ? WHERE email = ?", (hashed, email))
+            query = "UPDATE users SET password = %s, updated_at = NOW() WHERE email = %s"
+            db.execute(query, (hashed, email))
             return True
         except Exception as e:
             logger.error(f"Failed to update password: {e}")
             return False
+    
+
     
     # =========================================================================
     # USER APPROVAL METHODS

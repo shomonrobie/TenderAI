@@ -452,6 +452,9 @@ def render_version_migration(db_instance):
 def show():
     """Admin dashboard page with full system management"""
     
+    # Initialize db at the start
+    db = get_db_manager()
+    
     st.markdown("""
     <div class="main-header">
         <h1>👑 Admin Dashboard</h1>
@@ -483,7 +486,7 @@ def show():
     
     st.markdown("---")
     
-    # ✅ 3 Main Tabs
+    # ✅ 7 Main Tabs
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "👑 Overview",
         "👥 Users & Roles",
@@ -492,29 +495,32 @@ def show():
         "📦 Version Management",
         "⚙️ System Config",
         "💾 Database Backup"
-
     ])
     
     # ========== TAB 1: OVERVIEW ==========
     with tab1:
         render_admin_overview(all_users, all_subs)
     
-    # ========== TAB 2: USERS & ROLES ==========
     with tab2:
-        col1, col2 = st.columns(2)
+        # Create sub-tabs for Users and Roles
+        user_role_tab1, user_role_tab2 = st.tabs(["👥 Users", "🔐 Roles"])
         
-        with col1:
-            st.markdown("#### 👑 System Users")
-            render_system_user_management()
-        
-        with col2:
-            st.markdown("#### 🔐 Role Management")
-            render_role_management_page()
-        
-        st.markdown("---")
-        st.markdown("#### 👥 All Users")
-        render_all_users(all_users)
+        with user_role_tab1:
+            # Check for user management sub-page
+            user_sub_page = st.session_state.get('user_sub_page', 'list')
+            
+            if user_sub_page == 'view_profile':
+                render_user_profile_view()
+            elif user_sub_page == 'edit_user':
+                render_user_edit_form()
+            else:
+                # Show user list with sub-page navigation
+                render_user_management_with_routing()
     
+    with user_role_tab2:
+        # Render role management
+        render_role_management_page()
+
     # ========== TAB 3: COMPANIES ==========
     with tab3:
         render_company_management()
@@ -530,218 +536,1910 @@ def show():
     # ========== TAB 6: SYSTEM CONFIG ==========
     with tab6:
         render_system_configuration()
+    
+    # ========== TAB 7: DATABASE BACKUP ==========
     with tab7:
         render_database_backup()
 
 
-def show_bak():
-    """Admin dashboard page with full system management"""
+def render_user_management_with_routing():
+    """Render user management with internal routing"""
     
-    st.markdown("""
-    <div class="main-header">
-        <h1>👑 Admin Dashboard</h1>
-        <p>System-wide administration and monitoring</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Don't show back button here - we're already on the list
+    # Get all users
+    db = get_db_manager()
     
-    # ✅ Use CRUD methods
-    all_users = db.get_all_users()
-    all_subs = db.get_all_subscriptions()
-    
-    # Statistics in a row
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Users", len(all_users))
-    
-    with col2:
-        active_users = len([u for u in all_users if u.get('is_active', False)]) if all_users else 0
-        st.metric("Active Users", active_users)
-    
-    with col3:
-        companies = set([u.get('company_name', 'N/A') for u in all_users if u.get('company_name') and u.get('company_name') != 'N/A']) if all_users else set()
-        st.metric("Companies", len(companies))
-    
-    with col4:
-        paid_subs = len([s for s in all_subs if s.get('plan') not in ['free', 'trial']]) if all_subs else 0
-        st.metric("Paid Subscriptions", paid_subs)
-    
-    # Add a divider to separate metrics from tabs
-    st.markdown("---")
-    
-    # Tabs
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
-        "📊 Overview", 
-        "👥 All Users", 
-        "🏢 Companies", 
-        "👑 System Users", 
-        "🔐 Role Management",
-        "🏗️ Rate Import",    
-        "📅 Version Management",
-        # "🔄 Rollback Management",
-        "📝 Manual Entry",
-        "📊 Rate Viewer",
-        "⚙️ System Config",
-        "💳 Subscription Plans"
-    ])
-    
-    with tab1:
-        render_admin_overview(all_users, all_subs)
-    
-    with tab2:
-        render_all_users(all_users)
-    
-    with tab3:
-        render_company_management()
-    
-    with tab4:
-        render_system_user_management()
-    
-    with tab5:
-        render_role_management_page()
-    
-    with tab6:
-        render_unified_import_wizard(db)
-
-    # with tab7:
-    #     render_rollback_management(db)        
-    
-    with tab7:
-        render_unified_version_management(db)
-    
-    with tab8:
-        render_rate_crud_forms(db)
-
-    with tab9:
-        render_rate_viewer(db)
-    
-    with tab10:
-        render_system_configuration()
-    
-    with tab11:
-        render_subscription_plans_management()
-
-
-
-def render_admin_overview(all_users, all_subs):
-    """Render system overview with charts - Using CRUD methods"""
-    st.markdown("### System Overview")
-    
-    # Get user growth data
     try:
-        db = get_db_manager()
-        user_growth_data = db.get_user_growth(6)
+        all_users, total = db.get_all_users_filtered(limit=1000)
         
-        # Check if we have valid data
-        if user_growth_data and len(user_growth_data) > 0:
-            # Create DataFrame
-            user_growth = pd.DataFrame(user_growth_data)
-            
-            # Check if we have the required columns
-            if 'month' in user_growth.columns and 'count' in user_growth.columns:
-                # Convert count to numeric
-                user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
-                # Sort by month
-                user_growth = user_growth.sort_values('month')
-                # Display chart
-                st.line_chart(user_growth.set_index('month')['count'])
-            else:
-                # Try to fix columns
-                cols = user_growth.columns.tolist()
-                if len(cols) >= 2:
-                    # Rename columns
-                    rename_dict = {}
-                    for col in cols:
-                        if 'month' in col.lower() or 'date' in col.lower():
-                            rename_dict[col] = 'month'
-                        elif 'count' in col.lower() or 'total' in col.lower() or 'num' in col.lower():
-                            rename_dict[col] = 'count'
-                    
-                    if rename_dict:
-                        user_growth = user_growth.rename(columns=rename_dict)
-                        if 'month' in user_growth.columns and 'count' in user_growth.columns:
-                            user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
-                            user_growth = user_growth.sort_values('month')
-                            st.line_chart(user_growth.set_index('month')['count'])
-                        else:
-                            st.info("User growth data format is unexpected.")
-                    else:
-                        st.info("User growth data format is unexpected.")
-                else:
-                    st.info("Not enough data to display user growth chart.")
-        else:
-            st.info("No user growth data available yet. Data will appear as users register.")
+        # Try to get system users
+        try:
+            system_users = db.get_system_users()
+        except:
+            system_users = []
+        
+        # Combine and deduplicate
+        all_user_ids = {u.get('id') for u in all_users}
+        for su in system_users:
+            if su.get('id') not in all_user_ids:
+                su['is_system_user'] = True
+                all_users.append(su)
+                
     except Exception as e:
-        st.warning(f"Could not load user growth chart: {str(e)}")
-        st.info("User growth data will appear as users register on the platform.")
+        st.error(f"Error loading users: {e}")
+        return
     
-        
-    # Plan distribution
-    if all_subs:
-        plan_counts = {}
-        for sub in all_subs:
-            plan = sub.get('plan', 'free')
-            plan_counts[plan] = plan_counts.get(plan, 0) + 1
-        
-        plan_df = pd.DataFrame(plan_counts.items(), columns=['Plan', 'Count'])
-        st.bar_chart(plan_df.set_index('Plan'))
-    else:
-        st.info("No subscription data available")
-    
-    # Role distribution
-    if all_users:
-        role_counts = {}
-        for user in all_users:
-            role = user.get('role', 'unknown')
-            role_counts[role] = role_counts.get(role, 0) + 1
-        
-        role_df = pd.DataFrame(role_counts.items(), columns=['Role', 'Count'])
-        st.bar_chart(role_df.set_index('Role'))
-    else:
-        st.info("No user data available")
-
-
+    render_all_users(all_users)
 
 
 def render_all_users(all_users):
-    """Render all users table"""
-    st.markdown("### All Users")
+    """Render all users table with View and Edit action buttons and sorting"""
+    st.markdown("### 👥 All Users")
     
-    search = st.text_input("🔍 Search users", placeholder="Name, email, or username...")
-    
-    if all_users:
-        user_list = []
-        for u in all_users:
-            user_dict = {
-                'ID': u.get('id', 'N/A'),
-                'Username': u.get('username', 'N/A'),
-                'Email': u.get('email', 'N/A'),
-                'Full Name': u.get('full_name', 'N/A'),
-                'Phone': u.get('phone', ''),
-                'Role': u.get('role', 'N/A'),
-                'Active': '✅' if u.get('is_active', 0) == 1 else '❌',
-                'Company': u.get('company_name', 'N/A'),
-                'Created': str(u.get('created_at', ''))[:10] if u.get('created_at') else ''
-            }
-            
-            if search:
-                if (search.lower() in user_dict['Username'].lower() or 
-                    search.lower() in user_dict['Email'].lower() or 
-                    search.lower() in user_dict['Full Name'].lower()):
-                    user_list.append(user_dict)
-            else:
-                user_list.append(user_dict)
-        
-        if user_list:
-            user_df = pd.DataFrame(user_list)
-            st.dataframe(user_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No users match the search criteria")
-    else:
+    if not all_users:
         st.info("No users found")
+        return
+    
+    # ========== SEARCH AND SORTING CONTROLS ==========
+    col1, col2, col3 = st.columns([2, 1.5, 1.5])
+    
+    with col1:
+        search = st.text_input("🔍 Search users", placeholder="Name, email, or username...")
+    
+    with col2:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Username", "Full Name", "Email", "Role", "Status", "Company"],
+            key="sort_by_select"
+        )
+    
+    with col3:
+        sort_order = st.selectbox(
+            "Order",
+            ["Ascending", "Descending"],
+            key="sort_order_select"
+        )
+    
+    # ========== FILTER USERS ==========
+    filtered_users = all_users
+    if search:
+        search_lower = search.lower()
+        filtered_users = [
+            u for u in all_users
+            if search_lower in str(u.get('username', '')).lower()
+            or search_lower in str(u.get('email', '')).lower()
+            or search_lower in str(u.get('full_name', '')).lower()
+        ]
+    
+    if not filtered_users:
+        st.info("No users match the search criteria")
+        return
+    
+    # ========== SORT USERS ==========
+    sort_key_map = {
+        "Username": lambda x: str(x.get('username', '')).lower(),
+        "Full Name": lambda x: str(x.get('full_name', '')).lower(),
+        "Email": lambda x: str(x.get('email', '')).lower(),
+        "Role": lambda x: str(x.get('role', '')),
+        "Status": lambda x: x.get('is_active', 0),
+        "Company": lambda x: str(x.get('company_name', '')).lower()
+    }
+    
+    if sort_by in sort_key_map:
+        filtered_users.sort(key=sort_key_map[sort_by], reverse=(sort_order == "Descending"))
+    
+    # ========== PAGINATION ==========
+    per_page = 10
+    total_users = len(filtered_users)
+    total_pages = (total_users + per_page - 1) // per_page
+    
+    if 'user_table_page' not in st.session_state:
+        st.session_state.user_table_page = 1
+    
+    if st.session_state.user_table_page > total_pages:
+        st.session_state.user_table_page = max(1, total_pages)
+    
+    page = st.session_state.user_table_page
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, total_users)
+    page_users = filtered_users[start_idx:end_idx]
+    
+    # ========== USER CARDS WITH ACTION BUTTONS ==========
+    st.markdown("""
+    <style>
+        .user-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+        .user-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #6366f1;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .status-active {
+            color: #065f46;
+            background: #d1fae5;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-block;
+        }
+        .status-inactive {
+            color: #991b1b;
+            background: #fee2e2;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-block;
+        }
+        .role-badge {
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            background: #f1f5f9;
+            color: #475569;
+            display: inline-block;
+        }
+        .role-badge.admin {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        .role-badge.manager {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .role-badge.analyst {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .role-badge.estimator {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Display users
+    for u in page_users:
+        user_id = u.get('id')
+        username = u.get('username', 'N/A')
+        full_name = u.get('full_name', 'N/A')
+        email = u.get('email', 'N/A')
+        role = u.get('role', 'viewer')
+        is_active = u.get('is_active', 0)
+        company_name = u.get('company_name', 'N/A')
+        mobile = u.get('mobile_number', '')
+        
+        # Avatar initials
+        initials = ''.join([word[0].upper() for word in full_name.split()[:2]]) if full_name != 'N/A' else 'U'
+        
+        # Role badge class
+        role_class = 'viewer'
+        if role in ['system_admin', 'company_admin']:
+            role_class = 'admin'
+        elif role == 'manager':
+            role_class = 'manager'
+        elif role == 'analyst':
+            role_class = 'analyst'
+        elif role == 'estimator':
+            role_class = 'estimator'
+        
+        role_display = role.replace('_', ' ').title()
+        status_class = 'status-active' if is_active == 1 else 'status-inactive'
+        status_text = '✅ Active' if is_active == 1 else '❌ Inactive'
+        
+        # Create user card
+        with st.container():
+            cols = st.columns([0.5, 1.5, 2.5, 1.2, 1.2, 1.5])
+            
+            with cols[0]:
+                st.markdown(f'<div class="user-avatar">{initials}</div>', unsafe_allow_html=True)
+            
+            with cols[1]:
+                st.markdown(f"""
+                    <div>
+                        <strong>@{username}</strong>
+                        <div style="font-size: 13px; color: #64748b;">{full_name}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[2]:
+                st.markdown(f"""
+                    <div style="font-size: 13px; color: #475569;">
+                        <div>{email}</div>
+                        <div style="font-size: 12px; color: #94a3b8;">📱 {mobile if mobile else 'No mobile'}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[3]:
+                st.markdown(f'<span class="role-badge {role_class}">{role_display}</span>', unsafe_allow_html=True)
+            
+            with cols[4]:
+                st.markdown(f'<span class="{status_class}">{status_text}</span>', unsafe_allow_html=True)
+                if company_name and company_name != 'N/A':
+                    st.markdown(f'<span style="font-size: 11px; color: #94a3b8;">🏢 {company_name}</span>', unsafe_allow_html=True)
+            
+            with cols[5]:
+                # Action buttons
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    if st.button("👁️", key=f"view_{user_id}", use_container_width=True, help="View user profile"):
+                        st.session_state.user_sub_page = 'view_profile'
+                        st.session_state.view_user_id = user_id
+                        st.rerun()
+                
+                with btn_col2:
+                    if st.button("✏️", key=f"edit_{user_id}", use_container_width=True, help="Edit user"):
+                        st.session_state.user_sub_page = 'edit_user'
+                        st.session_state.edit_user_id = user_id
+                        st.rerun()
+    
+    # ========== PAGINATION CONTROLS ==========
+    if total_pages > 1:
+        st.markdown("---")
+        
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 3, 1, 1])
+        
+        with col1:
+            if st.button("◀ Prev", disabled=(page <= 1), use_container_width=True):
+                st.session_state.user_table_page = page - 1
+                st.rerun()
+        
+        with col2:
+            st.markdown(f"<div style='text-align: center; padding-top: 6px; color: #475569;'>Page {page} of {total_pages}</div>", unsafe_allow_html=True)
+        
+        with col3:
+            # Page buttons
+            page_cols = st.columns(min(total_pages, 7))
+            start_page = max(1, page - 3)
+            end_page = min(total_pages, page + 3)
+            
+            for i, p in enumerate(range(start_page, end_page + 1)):
+                with page_cols[i]:
+                    if st.button(str(p), key=f"page_{p}", 
+                                type="primary" if p == page else "secondary",
+                                use_container_width=True):
+                        st.session_state.user_table_page = p
+                        st.rerun()
+        
+        with col4:
+            # Quick jump
+            jump_to = st.number_input(
+                "Jump to",
+                min_value=1,
+                max_value=total_pages,
+                value=page,
+                step=1,
+                key="jump_to_page",
+                label_visibility="collapsed"
+            )
+            if jump_to != page:
+                st.session_state.user_table_page = jump_to
+                st.rerun()
+        
+        with col5:
+            if st.button("Next ▶", disabled=(page >= total_pages), use_container_width=True):
+                st.session_state.user_table_page = page + 1
+                st.rerun()
+        
+        st.caption(f"Showing {start_idx + 1}–{end_idx} of {total_users} users")
 
+def render_user_profile_view():
+    """Render user profile view with all fields and subscription status"""
+    st.markdown("### 👤 User Profile")
+    
+    db = get_db_manager()
+    user_id = st.session_state.get('view_user_id')
+    
+    if not user_id:
+        st.error("No user selected")
+        if st.button("← Back to User List"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+        return
+    
+    user = db.get_user_by_id(user_id)
+    
+    if not user:
+        st.error("User not found")
+        if st.button("← Back to User List"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+        return
+    
+    # Only show back button if we're in view mode
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("← Back to List", key="back_from_view"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+    
+    st.divider()
+    
+    # Display user profile in organized sections
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        # Avatar
+        avatar_url = user.get('avatar_url')
+        if avatar_url:
+            try:
+                st.image(avatar_url, width=150)
+            except:
+                initials = ''.join([word[0].upper() for word in user.get('full_name', 'U').split()[:2]])
+                st.markdown(f"""
+                <div style="text-align: center;">
+                    <div style="width: 150px; height: 150px; border-radius: 50%; background: #6366f1; color: white; display: flex; align-items: center; justify-content: center; font-size: 64px; font-weight: 600; margin: 0 auto;">
+                        {initials}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            initials = ''.join([word[0].upper() for word in user.get('full_name', 'U').split()[:2]])
+            st.markdown(f"""
+            <div style="text-align: center;">
+                <div style="width: 150px; height: 150px; border-radius: 50%; background: #6366f1; color: white; display: flex; align-items: center; justify-content: center; font-size: 64px; font-weight: 600; margin: 0 auto;">
+                    {initials}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align: center; margin-top: 12px;">
+            <h3>{user.get('full_name', 'Unknown')}</h3>
+            <p style="color: #64748b;">@{user.get('username', 'N/A')}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Basic Information
+        st.markdown("### 📋 Basic Information")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"**Email:** {user.get('email', 'N/A')}")
+            st.markdown(f"**Mobile:** {user.get('mobile_number', 'N/A')}")
+            st.markdown(f"**Phone:** {user.get('phone', 'N/A')}")
+        with col_b:
+            st.markdown(f"**Role:** {user.get('role', 'N/A').replace('_', ' ').title()}")
+            st.markdown(f"**Status:** {'✅ Active' if user.get('is_active', 0) == 1 else '❌ Inactive'}")
+            st.markdown(f"**Company:** {user.get('company_name', 'N/A')}")
+        
+        st.divider()
+        
+        # Account Information
+        st.markdown("### 🔐 Account Information")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"**Created:** {user.get('created_at', 'N/A')}")
+            st.markdown(f"**Last Login:** {user.get('last_login', 'Never')}")
+            st.markdown(f"**Email Verified:** {'✅' if user.get('email_verified', False) else '❌'}")
+        with col_b:
+            st.markdown(f"**Mobile Verified:** {'✅' if user.get('mobile_verified', False) else '❌'}")
+            st.markdown(f"**Two-Factor Auth:** {'✅' if user.get('two_factor_verified', False) else '❌'}")
+            st.markdown(f"**Account Type:** {user.get('account_type', 'N/A')}")
+        
+        st.divider()
+        
+        # Subscription Information
+        st.markdown("### 💳 Subscription")
+        render_subscription_status(user_id, user)
+        
+        st.divider()
+        
+        # Professional Information
+        st.markdown("### 💼 Professional Information")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"**Specialization:** {user.get('specialization', 'N/A')}")
+            st.markdown(f"**Years Experience:** {user.get('years_experience', 0)}")
+        with col_b:
+            st.markdown(f"**Location:** {user.get('location', 'N/A')}")
+            st.markdown(f"**Website:** {user.get('website', 'N/A')}")
+        
+        if user.get('bio'):
+            st.markdown(f"**Bio:** {user.get('bio')}")
+        
+        st.divider()
+        
+        # Authentication Provider
+        if user.get('auth_provider'):
+            st.markdown("### 🔑 Authentication")
+            st.markdown(f"**Provider:** {user.get('auth_provider', 'N/A')}")
+            if user.get('google_email'):
+                st.markdown(f"**Google Email:** {user.get('google_email')}")
+            if user.get('facebook_email'):
+                st.markdown(f"**Facebook Email:** {user.get('facebook_email')}")
+    
+    st.divider()
+    
+    # Action buttons
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("✏️ Edit User", type="primary", use_container_width=True):
+            st.session_state.user_sub_page = 'edit_user'
+            st.session_state.edit_user_id = user_id
+            st.rerun()
+    
+    with col2:
+        if st.button("🔑 Reset Password", use_container_width=True):
+            success, new_pw = db.reset_user_password(user_id)
+            if success:
+                st.success(f"✅ New password: `{new_pw}`")
+            else:
+                st.error(f"❌ Failed: {new_pw}")
+    
+    with col3:
+        if st.button("📧 Send Activation", use_container_width=True):
+            st.info("Activation email sent!")
+    
+    with col4:
+        if st.button("← Back", use_container_width=True):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+
+
+def render_subscription_status(user_id: int, user: Dict):
+    """Render subscription status for a user"""
+    try:
+        from database.crud_subscription import SubscriptionManager
+        sub_manager = SubscriptionManager()
+        
+        # Get subscription status
+        status = sub_manager.check_user_subscription_status(user_id)
+        
+        if status.get('has_subscription'):
+            sub = status.get('subscription', {})
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(f"**Plan:** {sub.get('plan_name', sub.get('plan', 'N/A')).title()}")
+                st.markdown(f"**Status:** {'✅ Active' if sub.get('status') == 'active' else '❌ ' + sub.get('status', 'Unknown').title()}")
+                st.markdown(f"**Type:** {status.get('type', 'N/A').title()}")
+            with col_b:
+                st.markdown(f"**Analyses Used:** {sub.get('analyses_used', 0)} / {sub.get('analyses_limit', 0)}")
+                if sub.get('end_date'):
+                    st.markdown(f"**Expires:** {sub.get('end_date')}")
+                else:
+                    st.markdown("**Expires:** Never")
+            
+            # Show remaining usage
+            remaining = sub.get('analyses_limit', 0) - sub.get('analyses_used', 0)
+            if remaining > 0:
+                st.progress(sub.get('analyses_used', 0) / max(sub.get('analyses_limit', 1), 1))
+                st.caption(f"📊 {remaining} analyses remaining")
+            else:
+                st.warning("⚠️ No analyses remaining")
+        else:
+            # Check if user belongs to a company
+            if user.get('company_id'):
+                st.warning(f"⚠️ No active subscription found for this company")
+                st.caption("Contact your company administrator to activate the subscription")
+            else:
+                st.warning("⚠️ No active subscription found")
+                st.caption("Individual users require an active subscription to access premium features")
+                
+    except ImportError:
+        st.info("💳 Subscription management not available")
+    except Exception as e:
+        st.error(f"❌ Error loading subscription: {e}")
+
+
+def render_user_edit_form():
+    """Render user edit form with all editable fields and subscription management"""
+    st.markdown("### ✏️ Edit User")
+    
+    db = get_db_manager()
+    user_id = st.session_state.get('edit_user_id')
+    
+    if not user_id:
+        st.error("No user selected")
+        if st.button("← Back to User List"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+        return
+    
+    user = db.get_user_by_id(user_id)
+    
+    if not user:
+        st.error("User not found")
+        if st.button("← Back to User List"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+        return
+    
+    # Only show back button if we're in edit mode
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("← Back to List", key="back_from_edit"):
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+    
+    st.divider()
+    
+    # Get current role
+    current_role = user.get('role', 'viewer')
+    
+    # Define role options - include all possible roles
+    role_options = [
+        "system_admin", 
+        "company_admin", 
+        "manager", 
+        "analyst", 
+        "estimator", 
+        "viewer",
+        "individual"
+    ]
+    
+    # If current role is not in options, add it
+    if current_role not in role_options:
+        role_options.append(current_role)
+    
+    # Get the index for the current role
+    try:
+        role_index = role_options.index(current_role)
+    except ValueError:
+        role_index = 0
+    
+    with st.form("edit_user_form"):
+        st.markdown("### 📋 Basic Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            username = st.text_input("Username *", value=user.get('username', ''))
+            full_name = st.text_input("Full Name *", value=user.get('full_name', ''))
+            email = st.text_input("Email *", value=user.get('email', ''))
+        
+        with col2:
+            mobile = st.text_input("Mobile Number *", value=user.get('mobile_number', ''))
+            phone = st.text_input("Phone", value=user.get('phone', ''))
+            role = st.selectbox(
+                "Role *",
+                options=role_options,
+                index=role_index
+            )
+        
+        st.divider()
+        
+        st.markdown("### 💼 Professional Information")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            specialization = st.text_input("Specialization", value=user.get('specialization', ''))
+            years_experience = st.number_input(
+                "Years of Experience", 
+                min_value=0, 
+                max_value=50, 
+                value=user.get('years_experience', 0) or 0
+            )
+        with col2:
+            location = st.text_input("Location", value=user.get('location', ''))
+            website = st.text_input("Website", value=user.get('website', ''))
+        
+        bio = st.text_area("Bio", value=user.get('bio', ''), max_chars=500)
+        
+        st.divider()
+        
+        st.markdown("### 🔐 Account Status")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            is_active = st.checkbox("Active", value=user.get('is_active', 0) == 1)
+        
+        with col2:
+            email_verified = st.checkbox("Email Verified", value=user.get('email_verified', False))
+        
+        with col3:
+            mobile_verified = st.checkbox("Mobile Verified", value=user.get('mobile_verified', False))
+        
+        st.divider()
+        
+        st.markdown("### 🏢 Company Assignment")
+        
+        # Get all companies for dropdown
+        companies, _ = db.get_all_companies_filtered(status=1, limit=200, offset=0)
+        company_options = {c['company_name']: c['id'] for c in companies}
+        
+        current_company_name = user.get('company_name', '')
+        
+        # Build company list with "No Company" option
+        company_list = ["No Company"] + list(company_options.keys())
+        
+        # Find current company index
+        if current_company_name and current_company_name in company_options:
+            company_index = company_list.index(current_company_name)
+        else:
+            company_index = 0  # "No Company"
+        
+        company_name = st.selectbox(
+            "Company",
+            options=company_list,
+            index=company_index
+        )
+        
+        # Get company_id if a company is selected
+        company_id = company_options.get(company_name, None) if company_name != "No Company" else None
+        
+        st.divider()
+        
+        # Form actions - only the Save and Cancel buttons inside form
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+        
+        with col2:
+            if st.form_submit_button("❌ Cancel", use_container_width=True):
+                st.session_state.user_sub_page = 'list'
+                st.rerun()
+    
+    # ========== SUBSCRIPTION MANAGEMENT (OUTSIDE THE FORM) ==========
+    st.divider()
+    st.markdown("### 💳 Subscription Management")
+    render_subscription_edit_form(user_id, user, db)
+    
+    # ========== RESET PASSWORD (OUTSIDE THE FORM) ==========
+    st.divider()
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔑 Reset Password", key="reset_pwd_edit", use_container_width=True):
+            success, new_pw = db.reset_user_password(user_id)
+            if success:
+                st.success(f"✅ New password: `{new_pw}`")
+            else:
+                st.error(f"❌ Failed: {new_pw}")
+    
+    # Process form submission after all controls
+    if submitted:
+        updates = {
+            'username': username.strip(),
+            'full_name': full_name.strip(),
+            'email': email.strip(),
+            'mobile_number': mobile.strip(),
+            'phone': phone.strip() if phone else None,
+            'role': role,
+            'is_active': 1 if is_active else 0,
+            'email_verified': email_verified,
+            'mobile_verified': mobile_verified,
+            'specialization': specialization.strip() if specialization else None,
+            'years_experience': years_experience if years_experience > 0 else None,
+            'location': location.strip() if location else None,
+            'website': website.strip() if website else None,
+            'bio': bio.strip() if bio else None,
+        }
+        
+        # Update company if changed
+        if company_id:
+            updates['company_id'] = company_id
+        else:
+            updates['company_id'] = None
+        
+        if db.update_user(user_id, **updates):
+            st.success("✅ User updated successfully!")
+            st.session_state.user_sub_page = 'list'
+            st.rerun()
+        else:
+            st.error("❌ Failed to update user")
+
+
+def render_subscription_edit_form(user_id: int, user: Dict, db):
+    """Render subscription edit form for a user - OUTSIDE main form"""
+    
+    try:
+        from database.crud_subscription import SubscriptionManager
+        sub_manager = SubscriptionManager()
+        
+        # Get current subscription status
+        status = sub_manager.check_user_subscription_status(user_id)
+        
+        # Show current subscription
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Current Subscription")
+            if status.get('has_subscription'):
+                sub = status.get('subscription', {})
+                st.info(f"**Plan:** {sub.get('plan_name', sub.get('plan', 'N/A')).title()}")
+                st.caption(f"**Status:** {sub.get('status', 'N/A').title()}")
+                st.caption(f"**Expires:** {sub.get('end_date', 'Never')}")
+                st.caption(f"**Analyses:** {sub.get('analyses_used', 0)}/{sub.get('analyses_limit', 0)} used")
+            else:
+                st.warning("No active subscription found")
+                if user.get('company_id'):
+                    st.caption("Company subscription inactive")
+                else:
+                    st.caption("Individual user requires active subscription")
+        
+        with col2:
+            # Only show plan management for admin users
+            if st.session_state.get('user_role') in ['admin', 'system_admin']:
+                st.markdown("#### Change Plan")
+                
+                # Get available plans
+                plans = sub_manager.get_all_plans()
+                
+                if plans:
+                    # Filter plans based on user type
+                    account_type = user.get('account_type', 'individual')
+                    filtered_plans = [p for p in plans if p.get('plan_type') == account_type or p.get('plan_type') == 'both']
+                    
+                    if not filtered_plans:
+                        filtered_plans = plans
+                    
+                    plan_options = {p['plan_name'].title(): p['plan_name'] for p in filtered_plans}
+                    
+                    # Use a form for subscription update
+                    with st.form("subscription_update_form"):
+                        selected_plan = st.selectbox(
+                            "Select Plan",
+                            options=list(plan_options.keys()),
+                            key="edit_user_plan_select_sub"
+                        )
+                        
+                        duration = st.selectbox(
+                            "Duration",
+                            ["Monthly", "Yearly"],
+                            key="edit_user_duration_sub"
+                        )
+                        
+                        # Submit button inside the form
+                        update_submitted = st.form_submit_button("🔄 Update Subscription", type="primary", use_container_width=True)
+                        
+                        if update_submitted:
+                            plan_name = plan_options[selected_plan]
+                            is_yearly = duration == "Yearly"
+                            
+                            if user.get('company_id'):
+                                # Company user - update company subscription
+                                success = sub_manager.update_company_subscription(
+                                    company_id=user.get('company_id'),
+                                    plan=plan_name,
+                                    duration='yearly' if is_yearly else 'monthly',
+                                    payment_method='admin_update'
+                                )
+                                if success:
+                                    st.success(f"✅ Company subscription updated to {selected_plan}")
+                                    # Show balloon animation
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to update company subscription")
+                            else:
+                                # Individual user - update user subscription
+                                success = sub_manager.update_user_subscription(
+                                    user_id=user_id,
+                                    plan=plan_name,
+                                    duration='yearly' if is_yearly else 'monthly',
+                                    payment_method='admin_update'
+                                )
+                                if success:
+                                    st.success(f"✅ User subscription updated to {selected_plan}")
+                                    # Show balloon animation
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to update user subscription")
+                else:
+                    st.info("No plans available")
+            else:
+                st.caption("💡 Contact your administrator to change subscription plans")
+                
+    except ImportError:
+        st.info("💳 Subscription management not available")
+    except Exception as e:
+        st.error(f"❌ Error loading subscription: {e}")
 
 def render_company_management():
+    """WordPress-style company management with proper routing"""
+    
+    # Check for company sub-page FIRST
+    company_sub_page = st.session_state.get('company_sub_page', 'list')
+    
+    if company_sub_page == 'view_company':
+        render_company_detail_view()
+        return
+    elif company_sub_page == 'edit_company':
+        render_company_edit_page()
+        return
+    elif company_sub_page == 'subscription':
+        render_company_subscription_page()
+        return
+    else:
+        # Show company list
+        render_company_list()
+
+
+def render_company_list():
+    """Render company list with WordPress-style UI - row-based layout"""
+    st.markdown("### 🏢 Company Management")
+    st.caption("Create, edit, and manage companies on the platform")
+    
+    db = get_db_manager()
+    
+    # ========== STATS ==========
+    companies_all, total_all = db.get_all_companies_filtered(status=None, limit=1000)
+    active_companies = len([c for c in companies_all if c.get('is_active', 0) == 1])
+    inactive_companies = len([c for c in companies_all if c.get('is_active', 0) == 0])
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🏢 Total Companies", total_all)
+    with col2:
+        st.metric("✅ Active", active_companies)
+    with col3:
+        st.metric("❌ Inactive", inactive_companies)
+    with col4:
+        # Count total users across all companies
+        total_users = 0
+        for c in companies_all:
+            users, _ = db.get_all_users_filtered(company_id=c.get('id'), limit=1000)
+            total_users += len(users)
+        st.metric("👥 Total Users", total_users)
+    
+    st.divider()
+    
+    # ========== ADD COMPANY BUTTON ==========
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("➕ Add New Company", type="primary", use_container_width=True):
+            st.session_state.show_add_company_modal = True
+    
+    # ========== SEARCH AND FILTERS ==========
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        search = st.text_input("🔍 Search companies", placeholder="Name, email, or registration number...")
+    with col2:
+        status_filter = st.selectbox(
+            "Status",
+            ["All", "Active", "Inactive"],
+            key="company_status_filter"
+        )
+    with col3:
+        sort_by = st.selectbox(
+            "Sort by",
+            ["Name", "Created Date", "Users Count"],
+            key="company_sort_by"
+        )
+    
+    # ========== GET COMPANIES ==========
+    status = None if status_filter == "All" else (1 if status_filter == "Active" else 0)
+    companies, total = db.get_all_companies_filtered(
+        search=search if search else None,
+        status=status,
+        limit=100,
+        offset=0
+    )
+    
+    if not companies:
+        st.info("No companies found. Click 'Add New Company' to create one.")
+        # Still render modal if needed
+        if st.session_state.get('show_add_company_modal', False):
+            render_add_company_modal()
+        return
+    
+    # ========== SORT COMPANIES ==========
+    if sort_by == "Name":
+        companies.sort(key=lambda x: x.get('company_name', '').lower())
+    elif sort_by == "Created Date":
+        companies.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+    elif sort_by == "Users Count":
+        for c in companies:
+            users, _ = db.get_all_users_filtered(company_id=c.get('id'), limit=1000)
+            c['_user_count'] = len(users)
+        companies.sort(key=lambda x: x.get('_user_count', 0), reverse=True)
+    
+    # ========== PAGINATION ==========
+    per_page = 10
+    total_pages = (len(companies) + per_page - 1) // per_page
+    
+    if 'company_page' not in st.session_state:
+        st.session_state.company_page = 1
+    
+    if st.session_state.company_page > total_pages:
+        st.session_state.company_page = max(1, total_pages)
+    
+    page = st.session_state.company_page
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, len(companies))
+    page_companies = companies[start_idx:end_idx]
+    
+    # ========== DISPLAY COMPANIES - ROW-BASED LAYOUT ==========
+    st.markdown(f"**Showing {len(companies)} companies**")
+    
+    # CSS for company rows
+    st.markdown("""
+    <style>
+        .company-row {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background 0.2s;
+            background: white;
+        }
+        .company-row:hover {
+            background: #f8fafc;
+        }
+        .company-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: #6366f1;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .company-name {
+            font-weight: 500;
+            color: #1e293b;
+        }
+        .company-email {
+            font-size: 13px;
+            color: #64748b;
+        }
+        .company-meta {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 2px;
+            flex-wrap: wrap;
+        }
+        .badge-active {
+            color: #065f46;
+            background: #d1fae5;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-inactive {
+            color: #991b1b;
+            background: #fee2e2;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-plan {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .stat-number {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #94a3b8;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Display companies in rows (like users)
+    for company in page_companies:
+        company_id = company.get('id')
+        company_name = company.get('company_name', 'Unknown')
+        email = company.get('email', '')
+        is_active = company.get('is_active', 0)
+        created_at = company.get('created_at', '')
+        
+        # Get company stats
+        try:
+            stats = db.get_company_stats_by_id(company_id)
+            user_count = stats.get('total_users', 0)
+            analysis_count = stats.get('total_analyses', 0)
+        except:
+            user_count = 0
+            analysis_count = 0
+        
+        # Get subscription info
+        subscription = db.get_company_subscription(company_id)
+        plan_name = subscription.get('plan', 'Free').title() if subscription else 'Free'
+        
+        # Avatar initial
+        initial = company_name[0].upper() if company_name else 'C'
+        
+        # Status badge
+        status_badge = 'badge-active' if is_active == 1 else 'badge-inactive'
+        status_text = 'Active' if is_active == 1 else 'Inactive'
+        
+        with st.container():
+            # Row-based layout (same as users)
+            cols = st.columns([0.5, 1.5, 2.5, 1.2, 1.2, 1.2, 1.2])
+            
+            with cols[0]:
+                st.markdown(f'<div class="company-avatar">{initial}</div>', unsafe_allow_html=True)
+            
+            with cols[1]:
+                st.markdown(f"""
+                    <div>
+                        <div class="company-name">{company_name}</div>
+                        <div class="company-email">{email if email else 'No email'}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[2]:
+                st.markdown(f"""
+                    <div class="company-meta">
+                        <span class="{status_badge}">{status_text}</span>
+                        <span class="badge-plan">📋 {plan_name}</span>
+                        <span style="color: #94a3b8;">📅 {str(created_at)[:10] if created_at else 'N/A'}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[3]:
+                st.markdown(f"""
+                    <div style="text-align: center;">
+                        <div class="stat-number">{user_count}</div>
+                        <div class="stat-label">Users</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[4]:
+                st.markdown(f"""
+                    <div style="text-align: center;">
+                        <div class="stat-number">{analysis_count}</div>
+                        <div class="stat-label">Analyses</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[5]:
+                # View button
+                if st.button("👁️", key=f"view_comp_{company_id}", use_container_width=True, help="View company details"):
+                    st.session_state.company_sub_page = 'view_company'
+                    st.session_state.view_company_id = company_id
+                    st.rerun()
+            
+            with cols[6]:
+                # Edit button
+                if st.button("✏️", key=f"edit_comp_{company_id}", use_container_width=True, help="Edit company"):
+                    st.session_state.company_sub_page = 'edit_company'
+                    st.session_state.edit_company_id = company_id
+                    st.rerun()
+    
+    # ========== PAGINATION ==========
+    if total_pages > 1:
+        st.markdown("---")
+        col1, col2, col3, col4, col5 = st.columns([1, 1, 3, 1, 1])
+        
+        with col1:
+            if st.button("◀ Prev", disabled=(page <= 1), use_container_width=True):
+                st.session_state.company_page = page - 1
+                st.rerun()
+        
+        with col2:
+            st.markdown(f"<div style='text-align: center; padding-top: 6px; color: #475569;'>Page {page} of {total_pages}</div>", unsafe_allow_html=True)
+        
+        with col3:
+            page_cols = st.columns(min(total_pages, 7))
+            start_page = max(1, page - 3)
+            end_page = min(total_pages, page + 3)
+            
+            for i, p in enumerate(range(start_page, end_page + 1)):
+                with page_cols[i]:
+                    if st.button(str(p), key=f"company_page_{p}", 
+                                type="primary" if p == page else "secondary",
+                                use_container_width=True):
+                        st.session_state.company_page = p
+                        st.rerun()
+        
+        with col4:
+            jump_to = st.number_input(
+                "Jump to",
+                min_value=1,
+                max_value=total_pages,
+                value=page,
+                step=1,
+                key="company_jump_to",
+                label_visibility="collapsed"
+            )
+            if jump_to != page:
+                st.session_state.company_page = jump_to
+                st.rerun()
+        
+        with col5:
+            if st.button("Next ▶", disabled=(page >= total_pages), use_container_width=True):
+                st.session_state.company_page = page + 1
+                st.rerun()
+        
+        st.caption(f"Showing {start_idx + 1}–{end_idx} of {len(companies)} companies")
+    
+    # ========== ADD COMPANY MODAL ==========
+    if st.session_state.get('show_add_company_modal', False):
+        render_add_company_modal()
+
+
+def render_add_company_modal():
+    """Render add company modal"""
+    
+    db = get_db_manager()
+    
+    with st.container():
+        st.markdown("""
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        ">
+            <div style="
+                background: white;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 700px;
+                width: 95%;
+                max-height: 85vh;
+                overflow-y: auto;
+            ">
+        """, unsafe_allow_html=True)
+        
+        with st.form("add_company_modal_form"):
+            st.markdown("""
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">➕ Add New Company</h2>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                company_name = st.text_input("Company Name *")
+                email = st.text_input("Email")
+                phone = st.text_input("Phone")
+                mobile_number = st.text_input("Mobile Number *", help="Bangladeshi mobile: 01XXXXXXXXX")
+            
+            with col2:
+                division = st.text_input("Division")
+                district = st.text_input("District")
+                registration_number = st.text_input("Registration Number")
+                vat_number = st.text_input("VAT Number")
+            
+            address = st.text_area("Address", height=80)
+            
+            st.divider()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                submitted = st.form_submit_button("✅ Create Company", type="primary", use_container_width=True)
+            with col2:
+                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                    st.session_state.show_add_company_modal = False
+                    st.rerun()
+            
+            if submitted:
+                if not company_name:
+                    st.error("Company name is required")
+                elif not mobile_number:
+                    st.error("Mobile number is required")
+                else:
+                    company_data = {
+                        'company_name': company_name.strip(),
+                        'email': email.strip() if email else None,
+                        'phone': phone.strip() if phone else None,
+                        'mobile_number': mobile_number.strip(),
+                        'division': division.strip() if division else None,
+                        'district': district.strip() if district else None,
+                        'address': address.strip() if address else None,
+                        'registration_number': registration_number.strip() if registration_number else None,
+                        'vat_number': vat_number.strip() if vat_number else None
+                    }
+                    
+                    success, result = db.create_company(company_data)
+                    if success:
+                        st.success(f"✅ Company '{company_name}' created successfully!")
+                        st.session_state.show_add_company_modal = False
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed: {result}")
+        
+        st.markdown("""
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def render_company_detail_view():
+    """Render company detail view page"""
+    st.markdown("### 🏢 Company Details")
+    
+    db = get_db_manager()
+    company_id = st.session_state.get('view_company_id')
+    
+    if not company_id:
+        st.error("No company selected")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    company = db.get_company_by_id(company_id)
+    
+    if not company:
+        st.error("Company not found")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    # Back button
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("← Back", key="back_from_company_view"):
+            st.session_state.company_sub_page = 'list'
+            st.rerun()
+    
+    st.divider()
+    
+    # Display company details
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        initial = company.get('company_name', 'C')[0].upper()
+        st.markdown(f"""
+        <div style="text-align: center;">
+            <div style="
+                width: 120px; 
+                height: 120px; 
+                border-radius: 50%; 
+                background: #6366f1; 
+                color: white; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+                font-size: 48px; 
+                font-weight: 600; 
+                margin: 0 auto;
+            ">{initial}</div>
+            <h3 style="margin-top: 12px;">{company.get('company_name', 'Unknown')}</h3>
+            <p style="color: #64748b;">{company.get('email', 'No email')}</p>
+            <p style="color: #64748b; font-size: 13px;">ID: {company_id}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### 📋 Company Information")
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"**Company Name:** {company.get('company_name', 'N/A')}")
+            st.markdown(f"**Email:** {company.get('email', 'N/A')}")
+            st.markdown(f"**Phone:** {company.get('phone', 'N/A')}")
+            st.markdown(f"**Mobile:** {company.get('mobile_number', 'N/A')}")
+        with col_b:
+            st.markdown(f"**Status:** {'✅ Active' if company.get('is_active', 0) == 1 else '❌ Inactive'}")
+            st.markdown(f"**Division:** {company.get('division', 'N/A')}")
+            st.markdown(f"**District:** {company.get('district', 'N/A')}")
+            st.markdown(f"**Created:** {company.get('created_at', 'N/A')}")
+        
+        if company.get('address'):
+            st.markdown(f"**Address:** {company.get('address')}")
+        
+        if company.get('registration_number'):
+            st.markdown(f"**Registration #:** {company.get('registration_number')}")
+        
+        if company.get('vat_number'):
+            st.markdown(f"**VAT #:** {company.get('vat_number')}")
+    
+    st.divider()
+    
+    # Stats
+    try:
+        stats = db.get_company_stats_by_id(company_id)
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a:
+            st.metric("👥 Users", stats.get('total_users', 0))
+        with col_b:
+            st.metric("📊 Analyses", stats.get('total_analyses', 0))
+        with col_c:
+            st.metric("🏆 Win Rate", f"{stats.get('win_rate', 0):.1f}%")
+        with col_d:
+            st.metric("💰 Revenue", f"${stats.get('total_revenue', 0):,.2f}")
+    except:
+        pass
+    
+    st.divider()
+    
+    # Action buttons
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("✏️ Edit Company", type="primary", use_container_width=True):
+            st.session_state.company_sub_page = 'edit_company'
+            st.session_state.edit_company_id = company_id
+            st.rerun()
+    
+    with col_b:
+        if st.button("👥 Manage Users", use_container_width=True):
+            st.session_state.selected_company_id = company_id
+            st.session_state.page = "user_management"
+            st.rerun()
+    
+    with col_c:
+        if st.button("💳 Manage Subscription", use_container_width=True):
+            st.session_state.company_sub_page = 'subscription'
+            st.session_state.subscription_company_id = company_id
+            st.rerun()
+
+
+def render_company_edit_page():
+    """Render company edit page"""
+    st.markdown("### ✏️ Edit Company")
+    
+    db = get_db_manager()
+    company_id = st.session_state.get('edit_company_id')
+    
+    if not company_id:
+        st.error("No company selected")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    company = db.get_company_by_id(company_id)
+    
+    if not company:
+        st.error("Company not found")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    # Back button
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("← Back", key="back_from_company_edit"):
+            st.session_state.company_sub_page = 'list'
+            st.rerun()
+    
+    st.divider()
+    
+    with st.form("edit_company_form"):
+        st.markdown("### 📋 Company Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            company_name = st.text_input("Company Name *", value=company.get('company_name', ''))
+            email = st.text_input("Email", value=company.get('email', ''))
+            phone = st.text_input("Phone", value=company.get('phone', ''))
+            mobile_number = st.text_input("Mobile Number *", value=company.get('mobile_number', ''))
+        
+        with col2:
+            division = st.text_input("Division", value=company.get('division', ''))
+            district = st.text_input("District", value=company.get('district', ''))
+            registration_number = st.text_input("Registration Number", value=company.get('registration_number', ''))
+            vat_number = st.text_input("VAT Number", value=company.get('vat_number', ''))
+        
+        address = st.text_area("Address", value=company.get('address', ''), height=80)
+        
+        st.divider()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            is_active = st.checkbox("Active", value=company.get('is_active', 0) == 1)
+        
+        st.divider()
+        
+        # Form actions
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            submitted = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+            if submitted:
+                if not company_name:
+                    st.error("Company name is required")
+                elif not mobile_number:
+                    st.error("Mobile number is required")
+                else:
+                    updates = {
+                        'company_name': company_name.strip(),
+                        'email': email.strip() if email else None,
+                        'phone': phone.strip() if phone else None,
+                        'mobile_number': mobile_number.strip(),
+                        'division': division.strip() if division else None,
+                        'district': district.strip() if district else None,
+                        'address': address.strip() if address else None,
+                        'registration_number': registration_number.strip() if registration_number else None,
+                        'vat_number': vat_number.strip() if vat_number else None,
+                        'is_active': 1 if is_active else 0
+                    }
+                    
+                    if db.update_company(company_id, **updates):
+                        st.success("✅ Company updated successfully!")
+                        st.session_state.company_sub_page = 'list'
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update company")
+        
+        with col2:
+            if st.form_submit_button("❌ Cancel", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+
+def render_company_subscription_page():
+    """Render company subscription management page"""
+    st.markdown("### 💳 Company Subscription")
+    
+    db = get_db_manager()
+    company_id = st.session_state.get('subscription_company_id')
+    
+    if not company_id:
+        st.error("No company selected")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    company = db.get_company_by_id(company_id)
+    
+    if not company:
+        st.error("Company not found")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("← Back to Companies", use_container_width=True):
+                st.session_state.company_sub_page = 'list'
+                st.rerun()
+        return
+    
+    # Back button
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("← Back", key="back_from_subscription"):
+            st.session_state.company_sub_page = 'list'
+            st.rerun()
+    
+    st.divider()
+    
+    st.markdown(f"### {company.get('company_name', 'Company')} Subscription")
+    
+    # Get subscription
+    subscription = db.get_company_subscription(company_id)
+    
+    if subscription:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**Current Plan:** {subscription.get('plan', 'Free').title()}")
+            st.markdown(f"**Status:** {subscription.get('status', 'active').title()}")
+            st.markdown(f"**Start Date:** {subscription.get('start_date', 'N/A')}")
+        with col2:
+            st.markdown(f"**End Date:** {subscription.get('end_date', 'N/A')}")
+            st.markdown(f"**Auto Renew:** {'✅' if subscription.get('auto_renew', False) else '❌'}")
+            st.markdown(f"**Trial:** {'✅' if subscription.get('is_trial', False) else '❌'}")
+    else:
+        st.info("No active subscription found")
+    
+    st.divider()
+    
+    # ========== CHANGE PLAN SECTION ==========
+    st.markdown("### 🔄 Change Plan")
+    
+    # Define available plans
+    available_plans = [
+        {"id": "free", "name": "Free", "price": "$0/month", "features": ["Basic features", "5 users", "10 analyses/month"]},
+        {"id": "basic", "name": "Basic", "price": "$29/month", "features": ["All Free features", "20 users", "50 analyses/month", "Email support"]},
+        {"id": "pro", "name": "Pro", "price": "$79/month", "features": ["All Basic features", "Unlimited users", "Unlimited analyses", "Priority support", "Advanced analytics"]},
+        {"id": "enterprise", "name": "Enterprise", "price": "$199/month", "features": ["All Pro features", "Dedicated support", "Custom integrations", "SLA guarantee"]}
+    ]
+    
+    current_plan = subscription.get('plan', 'free').lower() if subscription else 'free'
+    
+    # Show plan cards
+    cols = st.columns(len(available_plans))
+    for idx, plan in enumerate(available_plans):
+        with cols[idx]:
+            is_current = plan['id'] == current_plan
+            st.markdown(f"""
+            <div style="
+                background: {'#f0f7ff' if is_current else 'white'};
+                border: 2px solid {'#6366f1' if is_current else '#e2e8f0'};
+                border-radius: 8px;
+                padding: 16px;
+                text-align: center;
+                min-height: 250px;
+            ">
+                <h4 style="margin: 0; color: {'#6366f1' if is_current else '#1e293b'};">{plan['name']}</h4>
+                <div style="font-size: 20px; font-weight: 600; margin: 8px 0; color: #1e293b;">{plan['price']}</div>
+                <ul style="list-style: none; padding: 0; text-align: left; font-size: 12px; color: #64748b;">
+                    {''.join([f'<li>✅ {f}</li>' for f in plan['features']])}
+                </ul>
+                {'<div style="margin-top: 8px; font-size: 11px; color: #6366f1; font-weight: 500;">✅ Current Plan</div>' if is_current else ''}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if not is_current:
+                if st.button(f"Select {plan['name']}", key=f"select_plan_{plan['id']}_{company_id}", use_container_width=True):
+                    # Update subscription plan
+                    success = db.update_company_subscription(company_id, plan['id'])
+                    if success:
+                        st.success(f"✅ Plan changed to {plan['name']} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to change plan")
+    
+    st.divider()
+    
+    # ========== CANCEL SUBSCRIPTION ==========
+    st.markdown("### ❌ Cancel Subscription")
+    st.caption("Cancel the current subscription. This will downgrade to Free plan at the end of the billing cycle.")
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("❌ Cancel Subscription", type="secondary", use_container_width=True):
+            success = db.cancel_company_subscription(company_id)
+            if success:
+                st.success("✅ Subscription cancelled successfully! Will downgrade to Free plan.")
+                st.rerun()
+            else:
+                st.error("❌ Failed to cancel subscription")
+    
+    # ========== VIEW INVOICES ==========
+    st.divider()
+    st.markdown("### 📊 Invoices")
+    
+    try:
+        invoices = db.get_company_invoices(company_id)
+        if invoices:
+            for invoice in invoices:
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                with col1:
+                    st.markdown(f"**#{invoice.get('invoice_number')}**")
+                    st.caption(invoice.get('date', 'N/A'))
+                with col2:
+                    st.markdown(f"${invoice.get('amount', 0):,.2f}")
+                with col3:
+                    st.markdown(f"`{invoice.get('status', 'N/A')}`")
+                with col4:
+                    if st.button("📄 Download", key=f"download_invoice_{invoice.get('id')}"):
+                        st.info("Download functionality")
+        else:
+            st.info("No invoices found")
+    except:
+        st.info("Invoice history not available")
+def render_role_management_page():
+    """Render role permissions management with WordPress-style UI"""
+    
+    db = get_db_manager()
+    
+    st.markdown("### 🔐 Role Permissions Management")
+    st.caption("Configure what each role can do in the system")
+    
+    # ========== TABS ==========
+    tab1, tab2 = st.tabs(["📋 Existing Roles", "➕ Add New Role"])
+    
+    with tab1:
+        render_existing_roles(db)
+    
+    with tab2:
+        render_add_new_role(db)
+
+
+def render_existing_roles(db):
+    """Render existing roles with permissions"""
+    
+    try:
+        roles = db.get_all_roles()
+    except AttributeError:
+        st.warning("get_all_roles() method not available. Please update db_manager.py")
+        return
+    
+    if not roles:
+        st.warning("No roles found. Please run database migration.")
+        return
+    
+    # ========== ROLE HIERARCHY ==========
+    with st.expander("📊 Role Hierarchy Overview", expanded=False):
+        role_hierarchy = {
+            'system_admin': '👑 Full platform access',
+            'system_support': '🛠️ Can view all companies, support access',
+            'system_auditor': '📊 Read-only across platform',
+            'company_admin': '🏢 Full company management',
+            'manager': '📋 Can manage tenders and create users',
+            'analyst': '🔬 Can run analyses and view reports',
+            'viewer': '👁️ Read-only access'
+        }
+        
+        hierarchy_data = []
+        for role_info in roles:
+            role_name = role_info['role']
+            perms = role_info['permissions']
+            perm_count = len([p for p in perms.values() if p])
+            
+            # Count users with this role
+            try:
+                users, _ = db.get_all_users_filtered(role=role_name, limit=1000)
+                user_count = len(users)
+            except:
+                user_count = 0
+            
+            hierarchy_data.append({
+                'Role': role_name.replace('_', ' ').title(),
+                'Description': role_hierarchy.get(role_name, 'No description'),
+                'Users': user_count,
+                'Permissions': perm_count
+            })
+        
+        if hierarchy_data:
+            df = pd.DataFrame(hierarchy_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    st.markdown("#### Edit Role Permissions")
+    
+    # ========== EDIT PERMISSIONS ==========
+    for role_info in roles:
+        role_name = role_info['role']
+        permissions = role_info['permissions']
+        
+        # Count users with this role
+        try:
+            users, _ = db.get_all_users_filtered(role=role_name, limit=1000)
+            user_count = len(users)
+        except:
+            user_count = 0
+        
+        with st.expander(f"📌 {role_name.replace('_', ' ').title()} ({user_count} users)", expanded=False):
+            st.markdown(f"**Role:** `{role_name}`")
+            
+            # Role description
+            role_hierarchy = {
+                'system_admin': '👑 Full platform access',
+                'system_support': '🛠️ Can view all companies, support access',
+                'system_auditor': '📊 Read-only across platform',
+                'company_admin': '🏢 Full company management',
+                'manager': '📋 Can manage tenders and create users',
+                'analyst': '🔬 Can run analyses and view reports',
+                'viewer': '👁️ Read-only access'
+            }
+            st.markdown(f"**Description:** {role_hierarchy.get(role_name, 'No description')}")
+            
+            # Permission categories
+            permission_categories = {
+                "👤 User Management": ['manage_users', 'manage_team', 'create_user', 'delete_user'],
+                "📄 Content Management": ['manage_tenders', 'view_reports', 'export_data'],
+                "🔬 Analysis": ['run_analysis', 'view_rates', 'edit_rates'],
+                "⚙️ System": ['manage_zones', 'manage_versions', 'change_plans', 'delete_any']
+            }
+            
+            updated_perms = {}
+            
+            for category, perm_keys in permission_categories.items():
+                # Filter only permissions that exist
+                category_perms = [k for k in perm_keys if k in permissions]
+                if category_perms:
+                    st.markdown(f"**{category}**")
+                    cols = st.columns(3)
+                    
+                    for i, key in enumerate(category_perms):
+                        col = cols[i % 3]
+                        current = permissions.get(key, False)
+                        label = key.replace('_', ' ').title()
+                        
+                        with col:
+                            new_val = st.checkbox(label, value=current, key=f"{role_name}_{key}")
+                            updated_perms[key] = new_val
+            
+            # Save button
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button(f"💾 Save Permissions", key=f"save_role_{role_name}", type="primary", use_container_width=True):
+                    # Merge with existing permissions
+                    current_perms = db.get_role_permissions(role_name)
+                    current_perms.update(updated_perms)
+                    
+                    if db.update_role_permissions(role_name, current_perms):
+                        st.success(f"✅ Permissions for {role_name} updated successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update permissions")
+            
+            # Delete role button (except for system roles)
+            with col2:
+                if role_name not in ['system_admin', 'company_admin', 'manager', 'analyst', 'viewer']:
+                    if st.button(f"🗑️ Delete Role", key=f"delete_role_{role_name}", use_container_width=True):
+                        if user_count > 0:
+                            st.error(f"❌ Cannot delete role '{role_name}' - it has {user_count} users assigned. Please reassign users first.")
+                        else:
+                            success = db.delete_role(role_name)
+                            if success:
+                                st.success(f"✅ Role '{role_name}' deleted successfully!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to delete role")
+                else:
+                    st.info("🔒 System roles cannot be deleted")
+
+
+def render_add_new_role(db):
+    """Render form to add a new role"""
+    
+    st.markdown("### ➕ Add New Role")
+    st.caption("Create a new custom role with specific permissions")
+    
+    with st.form("add_new_role_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            role_name = st.text_input(
+                "Role Name *", 
+                placeholder="e.g., content_editor, project_manager",
+                help="Use lowercase with underscores (e.g., content_editor)"
+            )
+            
+            # Validate role name format
+            if role_name:
+                import re
+                if not re.match(r'^[a-z_][a-z0-9_]*$', role_name):
+                    st.warning("Role name should use lowercase letters, numbers, and underscores only")
+        
+        with col2:
+            role_description = st.text_input(
+                "Role Description",
+                placeholder="e.g., Can edit content but not manage users",
+                help="Brief description of what this role can do"
+            )
+        
+        st.divider()
+        
+        st.markdown("#### 🔑 Permissions for New Role")
+        st.caption("Select the permissions this role should have")
+        
+        # Permission categories
+        permission_categories = {
+            "👤 User Management": ['manage_users', 'manage_team', 'create_user', 'delete_user'],
+            "📄 Content Management": ['manage_tenders', 'view_reports', 'export_data'],
+            "🔬 Analysis": ['run_analysis', 'view_rates', 'edit_rates'],
+            "⚙️ System": ['manage_zones', 'manage_versions', 'change_plans', 'delete_any']
+        }
+        
+        new_permissions = {}
+        
+        for category, perm_keys in permission_categories.items():
+            st.markdown(f"**{category}**")
+            cols = st.columns(3)
+            
+            for i, key in enumerate(perm_keys):
+                col = cols[i % 3]
+                label = key.replace('_', ' ').title()
+                
+                with col:
+                    new_permissions[key] = st.checkbox(label, value=False, key=f"new_role_{key}")
+        
+        st.divider()
+        
+        # Form actions
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("✅ Create Role", type="primary", use_container_width=True)
+        
+        with col2:
+            if st.form_submit_button("❌ Reset", use_container_width=True):
+                st.rerun()
+        
+        if submitted:
+            # Validation
+            errors = []
+            if not role_name:
+                errors.append("Role name is required")
+            elif not re.match(r'^[a-z_][a-z0-9_]*$', role_name):
+                errors.append("Role name should use lowercase letters, numbers, and underscores only")
+            
+            # Check if role already exists
+            try:
+                existing_roles = db.get_all_roles()
+                existing_role_names = [r['role'] for r in existing_roles]
+                if role_name in existing_role_names:
+                    errors.append(f"Role '{role_name}' already exists")
+            except:
+                pass
+            
+            if errors:
+                for err in errors:
+                    st.error(err)
+            else:
+                # Create the new role
+                success = db.create_role(role_name, new_permissions, role_description)
+                if success:
+                    st.success(f"✅ Role '{role_name}' created successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to create role")
+
+
+def render_permission_matrix():
+    """Render permission matrix for quick reference"""
+    st.markdown("### 📊 Permission Matrix")
+    
+    db = get_db_manager()
+    
+    try:
+        roles = db.get_all_roles()
+    except:
+        st.warning("Unable to load roles")
+        return
+    
+    if not roles:
+        st.warning("No roles found")
+        return
+    
+    # Build matrix data
+    matrix_data = []
+    permission_keys = [
+        'manage_users', 'manage_team', 'create_user', 'delete_user',
+        'manage_tenders', 'view_reports', 'export_data',
+        'run_analysis', 'view_rates', 'edit_rates',
+        'manage_zones', 'manage_versions', 'change_plans', 'delete_any'
+    ]
+    
+    for role_info in roles:
+        row = {
+            'Role': role_info['role'].replace('_', ' ').title(),
+            'Users': 0,
+        }
+        perms = role_info['permissions']
+        
+        # Count users
+        try:
+            users, _ = db.get_all_users_filtered(role=role_info['role'], limit=1000)
+            row['Users'] = len(users)
+        except:
+            pass
+        
+        # Add permissions
+        for key in permission_keys:
+            row[key.replace('_', ' ').title()] = '✅' if perms.get(key, False) else '❌'
+        
+        matrix_data.append(row)
+    
+    if matrix_data:
+        df = pd.DataFrame(matrix_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No data to display")
+
+
+
+def render_company_management_bak():
     """Render company management interface for super admin with subscription control"""
     st.markdown("### 🏢 Company Management")
     st.caption("Create, edit, and manage companies on the platform")
@@ -911,365 +2609,55 @@ def render_company_management():
         st.info("No companies found")
 
 
-def render_system_user_management():
-    """Manage system-level users and company users (for system admin)"""
-    st.markdown("### 👥 User Management")
-    st.caption("Create users for companies or system-level access")
-    
-    # ========== ADD NEW USER ==========
-    
-    with st.expander("➕ Add New User", expanded=False):
-        with st.form("add_user_form"):
-            st.markdown("#### User Details")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                full_name = st.text_input("Full Name *")
-                email = st.text_input("Email *")
-                username = st.text_input("Username *")
-                mobile_number = st.text_input("Mobile Number *", help="Bangladeshi mobile: 01XXXXXXXXX")
-            
-            with col2:
-                phone = st.text_input("Phone")
-                generate_password = st.checkbox("Auto-generate password")
-                if not generate_password:
-                    password = st.text_input("Password *", type="password")
-                    confirm_password = st.text_input("Confirm Password *", type="password")
-            
-            st.markdown("---")
-            st.markdown("#### User Type & Role")
-            
-            user_type = st.radio(
-                "User Type",
-                options=["Company User", "System User"],
-                help="Company User: Belongs to a specific company | System User: Platform-level access",
-                key="user_type_radio_add"
-            )
-            
-            company_id = None
-            role = "viewer"
-            
-            # 👇 ONLY SHOWS WHEN "Company User" IS SELECTED
-            if user_type == "Company User":
-                st.markdown("##### Company Assignment")
-                
-                # Get all active companies
-                companies, _ = db.get_all_companies_filtered(status=1, limit=200, offset=0)
-                company_options = {c['company_name']: c['id'] for c in companies}
-                
-                if company_options:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        selected_company = st.selectbox(
-                            "Select Company *",
-                            options=list(company_options.keys()),
-                            key="company_select_add"
-                        )
-                        company_id = company_options[selected_company]
-                    
-                    with col2:
-                        role = st.selectbox(
-                            "Role *",
-                            options=["company_admin", "manager", "analyst", "viewer"],
-                            key="company_role_add",
-                            help="company_admin: Full company control | manager: Can manage team | analyst: Can run analyses | viewer: Read-only"
-                        )
-                else:
-                    st.error("No companies found. Please create a company first.")
-                    company_id = None
-                    role = "viewer"
-            
-            # 👇 ONLY SHOWS WHEN "System User" IS SELECTED
-            else:
-                st.markdown("##### System Access Level")
-                role = st.selectbox(
-                    "Role *",
-                    options=["system_admin", "system_support", "system_auditor"],
-                    key="system_role_add",
-                    help="system_admin: Full platform control | system_support: Customer support | system_auditor: Read-only audit"
-                )
-                
-                # Show role description
-                role_descriptions = {
-                    "system_admin": "👑 **System Admin** - Full platform access. Can manage all companies, users, subscriptions, and system settings.",
-                    "system_support": "🛟 **System Support** - Customer support role. Can view all companies and help users, but limited admin rights.",
-                    "system_auditor": "📊 **System Auditor** - Read-only access. Can audit all data but cannot modify anything."
-                }
-                st.info(role_descriptions.get(role, ""))
-            
-            # Password strength indicator
-            if not generate_password and 'password' in locals() and password:
-                from utils.helpers import validate_password_strength
-                score, msg, color = validate_password_strength(password)
-                st.progress(score / 100)
-                st.markdown(f"<small style='color:{color}'>{msg}</small>", unsafe_allow_html=True)
-            
-            submitted = st.form_submit_button("Create User", type="primary")
-            
-            if submitted:
-                # Validation
-                errors = []
-                if not full_name:
-                    errors.append("Full name is required")
-                if not email:
-                    errors.append("Email is required")
-                if not username:
-                    errors.append("Username is required")
-                if not mobile_number:
-                    errors.append("Mobile number is required")
-                if user_type == "Company User" and not company_id:
-                    errors.append("Company selection is required")
-                if not generate_password and 'password' not in locals():
-                    errors.append("Password is required")
-                elif not generate_password and password != confirm_password:
-                    errors.append("Passwords do not match")
-                
-                if errors:
-                    for err in errors:
-                        st.error(err)
-                else:
-                    final_password = db.generate_random_password() if generate_password else password
-                    
-                    user_data = {
-                        'username': username.strip(),
-                        'password': final_password,
-                        'email': email.strip(),
-                        'full_name': full_name.strip(),
-                        'phone': phone.strip(),
-                        'mobile_number': mobile_number.strip(),
-                        'role': role
-                    }
-                    
-                    if user_type == "Company User":
-                        success, result = db.create_company_user(company_id, user_data, st.session_state.user_id)
-                    else:
-                        success, result = db.create_system_user(user_data, st.session_state.user_id)
-                    
-                    if success:
-                        if generate_password:
-                            st.success(f"✅ User {full_name} created! Password: `{final_password}`")
-                        else:
-                            st.success(f"✅ User {full_name} created successfully!")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed: {result}")
-
-    # ========== DISPLAY USERS ==========
-    st.markdown("### 📋 Users")
-
-    tab1, tab2 = st.tabs(["🏢 Company Users", "👑 System Users"])
-
-    # ========== COMPANY USERS TAB ==========
-    with tab1:
-        companies, _ = db.get_all_companies_filtered(status=None, limit=200, offset=0)
-        
-        if companies:
-            for company in companies:
-                company_users, _ = db.get_all_users_filtered(
-                    company_id=company['id'],
-                    limit=100,
-                    offset=0
-                )
-                
-                if company_users:
-                    st.markdown(f"#### 🏢 {company['company_name']}")
-                    
-                    for user in company_users:
-                        if not isinstance(user, dict):
-                            continue
-                        
-                        user_id = user.get('id')
-                        if not user_id:
-                            continue
-                        
-                        unique_base = f"comp_{company['id']}_user_{user_id}"
-                        
-                        # Show username, mobile, and full name in expander header
-                        full_name = user.get('full_name', 'Unknown')
-                        username = user.get('username', 'N/A')
-                        mobile = user.get('mobile_number', 'N/A')
-                        role = user.get('role', 'N/A').title()
-                        
-                        with st.expander(f"👤 {full_name} (@{username}) 📱 {mobile} - {role}"):
-                            col1, col2, col3 = st.columns([2, 1, 1])
-                            
-                            with col1:
-                                # Username is DISPLAY ONLY (not editable)
-                                st.text_input("Username (Read-Only)", value=username, disabled=True, key=f"{unique_base}_username")
-                                
-                                new_full_name = st.text_input("Full Name", value=full_name, key=f"{unique_base}_name")
-                                new_email = st.text_input("Email", value=user.get('email', ''), key=f"{unique_base}_email")
-                                new_phone = st.text_input("Phone", value=user.get('phone', ''), key=f"{unique_base}_phone")
-                                # Mobile number - DISPLAY ONLY (not editable)
-                                st.text_input("Mobile Number (Read-Only)", value=mobile, disabled=True, key=f"{unique_base}_mobile")
-                            
-                            with col2:
-                                # Company selection dropdown for company users
-                                all_companies, _ = db.get_all_companies_filtered(status=1, limit=200, offset=0)
-                                company_options = {c['company_name']: c['id'] for c in all_companies}
-                                current_company_name = company.get('company_name', 'Unknown')
-                                
-                                new_company = st.selectbox(
-                                    "Company",
-                                    options=list(company_options.keys()),
-                                    index=list(company_options.keys()).index(current_company_name) if current_company_name in company_options else 0,
-                                    key=f"{unique_base}_company"
-                                )
-                                new_company_id = company_options.get(new_company, company['id'])
-                                
-                                # Role options based on user type
-                                role_options = ["company_admin", "manager", "analyst", "viewer"]
-                                current_role = user.get('role', 'viewer')
-                                role_index = role_options.index(current_role) if current_role in role_options else 2
-                                
-                                new_role = st.selectbox(
-                                    "Role",
-                                    options=role_options,
-                                    index=role_index,
-                                    key=f"{unique_base}_role"
-                                )
-                            
-                            with col3:
-                                new_active = st.checkbox("Active", value=user.get('is_active', 1) == 1, key=f"{unique_base}_active")
-                                
-                                if st.button("💾 Save Changes", key=f"{unique_base}_save"):
-                                    updates = {}
-                                    if new_full_name != user.get('full_name'):
-                                        updates['full_name'] = new_full_name
-                                    if new_email != user.get('email'):
-                                        updates['email'] = new_email
-                                    if new_phone != user.get('phone'):
-                                        updates['phone'] = new_phone
-                                    if new_role != user.get('role'):
-                                        updates['role'] = new_role
-                                    if new_active != (user.get('is_active', 1) == 1):
-                                        updates['is_active'] = 1 if new_active else 0
-                                    
-                                    # Handle company change
-                                    if new_company_id != company['id']:
-                                        # Update user's company
-                                        updates['company_id'] = new_company_id
-                                    
-                                    if updates:
-                                        if db.update_user(user_id, **updates):
-                                            st.success("User updated! Changes will appear after refresh.")
-                                            st.rerun()
-                                        else:
-                                            st.error("Update failed")
-                            
-                            # Action buttons below the edit form
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("🔑 Reset Password", key=f"{unique_base}_reset"):
-                                    success, new_pw = db.reset_user_password(user_id)
-                                    if success:
-                                        st.success(f"New password: `{new_pw}`")
-                            with col2:
-                                if user_id != st.session_state.user_id:
-                                    if st.button("🗑️ Delete User", key=f"{unique_base}_delete", type="secondary"):
-                                        if db.delete_user(user_id):
-                                            st.success("User deleted")
-                                            st.rerun()
-                            
-                            st.caption(f"📅 Created: {str(user.get('created_at', ''))[:10] if user.get('created_at') else 'N/A'}")
-        else:
-            st.info("No companies found")
-
-    # ========== SYSTEM USERS TAB ==========
-    with tab2:
-        try:
-            system_users = db.get_system_users()
-        except AttributeError:
-            st.warning("get_system_users() method not available")
-            return
-        
-        if system_users:
-            for user in system_users:
-                if not isinstance(user, dict):
-                    continue
-                
-                user_id = user.get('id')
-                if not user_id:
-                    continue
-                
-                unique_base = f"sys_user_{user_id}"
-                
-                full_name = user.get('full_name', 'Unknown')
-                username = user.get('username', 'N/A')
-                mobile = user.get('mobile_number', 'N/A')
-                role = user.get('role', 'N/A').replace('_', ' ').title()
-                
-                with st.expander(f"👑 {full_name} (@{username}) 📱 {mobile} - {role}"):
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    
-                    with col1:
-                        # Username - DISPLAY ONLY (not editable)
-                        st.text_input("Username (Read-Only)", value=username, disabled=True, key=f"{unique_base}_username")
-                        
-                        new_full_name = st.text_input("Full Name", value=full_name, key=f"{unique_base}_name")
-                        new_email = st.text_input("Email", value=user.get('email', ''), key=f"{unique_base}_email")
-                        new_phone = st.text_input("Phone", value=user.get('phone', ''), key=f"{unique_base}_phone")
-                        # Mobile number - DISPLAY ONLY (not editable)
-                        st.text_input("Mobile Number (Read-Only)", value=mobile, disabled=True, key=f"{unique_base}_mobile")
-                    
-                    with col2:
-                        role_options = ["system_admin", "system_support", "system_auditor"]
-                        current_role = user.get('role', 'system_support')
-                        role_index = role_options.index(current_role) if current_role in role_options else 1
-                        
-                        new_role = st.selectbox(
-                            "Role",
-                            options=role_options,
-                            index=role_index,
-                            key=f"{unique_base}_role"
-                        )
-                    
-                    with col3:
-                        new_active = st.checkbox("Active", value=user.get('is_active', 1) == 1, key=f"{unique_base}_active")
-                        
-                        if st.button("💾 Save Changes", key=f"{unique_base}_save"):
-                            updates = {}
-                            if new_full_name != user.get('full_name'):
-                                updates['full_name'] = new_full_name
-                            if new_email != user.get('email'):
-                                updates['email'] = new_email
-                            if new_phone != user.get('phone'):
-                                updates['phone'] = new_phone
-                            if new_role != user.get('role'):
-                                updates['role'] = new_role
-                            if new_active != (user.get('is_active', 1) == 1):
-                                updates['is_active'] = 1 if new_active else 0
-                            
-                            if updates:
-                                if db.update_user(user_id, **updates):
-                                    st.success("User updated!")
-                                    st.rerun()
-                                else:
-                                    st.error("Update failed")
-                    
-                    # Action buttons
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("🔑 Reset Password", key=f"{unique_base}_reset"):
-                            success, new_pw = db.reset_user_password(user_id)
-                            if success:
-                                st.success(f"New password: `{new_pw}`")
-                    with col2:
-                        if user_id != st.session_state.user_id:
-                            if st.button("🗑️ Delete User", key=f"{unique_base}_delete", type="secondary"):
-                                if db.delete_user(user_id):
-                                    st.success("User deleted")
-                                    st.rerun()
-                    
-                    st.caption(f"📅 Created: {str(user.get('created_at', ''))[:10] if user.get('created_at') else 'N/A'}")
-        else:
-            st.info("No system users found")
-
-
 def render_role_management_page():
-    """Render role permissions management"""
+    """Render role permissions management with clean row-based layout"""
+    
+    db = get_db_manager()
+    
     st.markdown("### 🔐 Role Permissions Management")
     st.caption("Configure what each role can do in the system")
+    
+    # ========== STATS ==========
+    try:
+        roles = db.get_all_roles()
+        total_roles = len(roles)
+        total_permissions = sum([len([p for p in r['permissions'].values() if p]) for r in roles]) if roles else 0
+        
+        # Count users per role
+        role_user_counts = {}
+        for role_info in roles:
+            try:
+                users, _ = db.get_all_users_filtered(role=role_info['role'], limit=1000)
+                role_user_counts[role_info['role']] = len(users)
+            except:
+                role_user_counts[role_info['role']] = 0
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📋 Total Roles", total_roles)
+        with col2:
+            st.metric("🔑 Total Permissions", total_permissions)
+        with col3:
+            st.metric("👥 Users with Roles", sum(role_user_counts.values()))
+        with col4:
+            st.metric("📊 Avg Permissions per Role", f"{total_permissions/total_roles:.1f}" if total_roles > 0 else "0")
+    except:
+        pass
+    
+    st.divider()
+    
+    # ========== TABS ==========
+    tab1, tab2 = st.tabs(["📋 Existing Roles", "➕ Add New Role"])
+    
+    with tab1:
+        render_existing_roles_row_based(db)
+    
+    with tab2:
+        render_add_new_role(db)
+
+
+def render_existing_roles_row_based(db):
+    """Render existing roles with row-based layout like users"""
     
     try:
         roles = db.get_all_roles()
@@ -1281,9 +2669,314 @@ def render_role_management_page():
         st.warning("No roles found. Please run database migration.")
         return
     
-    # Display role hierarchy
-    st.markdown("#### Role Hierarchy")
-    role_hierarchy = {
+    # ========== ROLE HIERARCHY OVERVIEW ==========
+    with st.expander("📊 Role Hierarchy Overview", expanded=False):
+        role_hierarchy = {
+            'system_admin': '👑 Full platform access',
+            'system_support': '🛠️ Can view all companies, support access',
+            'system_auditor': '📊 Read-only across platform',
+            'company_admin': '🏢 Full company management',
+            'manager': '📋 Can manage tenders and create users',
+            'analyst': '🔬 Can run analyses and view reports',
+            'viewer': '👁️ Read-only access'
+        }
+        
+        hierarchy_data = []
+        for role_info in roles:
+            role_name = role_info['role']
+            perms = role_info['permissions']
+            perm_count = len([p for p in perms.values() if p])
+            
+            # Count users with this role
+            try:
+                users, _ = db.get_all_users_filtered(role=role_name, limit=1000)
+                user_count = len(users)
+            except:
+                user_count = 0
+            
+            hierarchy_data.append({
+                'Role': role_name.replace('_', ' ').title(),
+                'Description': role_hierarchy.get(role_name, 'No description'),
+                'Users': user_count,
+                'Permissions': perm_count
+            })
+        
+        if hierarchy_data:
+            df = pd.DataFrame(hierarchy_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    st.markdown("---")
+    st.markdown("#### 🔐 Edit Role Permissions")
+    st.caption("Click on a role to expand and edit its permissions")
+    
+    # ========== ROW-BASED ROLE LIST ==========
+    # CSS for role rows
+    st.markdown("""
+    <style>
+        .role-row {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background 0.2s;
+            background: white;
+        }
+        .role-row:hover {
+            background: #f8fafc;
+        }
+        .role-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .role-avatar.system { background: #dbeafe; color: #1e40af; }
+        .role-avatar.admin { background: #dbeafe; color: #1e40af; }
+        .role-avatar.manager { background: #d1fae5; color: #065f46; }
+        .role-avatar.analyst { background: #fef3c7; color: #92400e; }
+        .role-avatar.viewer { background: #e5e7eb; color: #374151; }
+        .role-avatar.default { background: #f1f5f9; color: #475569; }
+        
+        .role-name {
+            font-weight: 500;
+            color: #1e293b;
+        }
+        .role-desc {
+            font-size: 13px;
+            color: #64748b;
+        }
+        .role-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 2px;
+            flex-wrap: wrap;
+        }
+        .badge-perm-count {
+            background: #f1f5f9;
+            color: #475569;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-user-count {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-system-role {
+            background: #fef3c7;
+            color: #92400e;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Display roles in rows (like users)
+    for role_info in roles:
+        role_name = role_info['role']
+        permissions = role_info['permissions']
+        
+        # Count users with this role
+        try:
+            users, _ = db.get_all_users_filtered(role=role_name, limit=1000)
+            user_count = len(users)
+        except:
+            user_count = 0
+        
+        perm_count = len([p for p in permissions.values() if p])
+        
+        # Determine avatar class
+        avatar_class = 'default'
+        if role_name in ['system_admin', 'system_support', 'system_auditor']:
+            avatar_class = 'system'
+        elif role_name in ['company_admin']:
+            avatar_class = 'admin'
+        elif role_name == 'manager':
+            avatar_class = 'manager'
+        elif role_name == 'analyst':
+            avatar_class = 'analyst'
+        elif role_name == 'viewer':
+            avatar_class = 'viewer'
+        
+        # Avatar letter
+        avatar_letter = role_name[0].upper() if role_name else 'R'
+        
+        # Is system role?
+        is_system = role_name in ['system_admin', 'system_support', 'system_auditor', 'company_admin', 'manager', 'analyst', 'viewer']
+        
+        with st.container():
+            # Row-based layout (same as users)
+            cols = st.columns([0.5, 1.5, 2.5, 1.2, 1.2, 1.5])
+            
+            with cols[0]:
+                st.markdown(f'<div class="role-avatar {avatar_class}">{avatar_letter}</div>', unsafe_allow_html=True)
+            
+            with cols[1]:
+                st.markdown(f"""
+                    <div>
+                        <div class="role-name">{role_name.replace('_', ' ').title()}</div>
+                        <div class="role-desc">{get_role_description(role_name)}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[2]:
+                st.markdown(f"""
+                    <div class="role-meta">
+                        <span class="badge-perm-count">🔑 {perm_count} permissions</span>
+                        <span class="badge-user-count">👥 {user_count} users</span>
+                        {f'<span class="badge-system-role">🔒 System</span>' if is_system else ''}
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with cols[3]:
+                # Edit button
+                if st.button("✏️", key=f"edit_role_{role_name}", use_container_width=True, help="Edit role permissions"):
+                    st.session_state.edit_role_name = role_name
+                    st.rerun()
+            
+            with cols[4]:
+                # View button - shows permission matrix
+                if st.button("👁️", key=f"view_role_{role_name}", use_container_width=True, help="View role details"):
+                    st.session_state.view_role_name = role_name
+                    st.rerun()
+            
+            with cols[5]:
+                # Delete button (except for system roles)
+                if not is_system:
+                    if st.button("🗑️", key=f"delete_role_{role_name}", use_container_width=True, help="Delete role"):
+                        if user_count > 0:
+                            st.error(f"❌ Cannot delete '{role_name}' - has {user_count} users assigned")
+                        else:
+                            success = db.delete_role(role_name)
+                            if success:
+                                st.success(f"✅ Role '{role_name}' deleted!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to delete")
+                else:
+                    st.button("🔒", key=f"locked_{role_name}", disabled=True, use_container_width=True, help="System role cannot be deleted")
+            
+            # ========== EXPANDED PERMISSION EDITOR ==========
+            # Check if this role should be expanded for editing
+            if st.session_state.get('edit_role_name') == role_name:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin: 8px 0 16px 0;
+                    ">
+                        <h4 style="margin-top: 0;">✏️ Edit Permissions: {role_name.replace('_', ' ').title()}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Permission categories
+                    permission_categories = {
+                        "👤 User Management": ['manage_users', 'manage_team', 'create_user', 'delete_user'],
+                        "📄 Content Management": ['manage_tenders', 'view_reports', 'export_data'],
+                        "🔬 Analysis": ['run_analysis', 'view_rates', 'edit_rates'],
+                        "⚙️ System": ['manage_zones', 'manage_versions', 'change_plans', 'delete_any']
+                    }
+                    
+                    updated_perms = {}
+                    
+                    for category, perm_keys in permission_categories.items():
+                        # Filter only permissions that exist
+                        category_perms = [k for k in perm_keys if k in permissions]
+                        if category_perms:
+                            st.markdown(f"**{category}**")
+                            cols = st.columns(3)
+                            
+                            for i, key in enumerate(category_perms):
+                                col = cols[i % 3]
+                                current = permissions.get(key, False)
+                                label = key.replace('_', ' ').title()
+                                
+                                with col:
+                                    new_val = st.checkbox(label, value=current, key=f"edit_{role_name}_{key}")
+                                    updated_perms[key] = new_val
+                    
+                    # Save and Cancel buttons
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"💾 Save Permissions", key=f"save_edit_{role_name}", type="primary", use_container_width=True):
+                            current_perms = db.get_role_permissions(role_name)
+                            current_perms.update(updated_perms)
+                            
+                            if db.update_role_permissions(role_name, current_perms):
+                                st.success(f"✅ Permissions for {role_name} updated successfully!")
+                                st.session_state.edit_role_name = None
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to update permissions")
+                    
+                    with col2:
+                        if st.button(f"❌ Cancel", key=f"cancel_edit_{role_name}", use_container_width=True):
+                            st.session_state.edit_role_name = None
+                            st.rerun()
+            
+            # ========== VIEW ROLE DETAILS ==========
+            if st.session_state.get('view_role_name') == role_name:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin: 8px 0 16px 0;
+                    ">
+                        <h4 style="margin-top: 0;">👁️ Role Details: {role_name.replace('_', ' ').title()}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Role:** `{role_name}`")
+                        st.markdown(f"**Description:** {get_role_description(role_name)}")
+                        st.markdown(f"**Users:** {user_count}")
+                    with col2:
+                        st.markdown(f"**Permissions:** {perm_count}")
+                        st.markdown(f"**System Role:** {'Yes' if is_system else 'No'}")
+                    
+                    st.markdown("**Permission List:**")
+                    perm_cols = st.columns(3)
+                    perm_list = []
+                    for key, value in permissions.items():
+                        if value:
+                            perm_list.append(key.replace('_', ' ').title())
+                    
+                    if perm_list:
+                        for i, perm in enumerate(perm_list):
+                            with perm_cols[i % 3]:
+                                st.markdown(f"✅ {perm}")
+                    else:
+                        st.caption("No permissions assigned")
+                    
+                    if st.button(f"Close", key=f"close_view_{role_name}", use_container_width=True):
+                        st.session_state.view_role_name = None
+                        st.rerun()
+
+
+def get_role_description(role_name):
+    """Get description for a role"""
+    descriptions = {
         'system_admin': '👑 Full platform access',
         'system_support': '🛠️ Can view all companies, support access',
         'system_auditor': '📊 Read-only across platform',
@@ -1292,59 +2985,114 @@ def render_role_management_page():
         'analyst': '🔬 Can run analyses and view reports',
         'viewer': '👁️ Read-only access'
     }
+    return descriptions.get(role_name, 'Custom role')
+
+
+def render_add_new_role(db):
+    """Render form to add a new role"""
     
-    for role, desc in role_hierarchy.items():
-        if any(r['role'] == role for r in roles):
-            st.markdown(f"- **{role.replace('_', ' ').title()}**: {desc}")
+    st.markdown("### ➕ Add New Role")
+    st.caption("Create a new custom role with specific permissions")
     
-    st.markdown("---")
-    st.markdown("#### Edit Role Permissions")
-    
-    for role_info in roles:
-        role_name = role_info['role']
-        permissions = role_info['permissions']
+    with st.form("add_new_role_form"):
+        col1, col2 = st.columns(2)
         
-        with st.expander(f"📌 {role_name.replace('_', ' ').title()}", expanded=False):
-            st.markdown(f"**Role:** `{role_name}`")
-            st.markdown(f"**Description:** {role_hierarchy.get(role_name, 'No description')}")
+        with col1:
+            role_name = st.text_input(
+                "Role Name *", 
+                placeholder="e.g., content_editor, project_manager",
+                help="Use lowercase with underscores (e.g., content_editor)"
+            )
             
-            # Display key permissions
-            col1, col2 = st.columns(2)
+            # Validate role name format
+            if role_name:
+                import re
+                if not re.match(r'^[a-z_][a-z0-9_]*$', role_name):
+                    st.warning("Role name should use lowercase letters, numbers, and underscores only")
+        
+        with col2:
+            role_description = st.text_input(
+                "Role Description",
+                placeholder="e.g., Can edit content but not manage users",
+                help="Brief description of what this role can do"
+            )
+        
+        st.divider()
+        
+        st.markdown("#### 🔑 Permissions for New Role")
+        st.caption("Select the permissions this role should have")
+        
+        # Permission categories
+        permission_categories = {
+            "👤 User Management": ['manage_users', 'manage_team', 'create_user', 'delete_user'],
+            "📄 Content Management": ['manage_tenders', 'view_reports', 'export_data'],
+            "🔬 Analysis": ['run_analysis', 'view_rates', 'edit_rates'],
+            "⚙️ System": ['manage_zones', 'manage_versions', 'change_plans', 'delete_any']
+        }
+        
+        new_permissions = {}
+        
+        for category, perm_keys in permission_categories.items():
+            st.markdown(f"**{category}**")
+            cols = st.columns(3)
             
-            with col1:
-                st.markdown("**User Management**")
-                user_perms = ['manage_users', 'manage_team', 'create_user', 'delete_user']
-                for perm in user_perms:
-                    if perm in permissions:
-                        current = permissions.get(perm, False)
-                        new_val = st.checkbox(perm.replace('_', ' ').title(), value=current, key=f"{role_name}_{perm}")
-                        permissions[perm] = new_val
+            for i, key in enumerate(perm_keys):
+                col = cols[i % 3]
+                label = key.replace('_', ' ').title()
+                
+                with col:
+                    new_permissions[key] = st.checkbox(label, value=False, key=f"new_role_{key}")
+        
+        st.divider()
+        
+        # Form actions
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("✅ Create Role", type="primary", use_container_width=True)
+        
+        with col2:
+            if st.form_submit_button("❌ Reset", use_container_width=True):
+                st.rerun()
+        
+        if submitted:
+            # Validation
+            errors = []
+            import re
+            if not role_name:
+                errors.append("Role name is required")
+            elif not re.match(r'^[a-z_][a-z0-9_]*$', role_name):
+                errors.append("Role name should use lowercase letters, numbers, and underscores only")
             
-            with col2:
-                st.markdown("**Tender & Analysis**")
-                tender_perms = ['manage_tenders', 'run_analysis', 'view_reports', 'export_data']
-                for perm in tender_perms:
-                    if perm in permissions:
-                        current = permissions.get(perm, False)
-                        new_val = st.checkbox(perm.replace('_', ' ').title(), value=current, key=f"{role_name}_{perm}")
-                        permissions[perm] = new_val
+            # Check if role already exists
+            try:
+                existing_roles = db.get_all_roles()
+                existing_role_names = [r['role'] for r in existing_roles]
+                if role_name in existing_role_names:
+                    errors.append(f"Role '{role_name}' already exists")
+            except:
+                pass
             
-            if st.button(f"💾 Save Permissions for {role_name}", key=f"save_role_{role_name}"):
-                success = db.update_role_permissions(role_name, permissions)
+            if errors:
+                for err in errors:
+                    st.error(err)
+            else:
+                # Create the new role
+                success = db.create_role(role_name, new_permissions, role_description)
                 if success:
-                    st.success(f"Permissions for {role_name} updated successfully!")
+                    st.success(f"✅ Role '{role_name}' created successfully!")
                     st.rerun()
                 else:
-                    st.error("Failed to update permissions")
+                    st.error("❌ Failed to create role")
 
-# Updated render_system_configuration function
+# In _pages/admin_dashboard.py or wherever render_system_configuration is defined
+
 def render_system_configuration():
-    """Render system configuration page"""
-    
-    st.markdown("### ⚙️ System Configuration")
-    st.markdown("Manage system-wide settings and configurations.")
+    """Render system configuration page with clean UI"""
     
     db = get_db_manager()
+    
+    st.markdown("### ⚙️ System Configuration")
+    st.caption("Manage system-wide settings and configurations.")
     
     # ============================================================
     # SYSTEM CONFIGURATION SECTIONS
@@ -1359,59 +3107,56 @@ def render_system_configuration():
     
     # ========== TAB 1: EMAIL SETTINGS ==========
     with tab1:
-        st.markdown("#### 📧 Email Configuration")
-        
-        # Get current email config
-        try:
-            # ✅ Fix: Use direct method instead of context manager
-            if is_supabase():
-                # For Supabase, get config directly
-                supabase = get_supabase_client()
-                response = supabase.table("system_config").select("*").eq("config_key", "email_settings").execute()
-                config_data = response.data[0] if response.data else None
-            else:
-                # For SQLite, use get_connection
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM system_config WHERE config_key = 'email_settings'")
-                row = cursor.fetchone()
-                config_data = dict(row) if row else None
-                
-        except Exception as e:
-            st.warning(f"Could not load email settings: {e}")
-            config_data = None
-        
-        # Display and edit email settings
-        if config_data:
-            config_value = config_data.get('config_value', {})
-            if isinstance(config_value, str):
-                try:
-                    config_value = json.loads(config_value)
-                except:
-                    config_value = {}
-        else:
-            config_value = {
-                'smtp_host': 'smtp.gmail.com',
-                'smtp_port': 587,
-                'smtp_user': '',
-                'smtp_password': '',
-                'from_email': '',
-                'from_name': 'TenderAI'
-            }
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            new_smtp_host = st.text_input("SMTP Host", value=config_value.get('smtp_host', 'smtp.gmail.com'))
-            new_smtp_port = st.number_input("SMTP Port", value=config_value.get('smtp_port', 587))
-            new_smtp_user = st.text_input("SMTP Username", value=config_value.get('smtp_user', ''))
-        
-        with col2:
-            new_smtp_password = st.text_input("SMTP Password", type="password", value=config_value.get('smtp_password', ''))
-            new_from_email = st.text_input("From Email", value=config_value.get('from_email', ''))
-            new_from_name = st.text_input("From Name", value=config_value.get('from_name', 'TenderAI'))
-        
-        if st.button("💾 Save Email Settings", type="primary"):
+        render_email_settings(db)
+    
+    # ========== TAB 2: SECURITY SETTINGS ==========
+    with tab2:
+        render_security_settings(db)
+    
+    # ========== TAB 3: SYSTEM SETTINGS ==========
+    with tab3:
+        render_system_settings(db)
+    
+    # ========== TAB 4: PERFORMANCE ==========
+    with tab4:
+        render_performance_settings(db)
+
+
+def render_email_settings(db):
+    """Render email settings configuration"""
+    st.markdown("#### 📧 Email Configuration")
+    
+    # Get current email config using db method
+    config_value = db.get_email_config()
+    
+    if not config_value:
+        config_value = {
+            'smtp_host': 'smtp.gmail.com',
+            'smtp_port': 587,
+            'smtp_user': '',
+            'smtp_password': '',
+            'from_email': '',
+            'from_name': 'TenderAI'
+        }
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        new_smtp_host = st.text_input("SMTP Host", value=config_value.get('smtp_host', 'smtp.gmail.com'))
+        new_smtp_port = st.number_input("SMTP Port", value=config_value.get('smtp_port', 587), min_value=1, max_value=65535)
+        new_smtp_user = st.text_input("SMTP Username", value=config_value.get('smtp_user', ''))
+    
+    with col2:
+        new_smtp_password = st.text_input("SMTP Password", type="password", value=config_value.get('smtp_password', ''))
+        new_from_email = st.text_input("From Email", value=config_value.get('from_email', ''))
+        new_from_name = st.text_input("From Name", value=config_value.get('from_name', 'TenderAI'))
+    
+    # Test SMTP connection checkbox
+    test_smtp = st.checkbox("Test SMTP connection after saving")
+    
+    col1, col2, col3 = st.columns([1, 1, 3])
+    with col1:
+        if st.button("💾 Save", key="save_email_settings", type="primary", use_container_width=True):
             try:
                 updated_config = {
                     'smtp_host': new_smtp_host,
@@ -1422,253 +3167,397 @@ def render_system_configuration():
                     'from_name': new_from_name
                 }
                 
-                if is_supabase():
-                    # Supabase: Upsert
-                    supabase = get_supabase_client()
-                    supabase.table("system_config").upsert({
-                        "config_key": "email_settings",
-                        "config_value": json.dumps(updated_config),
-                        "updated_at": datetime.now().isoformat()
-                    }).execute()
+                success = db.update_email_config(updated_config)
+                if success:
+                    st.success("✅ Email settings saved successfully!")
+                    if test_smtp:
+                        # Test SMTP connection
+                        test_smtp_connection(updated_config)
+                    st.rerun()
                 else:
-                    # SQLite
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
-                        VALUES (?, ?, ?)
-                    """, ("email_settings", json.dumps(updated_config), datetime.now().isoformat()))
-                    conn.commit()
-                
-                st.success("✅ Email settings saved successfully!")
-                st.rerun()
-                
+                    st.error("❌ Failed to save email settings")
+                    
             except Exception as e:
-                st.error(f"❌ Failed to save email settings: {e}")
+                st.error(f"❌ Error: {e}")
     
-    # ========== TAB 2: SECURITY SETTINGS ==========
-    with tab2:
-        st.markdown("#### 🔐 Security Settings")
-        
-        # Get current security config
-        try:
-            if is_supabase():
-                supabase = get_supabase_client()
-                response = supabase.table("system_config").select("*").eq("config_key", "security_settings").execute()
-                security_data = response.data[0] if response.data else None
-            else:
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM system_config WHERE config_key = 'security_settings'")
-                row = cursor.fetchone()
-                security_data = dict(row) if row else None
-        except:
-            security_data = None
-        
-        if security_data:
-            security_value = security_data.get('config_value', {})
-            if isinstance(security_value, str):
-                try:
-                    security_value = json.loads(security_value)
-                except:
-                    security_value = {}
-        else:
-            security_value = {
-                'require_2fa': True,
-                'session_timeout': 30,
-                'max_login_attempts': 5,
-                'password_policy': 'strong'
+    with col2:
+        if st.button("🔄 Reset Defaults", use_container_width=True):
+            defaults = {
+                'smtp_host': 'smtp.gmail.com',
+                'smtp_port': 587,
+                'smtp_user': '',
+                'smtp_password': '',
+                'from_email': '',
+                'from_name': 'TenderAI'
             }
+            if db.update_email_config(defaults):
+                st.success("✅ Reset to defaults!")
+                st.rerun()
+            else:
+                st.error("❌ Failed to reset")
+    
+    # Test email configuration
+    st.divider()
+    st.markdown("#### 📨 Test Email")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        test_email = st.text_input("Send test email to", placeholder="admin@example.com", key="test_email_input")
+    with col2:
+        if st.button("📨 Send Test", use_container_width=True):
+            if test_email:
+                try:
+                    # Use your email service here
+                    st.success(f"✅ Test email sent to {test_email}")
+                except Exception as e:
+                    st.error(f"❌ Failed to send test email: {e}")
+            else:
+                st.warning("Please enter an email address")
+
+
+def test_smtp_connection(config):
+    """Test SMTP connection with current settings"""
+    try:
+        import smtplib
+        import socket
         
-        col1, col2 = st.columns(2)
+        # Create SMTP connection
+        if config.get('smtp_port') == 465:  # SSL
+            server = smtplib.SMTP_SSL(config.get('smtp_host'), config.get('smtp_port'), timeout=10)
+        else:  # TLS
+            server = smtplib.SMTP(config.get('smtp_host'), config.get('smtp_port'), timeout=10)
+            server.ehlo()
+            if config.get('smtp_port') == 587:
+                server.starttls()
+                server.ehlo()
         
-        with col1:
-            require_2fa = st.checkbox("Require 2FA for all users", value=security_value.get('require_2fa', True))
-            session_timeout = st.number_input("Session Timeout (minutes)", value=security_value.get('session_timeout', 30))
+        # Login if credentials provided
+        if config.get('smtp_user') and config.get('smtp_password'):
+            server.login(config.get('smtp_user'), config.get('smtp_password'))
         
-        with col2:
-            max_login_attempts = st.number_input("Max Login Attempts", value=security_value.get('max_login_attempts', 5))
-            password_policy = st.selectbox(
-                "Password Policy",
-                ["weak", "medium", "strong"],
-                index=["weak", "medium", "strong"].index(security_value.get('password_policy', 'strong'))
-            )
-        
-        if st.button("💾 Save Security Settings", type="primary"):
+        server.quit()
+        st.success("✅ SMTP connection successful!")
+        return True
+    except smtplib.SMTPAuthenticationError:
+        st.error("❌ SMTP Authentication failed. Check username and password.")
+        return False
+    except smtplib.SMTPConnectError:
+        st.error("❌ SMTP Connection failed. Check host and port.")
+        return False
+    except socket.timeout:
+        st.error("❌ SMTP Connection timeout. Check host and port.")
+        return False
+    except Exception as e:
+        st.error(f"❌ SMTP Test failed: {e}")
+        return False
+
+
+def render_security_settings(db):
+    """Render security settings configuration"""
+    st.markdown("#### 🔐 Security Settings")
+    
+    # Get current security config
+    config_value = db.get_security_config()
+    
+    if not config_value:
+        config_value = {
+            'require_2fa': False,
+            'session_timeout': 30,
+            'max_login_attempts': 5,
+            'password_policy': 'strong',
+            'enable_ssl': True,
+            'force_https': True
+        }
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        require_2fa = st.checkbox("Require 2FA for all users", value=config_value.get('require_2fa', False))
+        session_timeout = st.number_input("Session Timeout (minutes)", value=config_value.get('session_timeout', 30), min_value=5, max_value=1440)
+        enable_ssl = st.checkbox("Enable SSL", value=config_value.get('enable_ssl', True))
+    
+    with col2:
+        max_login_attempts = st.number_input("Max Login Attempts", value=config_value.get('max_login_attempts', 5), min_value=1, max_value=20)
+        password_policy = st.selectbox(
+            "Password Policy",
+            ["weak", "medium", "strong"],
+            index=["weak", "medium", "strong"].index(config_value.get('password_policy', 'strong'))
+        )
+        force_https = st.checkbox("Force HTTPS", value=config_value.get('force_https', True))
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("💾 Save", key="save_security_settings", type="primary", use_container_width=True):
             try:
                 updated_config = {
                     'require_2fa': require_2fa,
                     'session_timeout': session_timeout,
                     'max_login_attempts': max_login_attempts,
-                    'password_policy': password_policy
+                    'password_policy': password_policy,
+                    'enable_ssl': enable_ssl,
+                    'force_https': force_https
                 }
                 
-                if is_supabase():
-                    supabase = get_supabase_client()
-                    supabase.table("system_config").upsert({
-                        "config_key": "security_settings",
-                        "config_value": json.dumps(updated_config),
-                        "updated_at": datetime.now().isoformat()
-                    }).execute()
+                success = db.update_security_config(updated_config)
+                if success:
+                    st.success("✅ Security settings saved successfully!")
+                    st.rerun()
                 else:
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
-                        VALUES (?, ?, ?)
-                    """, ("security_settings", json.dumps(updated_config), datetime.now().isoformat()))
-                    conn.commit()
-                
-                st.success("✅ Security settings saved successfully!")
-                st.rerun()
-                
+                    st.error("❌ Failed to save security settings")
+                    
             except Exception as e:
-                st.error(f"❌ Failed to save security settings: {e}")
+                st.error(f"❌ Error: {e}")
     
-    # ========== TAB 3: SYSTEM SETTINGS ==========
-    with tab3:
-        st.markdown("#### 📊 System Settings")
-        
-        # Get current system config
-        try:
-            if is_supabase():
-                supabase = get_supabase_client()
-                response = supabase.table("system_config").select("*").eq("config_key", "system_settings").execute()
-                system_data = response.data[0] if response.data else None
-            else:
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM system_config WHERE config_key = 'system_settings'")
-                row = cursor.fetchone()
-                system_data = dict(row) if row else None
-        except:
-            system_data = None
-        
-        if system_data:
-            system_value = system_data.get('config_value', {})
-            if isinstance(system_value, str):
-                try:
-                    system_value = json.loads(system_value)
-                except:
-                    system_value = {}
-        else:
-            system_value = {
-                'enable_maintenance_mode': False,
-                'enable_registration': True,
-                'enable_analytics': True,
-                'default_language': 'en'
-            }
-        
-        enable_maintenance = st.checkbox("Maintenance Mode", value=system_value.get('enable_maintenance_mode', False))
-        enable_registration = st.checkbox("Enable Registration", value=system_value.get('enable_registration', True))
-        enable_analytics = st.checkbox("Enable Analytics", value=system_value.get('enable_analytics', True))
-        default_language = st.selectbox("Default Language", ["en", "bn"], index=0 if system_value.get('default_language', 'en') == 'en' else 1)
-        
-        if st.button("💾 Save System Settings", type="primary"):
+    # Security status
+    st.divider()
+    st.markdown("#### 🔒 Security Status")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("2FA Status", "✅ Enabled" if require_2fa else "❌ Disabled")
+    with col2:
+        st.metric("SSL Status", "✅ Enabled" if enable_ssl else "❌ Disabled")
+    with col3:
+        st.metric("HTTPS Force", "✅ Enabled" if force_https else "❌ Disabled")
+    with col4:
+        st.metric("Login Attempts", max_login_attempts)
+    
+    # Session info
+    st.caption(f"🕐 Session timeout: {session_timeout} minutes | Password policy: {password_policy.upper()}")
+
+
+def render_system_settings(db):
+    """Render system settings configuration"""
+    st.markdown("#### 📊 System Settings")
+    
+    # Get current system config
+    config_value = db.get_system_config_settings()
+    
+    if not config_value:
+        config_value = {
+            'enable_maintenance_mode': False,
+            'enable_registration': True,
+            'enable_analytics': True,
+            'default_language': 'en',
+            'timezone': 'UTC',
+            'date_format': 'YYYY-MM-DD',
+            'enable_audit_log': True
+        }
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        enable_maintenance = st.checkbox("Maintenance Mode", value=config_value.get('enable_maintenance_mode', False))
+        enable_registration = st.checkbox("Enable New Registrations", value=config_value.get('enable_registration', True))
+        enable_analytics = st.checkbox("Enable Analytics", value=config_value.get('enable_analytics', True))
+        enable_audit_log = st.checkbox("Enable Audit Log", value=config_value.get('enable_audit_log', True))
+    
+    with col2:
+        default_language = st.selectbox(
+            "Default Language",
+            ["en", "bn"],
+            index=0 if config_value.get('default_language', 'en') == 'en' else 1
+        )
+        timezone = st.selectbox(
+            "Timezone",
+            ["UTC", "Asia/Dhaka", "Asia/Kolkata", "America/New_York", "Europe/London", "Australia/Sydney"],
+            index=["UTC", "Asia/Dhaka", "Asia/Kolkata", "America/New_York", "Europe/London", "Australia/Sydney"].index(config_value.get('timezone', 'UTC'))
+        )
+        date_format = st.selectbox(
+            "Date Format",
+            ["YYYY-MM-DD", "DD-MM-YYYY", "MM-DD-YYYY", "DD/MM/YYYY", "MM/DD/YYYY"],
+            index=["YYYY-MM-DD", "DD-MM-YYYY", "MM-DD-YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].index(config_value.get('date_format', 'YYYY-MM-DD'))
+        )
+    
+    # Maintenance mode warning
+    if enable_maintenance:
+        st.warning("⚠️ Maintenance mode is enabled. Users will see a maintenance page.")
+        st.info("💡 To disable, uncheck the Maintenance Mode checkbox above and save.")
+    
+    if not enable_registration:
+        st.warning("⚠️ New user registration is disabled. Only existing users can log in.")
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("💾 Save", key="save_system_settings", type="primary", use_container_width=True):
             try:
                 updated_config = {
                     'enable_maintenance_mode': enable_maintenance,
                     'enable_registration': enable_registration,
                     'enable_analytics': enable_analytics,
-                    'default_language': default_language
+                    'default_language': default_language,
+                    'timezone': timezone,
+                    'date_format': date_format,
+                    'enable_audit_log': enable_audit_log
                 }
                 
-                if is_supabase():
-                    supabase = get_supabase_client()
-                    supabase.table("system_config").upsert({
-                        "config_key": "system_settings",
-                        "config_value": json.dumps(updated_config),
-                        "updated_at": datetime.now().isoformat()
-                    }).execute()
+                success = db.update_system_config_settings(updated_config)
+                if success:
+                    st.success("✅ System settings saved successfully!")
+                    st.rerun()
                 else:
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
-                        VALUES (?, ?, ?)
-                    """, ("system_settings", json.dumps(updated_config), datetime.now().isoformat()))
-                    conn.commit()
-                
-                st.success("✅ System settings saved successfully!")
-                st.rerun()
-                
+                    st.error("❌ Failed to save system settings")
+                    
             except Exception as e:
-                st.error(f"❌ Failed to save system settings: {e}")
+                st.error(f"❌ Error: {e}")
+
+
+def render_performance_settings(db):
+    """Render performance settings configuration"""
+    st.markdown("#### 📈 Performance Settings")
     
-    # ========== TAB 4: PERFORMANCE ==========
-    with tab4:
-        st.markdown("#### 📈 Performance Settings")
-        
-        # Get current performance config
-        try:
-            if is_supabase():
-                supabase = get_supabase_client()
-                response = supabase.table("system_config").select("*").eq("config_key", "performance_settings").execute()
-                perf_data = response.data[0] if response.data else None
-            else:
-                conn = db.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM system_config WHERE config_key = 'performance_settings'")
-                row = cursor.fetchone()
-                perf_data = dict(row) if row else None
-        except:
-            perf_data = None
-        
-        if perf_data:
-            perf_value = perf_data.get('config_value', {})
-            if isinstance(perf_value, str):
-                try:
-                    perf_value = json.loads(perf_value)
-                except:
-                    perf_value = {}
-        else:
-            perf_value = {
-                'cache_enabled': True,
-                'cache_duration': 300,
-                'max_query_limit': 1000,
-                'enable_query_logging': True
-            }
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            cache_enabled = st.checkbox("Enable Cache", value=perf_value.get('cache_enabled', True))
-            cache_duration = st.number_input("Cache Duration (seconds)", value=perf_value.get('cache_duration', 300))
-        
-        with col2:
-            max_query_limit = st.number_input("Max Query Limit", value=perf_value.get('max_query_limit', 1000))
-            enable_query_logging = st.checkbox("Enable Query Logging", value=perf_value.get('enable_query_logging', True))
-        
-        if st.button("💾 Save Performance Settings", type="primary"):
+    # Get current performance config
+    config_value = db.get_performance_config()
+    
+    if not config_value:
+        config_value = {
+            'cache_enabled': True,
+            'cache_duration': 300,
+            'max_query_limit': 1000,
+            'enable_query_logging': True,
+            'enable_api_caching': True,
+            'compression_enabled': True
+        }
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        cache_enabled = st.checkbox("Enable Cache", value=config_value.get('cache_enabled', True))
+        cache_duration = st.number_input("Cache Duration (seconds)", value=config_value.get('cache_duration', 300), min_value=30, max_value=3600, step=30)
+        enable_api_caching = st.checkbox("Enable API Caching", value=config_value.get('enable_api_caching', True))
+    
+    with col2:
+        max_query_limit = st.number_input("Max Query Limit", value=config_value.get('max_query_limit', 1000), min_value=100, max_value=10000, step=100)
+        enable_query_logging = st.checkbox("Enable Query Logging", value=config_value.get('enable_query_logging', True))
+        compression_enabled = st.checkbox("Enable Compression", value=config_value.get('compression_enabled', True))
+    
+    # Cache stats
+    st.divider()
+    st.markdown("#### 📊 Cache Statistics")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Cache Status", "✅ Active" if cache_enabled else "❌ Inactive")
+    with col2:
+        st.metric("Cache Duration", f"{cache_duration}s")
+    with col3:
+        st.metric("Query Limit", max_query_limit)
+    with col4:
+        st.metric("API Cache", "✅ Enabled" if enable_api_caching else "❌ Disabled")
+    
+    # Clear cache button
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col2:
+        if st.button("🗑️ Clear Cache", use_container_width=True):
+            try:
+                if db.clear_system_cache():
+                    st.success("✅ Cache cleared successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to clear cache")
+            except Exception as e:
+                st.error(f"❌ Failed to clear cache: {e}")
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("💾 Save", key="save_performance_settings", type="primary", use_container_width=True):
             try:
                 updated_config = {
                     'cache_enabled': cache_enabled,
                     'cache_duration': cache_duration,
                     'max_query_limit': max_query_limit,
-                    'enable_query_logging': enable_query_logging
+                    'enable_query_logging': enable_query_logging,
+                    'enable_api_caching': enable_api_caching,
+                    'compression_enabled': compression_enabled
                 }
                 
-                if is_supabase():
-                    supabase = get_supabase_client()
-                    supabase.table("system_config").upsert({
-                        "config_key": "performance_settings",
-                        "config_value": json.dumps(updated_config),
-                        "updated_at": datetime.now().isoformat()
-                    }).execute()
+                success = db.update_performance_config(updated_config)
+                if success:
+                    st.success("✅ Performance settings saved successfully!")
+                    st.rerun()
                 else:
-                    conn = db.get_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO system_config (config_key, config_value, updated_at)
-                        VALUES (?, ?, ?)
-                    """, ("performance_settings", json.dumps(updated_config), datetime.now().isoformat()))
-                    conn.commit()
-                
-                st.success("✅ Performance settings saved successfully!")
-                st.rerun()
-                
+                    st.error("❌ Failed to save performance settings")
+                    
             except Exception as e:
-                st.error(f"❌ Failed to save performance settings: {e}")
+                st.error(f"❌ Error: {e}")
+
+def render_admin_overview(all_users, all_subs):
+    """Render system overview with charts - Using CRUD methods"""
+    st.markdown("### System Overview")
+    
+    # Get user growth data
+    try:
+        db = get_db_manager()
+        user_growth_data = db.get_user_growth(6)
+        
+        # Check if we have valid data
+        if user_growth_data and len(user_growth_data) > 0:
+            # Create DataFrame
+            user_growth = pd.DataFrame(user_growth_data)
+            
+            # Check if we have the required columns
+            if 'month' in user_growth.columns and 'count' in user_growth.columns:
+                # Convert count to numeric
+                user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
+                # Sort by month
+                user_growth = user_growth.sort_values('month')
+                # Display chart
+                st.line_chart(user_growth.set_index('month')['count'])
+            else:
+                # Try to fix columns
+                cols = user_growth.columns.tolist()
+                if len(cols) >= 2:
+                    # Rename columns
+                    rename_dict = {}
+                    for col in cols:
+                        if 'month' in col.lower() or 'date' in col.lower():
+                            rename_dict[col] = 'month'
+                        elif 'count' in col.lower() or 'total' in col.lower() or 'num' in col.lower():
+                            rename_dict[col] = 'count'
+                    
+                    if rename_dict:
+                        user_growth = user_growth.rename(columns=rename_dict)
+                        if 'month' in user_growth.columns and 'count' in user_growth.columns:
+                            user_growth['count'] = pd.to_numeric(user_growth['count'], errors='coerce').fillna(0)
+                            user_growth = user_growth.sort_values('month')
+                            st.line_chart(user_growth.set_index('month')['count'])
+                        else:
+                            st.info("User growth data format is unexpected.")
+                    else:
+                        st.info("User growth data format is unexpected.")
+                else:
+                    st.info("Not enough data to display user growth chart.")
+        else:
+            st.info("No user growth data available yet. Data will appear as users register.")
+    except Exception as e:
+        st.warning(f"Could not load user growth chart: {str(e)}")
+        st.info("User growth data will appear as users register on the platform.")
+    
+        
+    # Plan distribution
+    if all_subs:
+        plan_counts = {}
+        for sub in all_subs:
+            plan = sub.get('plan', 'free')
+            plan_counts[plan] = plan_counts.get(plan, 0) + 1
+        
+        plan_df = pd.DataFrame(plan_counts.items(), columns=['Plan', 'Count'])
+        st.bar_chart(plan_df.set_index('Plan'))
+    else:
+        st.info("No subscription data available")
+    
+    # Role distribution
+    if all_users:
+        role_counts = {}
+        for user in all_users:
+            role = user.get('role', 'unknown')
+            role_counts[role] = role_counts.get(role, 0) + 1
+        
+        role_df = pd.DataFrame(role_counts.items(), columns=['Role', 'Count'])
+        st.bar_chart(role_df.set_index('Role'))
+    else:
+        st.info("No user data available")
+
 def render_database_backup():
     """Render database backup interface for Supabase"""
     

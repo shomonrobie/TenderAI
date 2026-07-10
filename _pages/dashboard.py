@@ -94,7 +94,7 @@ def show():
     # =========================================================================
     # QUICK ACTIONS
     # =========================================================================
-    _render_quick_actions(user_role)
+    # _render_quick_actions(user_role)
     
     # =========================================================================
     # RECENT ANALYSES
@@ -114,6 +114,7 @@ def _render_extension_status(company_id: int, is_premium: bool):
     db= get_db_manager()
     try:
         usage = db.get_extension_fill_usage(company_id) if company_id else {}
+        print(f"extension usage: {usage}")
         is_unlimited = usage.get('is_unlimited', False)
         remaining_fills = usage.get('remaining', 0)
         limit = usage.get('limit', 5)

@@ -185,14 +185,27 @@ def render_change_password(user_id):
     st.markdown("### 🔑 Change Password")
     st.markdown("Choose a strong password that you don't use for other accounts")
     
-    # Password strength indicator
+    db = get_db()
+    has_password = db.user_has_password(user_id)
+    
     col1, col2 = st.columns([2, 1])
+    
     with col1:
-        current_password = st.text_input(
-            "Current Password *", 
-            type="password",
-            help="Enter your current password to verify your identity"
-        )
+        if has_password:
+            st.info("🔒 You have a password set. You can change it below.")
+        else:
+            st.warning("⚠️ You don't have a password set. Set one below to enable email/password login.")
+            st.info("ℹ️ You can continue to login with Google even without a password.")
+        
+        st.divider()
+        
+        current_password = None
+        if has_password:
+            current_password = st.text_input(
+                "Current Password *", 
+                type="password",
+                help="Enter your current password to verify your identity"
+            )
         
         new_password = st.text_input(
             "New Password *", 
@@ -208,9 +221,29 @@ def render_change_password(user_id):
         
         # Password strength indicator
         if new_password:
-            score, msg, color = validate_password_strength(new_password)
-            st.progress(score / 100)
-            st.markdown(f"<small style='color:{color}'>{msg}</small>", unsafe_allow_html=True)
+            try:
+                from utils.helpers import validate_password_strength
+                score, msg, color = validate_password_strength(new_password)
+                st.progress(score / 100)
+                st.markdown(f"<small style='color:{color}'>{msg}</small>", unsafe_allow_html=True)
+            except ImportError:
+                # Fallback validation
+                strength = 0
+                if len(new_password) >= 8:
+                    strength += 25
+                if any(c.isupper() for c in new_password):
+                    strength += 25
+                if any(c.islower() for c in new_password):
+                    strength += 25
+                if any(c.isdigit() for c in new_password):
+                    strength += 25
+                
+                if strength >= 75:
+                    st.success("✅ Strong password!")
+                elif strength >= 50:
+                    st.warning("⚠️ Moderate password - add more variety")
+                else:
+                    st.error("❌ Weak password - add uppercase, lowercase, numbers")
     
     with col2:
         st.markdown("#### Password Requirements:")
@@ -221,54 +254,42 @@ def render_change_password(user_id):
         - ✅ Number  
         - ✅ Special character
         """)
-        
-        # Password tips
         st.info("💡 Tip: Use a passphrase like 'Coffee$Morning2024!' for better security")
     
     # Submit button
     if st.button("🔐 Update Password", type="primary", use_container_width=False):
-        if not current_password:
+        # Validation
+        if has_password and not current_password:
             st.error("Please enter your current password")
-        elif not new_password:
+            return
+        
+        if not new_password:
             st.error("Please enter a new password")
-        elif new_password != confirm_password:
+            return
+        
+        if new_password != confirm_password:
             st.error("New passwords do not match")
-        elif len(new_password) < 8:
+            return
+        
+        if len(new_password) < 8:
             st.error("Password must be at least 8 characters long")
-        else:
-            db = get_db()
-
-            # Verify current password and update
+            return
+        
+        # Update password
+        if has_password:
             success, message = db.change_user_password(user_id, current_password, new_password)
-            
-            if success:
-                st.success("✅ Password changed successfully!")
-                db.log_user_activity(user_id, 'password_change', 'Changed password')
-                st.balloons()
-            else:
-                st.error(f"❌ {message}")
+        else:
+            success, message = db.set_user_password(user_id, new_password)
+        
+        if success:
+            st.success("✅ Password updated successfully!")
+            st.balloons()
+            st.rerun()
+        else:
+            st.error(f"❌ {message}")
 
-# modules/profile_module.py - Debug version
 
-import streamlit as st
-import re
-import os
-from datetime import datetime
-from PIL import Image
-import io
-import base64
-import traceback
-from database.unified_db_manager import get_db_manager
 
-_db = None
-
-def get_db():
-    global _db
-    if _db is None:
-        _db = get_db_manager()
-    return _db
-
-# modules/profile_module.py - Fixed update with complete base64 data
 
 def render_profile_picture(user_id, user):
     """Render profile picture upload and management"""

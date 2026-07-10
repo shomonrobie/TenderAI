@@ -100,9 +100,9 @@ def render_usage_analytics():
     st.markdown("### Extension Usage Analytics")
     db = get_db_manager()
     # Check if extension_auto_fill_log table exists
-    if not DatabaseCRUD.table_exists('extension_auto_fill_log'):
-        st.info("No extension usage data yet. The extension will start tracking once installed and used.")
-        return
+    # if not DatabaseCRUD.table_exists('extension_auto_fill_log'):
+    #     st.info("No extension usage data yet. The extension will start tracking once installed and used.")
+    #     return
     
     # Overall stats
     try:
@@ -158,20 +158,20 @@ def render_plan_configuration():
     st.info("Configure how many auto-fills each subscription plan gets per month")
     db = get_db_manager()
     # Check if subscription_plans table exists
-    if not DatabaseCRUD.table_exists('subscription_plans'):
-        st.warning("Subscription plans table not found. Using default limits.")
-        plan_limits = {
-            'free': 5,
-            'basic': 30,
-            'professional': 100,
-            'enterprise': -1
-        }
-    else:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT plan_name, extension_auto_fills FROM subscription_plans")
-            plans_data = cursor.fetchall()
-            plan_limits = {plan: limit for plan, limit in plans_data}
+    # if not DatabaseCRUD.table_exists('subscription_plans'):
+    #     st.warning("Subscription plans table not found. Using default limits.")
+    #     plan_limits = {
+    #         'free': 5,
+    #         'basic': 30,
+    #         'professional': 100,
+    #         'enterprise': -1
+    #     }
+    # else:
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT plan_name, extension_auto_fills FROM subscription_plans")
+        plans_data = cursor.fetchall()
+        plan_limits = {plan: limit for plan, limit in plans_data}
     
     col1, col2 = st.columns(2)
     
@@ -212,9 +212,9 @@ def render_company_limits():
     """Manage per-company extension limits"""
     st.markdown("### Company-Specific Limits")
     db = get_db_manager()
-    if not DatabaseCRUD.table_exists('companies'):
-        st.error("Companies table not found.")
-        return
+    # if not DatabaseCRUD.table_exists('companies'):
+    #     st.error("Companies table not found.")
+    #     return
     
     search = st.text_input("Search Company", placeholder="Enter company name...")
     
@@ -241,16 +241,16 @@ def render_company_limits():
             for _, company in companies.iterrows():
                 with st.expander(f"🏢 {company['company_name']}"):
                     # Get current usage
-                    if DatabaseCRUD.table_exists('extension_auto_fill_log'):
-                        with db.get_connection() as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                SELECT COUNT(*) FROM extension_auto_fill_log 
-                                WHERE company_id = ? AND filled_at >= datetime('now', 'start of month')
-                            """, (company['id'],))
-                            used_this_month = cursor.fetchone()[0] or 0
-                    else:
-                        used_this_month = 0
+                    # if DatabaseCRUD.table_exists('extension_auto_fill_log'):
+                    with db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM extension_auto_fill_log 
+                            WHERE company_id = ? AND filled_at >= datetime('now', 'start of month')
+                        """, (company['id'],))
+                        used_this_month = cursor.fetchone()[0] or 0
+                    # else:
+                    #     used_this_month = 0
                     
                     st.write(f"**Used this month:** {used_this_month}")
                     

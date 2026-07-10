@@ -1,10 +1,12 @@
 """
-Company Profile Management
-Complete company data management for e-GP bids
+Company Profile Management with Custom Field Support
+Complete company data management for e-GP bids with auto-fill capabilities
 """
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
+import json
+import os
 from database.unified_db_manager import get_db_manager
 
 
@@ -26,14 +28,15 @@ def show():
     """, unsafe_allow_html=True)
     
     # Tabs for different sections
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏢 Basic Info",
         "📜 Licenses & Registrations",
         "💰 Financial Info",
         "👥 Key Personnel",
         "🏗️ Equipment",
         "📋 Experience",
-        "📄 Documents"
+        "📄 Documents",
+        "🔧 Field Mappings"
     ])
     
     with tab1:
@@ -56,10 +59,13 @@ def show():
     
     with tab7:
         render_documents(company_id)
+    
+    with tab8:
+        render_field_mappings(company_id)
 
 
 def render_basic_info(company_id):
-    """Render basic company information section"""
+    """Render basic company information section with field mapping integration"""
     st.markdown("### 🏢 Basic Information")
     
     db = get_db_manager()
@@ -69,21 +75,31 @@ def render_basic_info(company_id):
         st.error("Company not found")
         return
     
+    # Get field mappings for basic info
+    mappings = db.get_field_mappings(company_id, 'basic_info')
+    
     col1, col2 = st.columns(2)
     
+    # Display company info with mapping indicators
     with col1:
-        st.write("**Company Name:**", company.get('company_name', 'N/A'))
-        st.write("**Email:**", company.get('email', 'N/A'))
-        st.write("**Phone:**", company.get('phone', 'N/A'))
-        st.write("**Mobile:**", company.get('mobile_number', 'N/A'))
-        st.write("**Registration No:**", company.get('registration_number', 'N/A'))
+        display_mapped_field(db, "Company Name", company.get('company_name', 'N/A'), 'company_name', mappings)
+        display_mapped_field(db, "Email", company.get('email', 'N/A'), 'email', mappings)
+        display_mapped_field(db, "Phone", company.get('phone', 'N/A'), 'phone', mappings)
+        display_mapped_field(db, "Mobile", company.get('mobile_number', 'N/A'), 'mobile_number', mappings)
+        display_mapped_field(db, "Registration No", company.get('registration_number', 'N/A'), 'registration_number', mappings)
     
     with col2:
-        st.write("**VAT Number:**", company.get('vat_number', 'N/A'))
-        st.write("**Division:**", company.get('division', 'N/A'))
-        st.write("**District:**", company.get('district', 'N/A'))
-        st.write("**Address:**", company.get('address', 'N/A'))
-        st.write("**Website:**", company.get('website', 'N/A'))
+        display_mapped_field(db, "VAT Number", company.get('vat_number', 'N/A'), 'vat_number', mappings)
+        display_mapped_field(db, "TIN Number", company.get('tin_number', 'N/A'), 'tin_number', mappings)
+        display_mapped_field(db, "BIN Number", company.get('bin_number', 'N/A'), 'bin_number', mappings)
+        display_mapped_field(db, "Division", company.get('division', 'N/A'), 'division', mappings)
+        display_mapped_field(db, "District", company.get('district', 'N/A'), 'district', mappings)
+        display_mapped_field(db, "Address", company.get('address', 'N/A'), 'address', mappings)
+        display_mapped_field(db, "Website", company.get('website', 'N/A'), 'website', mappings)
+    
+    # Quick auto-fill test button
+    if st.button("🧪 Test Auto-Fill for Basic Info"):
+        test_auto_fill(db, company_id, 'basic_info')
     
     # Edit button
     if st.button("✏️ Edit Basic Information"):
@@ -102,6 +118,8 @@ def render_basic_info(company_id):
             new_district = st.text_input("District", value=company.get('district', ''))
             new_registration = st.text_input("Registration Number", value=company.get('registration_number', ''))
             new_vat = st.text_input("VAT Number", value=company.get('vat_number', ''))
+            new_tin = st.text_input("TIN Number", value=company.get('tin_number', ''))
+            new_bin = st.text_input("BIN Number", value=company.get('bin_number', ''))
             new_website = st.text_input("Website", value=company.get('website', ''))
             
             col1, col2 = st.columns(2)
@@ -117,6 +135,8 @@ def render_basic_info(company_id):
                         'district': new_district,
                         'registration_number': new_registration,
                         'vat_number': new_vat,
+                        'tin_number': new_tin,
+                        'bin_number': new_bin,
                         'website': new_website
                     }
                     
@@ -134,12 +154,19 @@ def render_basic_info(company_id):
 
 
 def render_licenses_registrations(company_id):
-    """Manage licenses and registrations"""
+    """Manage licenses and registrations with field mapping"""
     st.markdown("### 📜 Licenses & Registrations")
     st.caption("Add trade licenses, certificates, and registrations")
     
     db = get_db_manager()
     licenses = db.get_company_licenses(company_id)
+    mappings = db.get_field_mappings(company_id, 'licenses')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Licenses", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
     
     # Add new license
     with st.expander("➕ Add New License / Registration", expanded=False):
@@ -188,6 +215,8 @@ def render_licenses_registrations(company_id):
                 with col1:
                     st.write(f"**License Number:** {license_item['license_number']}")
                     st.write(f"**Issuing Authority:** {license_item.get('issuing_authority', 'N/A')}")
+                    # Show mapping if exists
+                    show_field_mapping_hint('license_type', license_item['license_type'], mappings)
                 
                 with col2:
                     st.write(f"**Issue Date:** {license_item.get('issue_date', 'N/A')}")
@@ -199,23 +228,36 @@ def render_licenses_registrations(company_id):
                         elif days_left < 90:
                             st.warning(f"⚠️ Expires in {days_left} days")
                 
-                if st.button("🗑️ Delete", key=f"del_license_{license_item['id']}"):
-                    if db.delete_license(license_item['id']):
-                        st.success("✅ License deleted successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to delete license")
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    if st.button("🗑️ Delete", key=f"del_license_{license_item['id']}"):
+                        if db.delete_license(license_item['id']):
+                            st.success("✅ License deleted successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to delete license")
     else:
         st.info("No licenses added yet. Add your trade license and other registrations.")
 
 
 def render_financial_info(company_id):
-    """Financial information for bid capacity"""
+    """Financial information with field mapping"""
     st.markdown("### 💰 Financial Information")
     st.caption("Financial data for bid capacity calculation")
     
     db = get_db_manager()
     financials = db.get_company_financials(company_id)
+    mappings = db.get_field_mappings(company_id, 'financial')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Financial Data", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
+    
+    # Quick auto-fill for financial fields
+    if st.button("💰 Auto-Fill Financial Data"):
+        fill_financial_data(db, company_id, financials, mappings)
     
     # Add new financial record
     with st.expander("➕ Add Financial Record", expanded=False):
@@ -291,12 +333,19 @@ def render_financial_info(company_id):
 
 
 def render_key_personnel(company_id):
-    """Key personnel management"""
+    """Key personnel management with field mapping"""
     st.markdown("### 👥 Key Personnel")
     st.caption("Add key personnel for tender submissions")
     
     db = get_db_manager()
     personnel = db.get_company_personnel(company_id)
+    mappings = db.get_field_mappings(company_id, 'personnel')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Personnel", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
     
     # Add new personnel
     with st.expander("➕ Add Personnel", expanded=False):
@@ -307,14 +356,19 @@ def render_key_personnel(company_id):
                 name = st.text_input("Full Name *")
                 designation = st.text_input("Designation *")
                 nid_number = st.text_input("NID Number")
+                date_of_birth = st.date_input("Date of Birth")
             
             with col2:
                 phone = st.text_input("Phone")
                 email = st.text_input("Email")
                 experience_years = st.number_input("Years of Experience", min_value=0, max_value=50, step=1)
+                years_with_company = st.number_input("Years with Company", min_value=0, max_value=50, step=1)
             
             educational_qualification = st.text_area("Educational Qualification")
+            present_employer = st.text_input("Present Employer")
+            present_job_title = st.text_input("Present Job Title")
             is_key_personnel = st.checkbox("Key Personnel (for tender evaluation)")
+            is_prime_candidate = st.checkbox("Prime Candidate")
             
             submitted = st.form_submit_button("Add Personnel")
             
@@ -327,7 +381,12 @@ def render_key_personnel(company_id):
                     'email': email,
                     'educational_qualification': educational_qualification,
                     'experience_years': experience_years,
-                    'is_key_personnel': is_key_personnel
+                    'is_key_personnel': is_key_personnel,
+                    'date_of_birth': date_of_birth,
+                    'years_with_company': years_with_company,
+                    'present_employer': present_employer,
+                    'present_job_title': present_job_title,
+                    'is_prime_candidate': is_prime_candidate
                 }
                 
                 if db.add_company_personnel(company_id, data):
@@ -348,17 +407,27 @@ def render_key_personnel(company_id):
                     st.write(f"**NID:** {p.get('nid_number', 'N/A')}")
                     st.write(f"**Phone:** {p.get('phone', 'N/A')}")
                     st.write(f"**Email:** {p.get('email', 'N/A')}")
+                    st.write(f"**Date of Birth:** {p.get('date_of_birth', 'N/A')}")
                 
                 with col2:
                     st.write(f"**Experience:** {p.get('experience_years', 0)} years")
+                    st.write(f"**Years with Company:** {p.get('years_with_company', 0)} years")
                     st.write(f"**Education:** {p.get('educational_qualification', 'N/A')}")
+                    st.write(f"**Prime Candidate:** {'✅' if p.get('is_prime_candidate') else '❌'}")
                 
-                col1, col2 = st.columns(2)
+                if p.get('present_employer'):
+                    st.write(f"**Present Employer:** {p.get('present_employer', 'N/A')}")
+                    st.write(f"**Job Title:** {p.get('present_job_title', 'N/A')}")
+                
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     if st.button(f"✏️ Edit", key=f"edit_person_{p['id']}"):
                         st.session_state.edit_personnel = p['id']
                         st.rerun()
                 with col2:
+                    if st.button(f"🧪 Test Auto-Fill", key=f"test_person_{p['id']}"):
+                        test_personnel_auto_fill(db, p, mappings)
+                with col3:
                     if st.button(f"🗑️ Delete", key=f"del_person_{p['id']}"):
                         if db.delete_company_personnel(p['id']):
                             st.success("✅ Personnel deleted successfully!")
@@ -368,67 +437,100 @@ def render_key_personnel(company_id):
                 
                 # Edit form if this person is being edited
                 if st.session_state.get('edit_personnel') == p['id']:
-                    with st.form(f"edit_personnel_form_{p['id']}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            edit_name = st.text_input("Full Name", value=p['name'])
-                            edit_designation = st.text_input("Designation", value=p['designation'])
-                            edit_nid = st.text_input("NID Number", value=p.get('nid_number', ''))
-                        
-                        with col2:
-                            edit_phone = st.text_input("Phone", value=p.get('phone', ''))
-                            edit_email = st.text_input("Email", value=p.get('email', ''))
-                            edit_experience = st.number_input(
-                                "Years of Experience", 
-                                min_value=0, 
-                                max_value=50, 
-                                step=1, 
-                                value=p.get('experience_years', 0)
-                            )
-                        
-                        edit_education = st.text_area(
-                            "Educational Qualification", 
-                            value=p.get('educational_qualification', '')
-                        )
-                        edit_key_personnel = st.checkbox("Key Personnel", value=p['is_key_personnel'])
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.form_submit_button("💾 Save Changes"):
-                                data = {
-                                    'name': edit_name,
-                                    'designation': edit_designation,
-                                    'nid_number': edit_nid,
-                                    'phone': edit_phone,
-                                    'email': edit_email,
-                                    'educational_qualification': edit_education,
-                                    'experience_years': edit_experience,
-                                    'is_key_personnel': edit_key_personnel
-                                }
-                                
-                                if db.update_company_personnel(p['id'], data):
-                                    st.success("✅ Personnel updated successfully!")
-                                    st.session_state.edit_personnel = None
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to update personnel")
-                        
-                        with col2:
-                            if st.form_submit_button("Cancel"):
-                                st.session_state.edit_personnel = None
-                                st.rerun()
+                    render_personnel_edit_form(p, db)
     else:
         st.info("No personnel added. Add your key personnel for tender submissions.")
 
 
+def render_personnel_edit_form(person, db):
+    """Render personnel edit form"""
+    with st.form(f"edit_personnel_form_{person['id']}"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            edit_name = st.text_input("Full Name", value=person['name'])
+            edit_designation = st.text_input("Designation", value=person['designation'])
+            edit_nid = st.text_input("NID Number", value=person.get('nid_number', ''))
+            edit_dob = st.date_input("Date of Birth", value=person.get('date_of_birth') or datetime.now().date())
+        
+        with col2:
+            edit_phone = st.text_input("Phone", value=person.get('phone', ''))
+            edit_email = st.text_input("Email", value=person.get('email', ''))
+            edit_experience = st.number_input(
+                "Years of Experience", 
+                min_value=0, 
+                max_value=50, 
+                step=1, 
+                value=person.get('experience_years', 0)
+            )
+            edit_years_company = st.number_input(
+                "Years with Company",
+                min_value=0,
+                max_value=50,
+                step=1,
+                value=person.get('years_with_company', 0)
+            )
+        
+        edit_education = st.text_area(
+            "Educational Qualification", 
+            value=person.get('educational_qualification', '')
+        )
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            edit_key_personnel = st.checkbox("Key Personnel", value=person.get('is_key_personnel', False))
+        with col2:
+            edit_prime_candidate = st.checkbox("Prime Candidate", value=person.get('is_prime_candidate', False))
+        
+        edit_present_employer = st.text_input("Present Employer", value=person.get('present_employer', ''))
+        edit_present_job_title = st.text_input("Present Job Title", value=person.get('present_job_title', ''))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("💾 Save Changes"):
+                data = {
+                    'name': edit_name,
+                    'designation': edit_designation,
+                    'nid_number': edit_nid,
+                    'phone': edit_phone,
+                    'email': edit_email,
+                    'educational_qualification': edit_education,
+                    'experience_years': edit_experience,
+                    'is_key_personnel': edit_key_personnel,
+                    'date_of_birth': edit_dob,
+                    'years_with_company': edit_years_company,
+                    'present_employer': edit_present_employer,
+                    'present_job_title': edit_present_job_title,
+                    'is_prime_candidate': edit_prime_candidate
+                }
+                
+                if db.update_company_personnel(person['id'], data):
+                    st.success("✅ Personnel updated successfully!")
+                    st.session_state.edit_personnel = None
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to update personnel")
+        
+        with col2:
+            if st.form_submit_button("Cancel"):
+                st.session_state.edit_personnel = None
+                st.rerun()
+
+
 def render_equipment(company_id):
-    """Equipment inventory management"""
+    """Equipment inventory management with field mapping"""
     st.markdown("### 🏗️ Equipment Inventory")
     st.caption("Add equipment for tender submissions")
     
     db = get_db_manager()
     equipment_list = db.get_company_equipment(company_id)
+    mappings = db.get_field_mappings(company_id, 'equipment')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Equipment", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
     
     # Add new equipment
     with st.expander("➕ Add Equipment", expanded=False):
@@ -469,6 +571,17 @@ def render_equipment(company_id):
     if equipment_list:
         st.markdown("### 📋 Equipment List")
         
+        # Show summary stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Equipment", len(equipment_list))
+        with col2:
+            owned = sum(1 for e in equipment_list if e.get('ownership_type') == 'Owned')
+            st.metric("Owned", owned)
+        with col3:
+            available = sum(1 for e in equipment_list if e.get('current_status') == 'Available')
+            st.metric("Available", available)
+        
         for e in equipment_list:
             with st.expander(f"🏗️ {e['equipment_name']} - {e['equipment_type']}"):
                 col1, col2 = st.columns(2)
@@ -481,7 +594,6 @@ def render_equipment(company_id):
                     st.write(f"**Ownership:** {e.get('ownership_type', 'N/A')}")
                     st.write(f"**Status:** {e.get('current_status', 'N/A')}")
                 
-                # Add edit option
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button(f"✏️ Edit", key=f"edit_equip_{e['id']}"):
@@ -497,74 +609,78 @@ def render_equipment(company_id):
                 
                 # Edit form if this equipment is being edited
                 if st.session_state.get('edit_equipment') == e['id']:
-                    with st.form(f"edit_equipment_form_{e['id']}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            edit_name = st.text_input("Equipment Name", value=e['equipment_name'])
-                            edit_type = st.selectbox(
-                                "Equipment Type",
-                                ["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
-                                 "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"],
-                                index=["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
-                                       "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"].index(e['equipment_type']) 
-                                if e['equipment_type'] in ["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
-                                                          "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"] 
-                                else 9
-                            )
-                            edit_model = st.text_input("Model", value=e.get('model', ''))
-                        
-                        with col2:
-                            edit_capacity = st.text_input("Capacity", value=e.get('capacity', ''))
-                            edit_ownership = st.selectbox(
-                                "Ownership",
-                                ["Owned", "Leased", "Rented"],
-                                index=["Owned", "Leased", "Rented"].index(e['ownership_type']) 
-                                if e['ownership_type'] in ["Owned", "Leased", "Rented"] 
-                                else 0
-                            )
-                            edit_status = st.selectbox(
-                                "Status",
-                                ["Available", "Deployed", "Maintenance"],
-                                index=["Available", "Deployed", "Maintenance"].index(e['current_status']) 
-                                if e['current_status'] in ["Available", "Deployed", "Maintenance"] 
-                                else 0
-                            )
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.form_submit_button("💾 Save Changes"):
-                                data = {
-                                    'equipment_name': edit_name,
-                                    'equipment_type': edit_type,
-                                    'model': edit_model,
-                                    'capacity': edit_capacity,
-                                    'ownership_type': edit_ownership,
-                                    'current_status': edit_status
-                                }
-                                
-                                if db.update_equipment(e['id'], data):
-                                    st.success("✅ Equipment updated successfully!")
-                                    st.session_state.edit_equipment = None
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Failed to update equipment")
-                        
-                        with col2:
-                            if st.form_submit_button("Cancel"):
-                                st.session_state.edit_equipment = None
-                                st.rerun()
-    else:
-        st.info("No equipment added. Add your equipment inventory.")
+                    render_equipment_edit_form(e, db)
+
+
+def render_equipment_edit_form(equipment, db):
+    """Render equipment edit form"""
+    with st.form(f"edit_equipment_form_{equipment['id']}"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            edit_name = st.text_input("Equipment Name", value=equipment['equipment_name'])
+            edit_type = st.selectbox(
+                "Equipment Type",
+                ["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
+                 "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"],
+                index=["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
+                       "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"].index(equipment['equipment_type']) 
+                if equipment['equipment_type'] in ["Excavator", "Bulldozer", "Crane", "Loader", "Dump Truck", 
+                                                  "Concrete Mixer", "Generator", "Pump", "Compressor", "Other"] 
+                else 9
+            )
+            edit_model = st.text_input("Model", value=equipment.get('model', ''))
+        
+        with col2:
+            edit_capacity = st.text_input("Capacity", value=equipment.get('capacity', ''))
+            edit_ownership = st.selectbox(
+                "Ownership",
+                ["Owned", "Leased", "Rented"],
+                index=["Owned", "Leased", "Rented"].index(equipment['ownership_type']) 
+                if equipment['ownership_type'] in ["Owned", "Leased", "Rented"] 
+                else 0
+            )
+            edit_status = st.selectbox(
+                "Status",
+                ["Available", "Deployed", "Maintenance"],
+                index=["Available", "Deployed", "Maintenance"].index(equipment['current_status']) 
+                if equipment['current_status'] in ["Available", "Deployed", "Maintenance"] 
+                else 0
+            )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("💾 Save Changes"):
+                data = {
+                    'equipment_name': edit_name,
+                    'equipment_type': edit_type,
+                    'model': edit_model,
+                    'capacity': edit_capacity,
+                    'ownership_type': edit_ownership,
+                    'current_status': edit_status
+                }
+                
+                if db.update_equipment(equipment['id'], data):
+                    st.success("✅ Equipment updated successfully!")
+                    st.session_state.edit_equipment = None
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to update equipment")
+        
+        with col2:
+            if st.form_submit_button("Cancel"):
+                st.session_state.edit_equipment = None
+                st.rerun()
+
 
 def render_experience(company_id):
-    """Project experience management"""
+    """Project experience management with field mapping"""
     st.markdown("### 📋 Project Experience")
     st.caption("Add completed projects for experience requirements")
     
     db = get_db_manager()
     
-    # Get experiences using the correct method
+    # Get experiences
     experiences = []
     if hasattr(db, 'get_company_experience'):
         experiences = db.get_company_experience(company_id)
@@ -573,6 +689,18 @@ def render_experience(company_id):
     else:
         st.error("Database method not available. Please contact support.")
         return
+    
+    mappings = db.get_field_mappings(company_id, 'experience')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Experience", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
+    
+    # Quick auto-fill for experience
+    if experiences and st.button("📋 Auto-Fill Experience Data"):
+        fill_experience_data(db, experiences, mappings)
     
     # Add new experience
     with st.expander("➕ Add Project Experience", expanded=False):
@@ -623,33 +751,26 @@ def render_experience(company_id):
                 else:
                     st.error("add_experience method not available")
     
-    # Display experiences with proper formatting
+    # Display experiences
     if experiences and len(experiences) > 0:
         st.markdown("### 📋 Project History")
         
-        # Create a clean dataframe for display
+        # Show summary stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Projects", len(experiences))
+        with col2:
+            completed = sum(1 for exp in experiences if exp.get('is_completed'))
+            st.metric("Completed", completed)
+        with col3:
+            total_value = sum(exp.get('contract_value', 0) for exp in experiences if exp.get('contract_value'))
+            st.metric("Total Value", f"৳{total_value:,.0f}")
+        
+        # Create display dataframe
         display_data = []
         for exp in experiences:
-            # Parse dates if they're strings
-            award_date = exp.get('award_date')
-            completion_date = exp.get('completion_date')
-            
-            # Format dates for display
-            if award_date and isinstance(award_date, str):
-                try:
-                    award_date = datetime.strptime(award_date, '%Y-%m-%d').strftime('%d-%b-%Y')
-                except:
-                    award_date = str(award_date)
-            elif award_date and isinstance(award_date, date):
-                award_date = award_date.strftime('%d-%b-%Y')
-            
-            if completion_date and isinstance(completion_date, str):
-                try:
-                    completion_date = datetime.strptime(completion_date, '%Y-%m-%d').strftime('%d-%b-%Y')
-                except:
-                    completion_date = str(completion_date)
-            elif completion_date and isinstance(completion_date, date):
-                completion_date = completion_date.strftime('%d-%b-%Y')
+            award_date = format_date(exp.get('award_date'))
+            completion_date = format_date(exp.get('completion_date'))
             
             display_data.append({
                 'Project': exp.get('project_name', 'Unknown'),
@@ -663,11 +784,10 @@ def render_experience(company_id):
                 'ID': exp.get('id')
             })
         
-        # Show as dataframe
         df = pd.DataFrame(display_data)
         st.dataframe(df.drop(columns=['ID']), use_container_width=True, hide_index=True)
         
-        # Show detailed view with expanders
+        # Show detailed view
         st.markdown("### 📋 Detailed View")
         for exp in experiences:
             with st.expander(f"📋 {exp.get('project_name', 'Unknown')} - {exp.get('procuring_entity', 'N/A')}"):
@@ -677,15 +797,14 @@ def render_experience(company_id):
                     st.write(f"**Procuring Entity:** {exp.get('procuring_entity', 'N/A')}")
                     st.write(f"**Contract Number:** {exp.get('contract_number', 'N/A')}")
                     st.write(f"**Contract Value:** ৳{exp.get('contract_value', 0):,.2f}" if exp.get('contract_value') else "N/A")
-                    st.write(f"**Award Date:** {exp.get('award_date', 'N/A')}")
+                    st.write(f"**Award Date:** {format_date(exp.get('award_date', 'N/A'))}")
                 
                 with col2:
-                    st.write(f"**Completion Date:** {exp.get('completion_date', 'N/A')}")
+                    st.write(f"**Completion Date:** {format_date(exp.get('completion_date', 'N/A'))}")
                     st.write(f"**Role:** {exp.get('role', 'N/A')}")
                     st.write(f"**Completed:** {'✅' if exp.get('is_completed') else '❌'}")
                     st.write(f"**Similarity:** {exp.get('similarity_justification', 'N/A')}")
                 
-                # Show additional details if available
                 if exp.get('procuring_entity_address'):
                     st.write(f"**PE Address:** {exp.get('procuring_entity_address', 'N/A')}")
                 if exp.get('procuring_entity_contact'):
@@ -702,13 +821,21 @@ def render_experience(company_id):
                             st.error("❌ Failed to delete experience")
     else:
         st.info("No experience records added. Add your completed projects.")
-        
+
+
 def render_documents(company_id):
-    """Document management for company"""
+    """Document management for company with field mapping"""
     st.markdown("### 📄 Company Documents")
     st.caption("Upload important company documents")
     
     db = get_db_manager()
+    mappings = db.get_field_mappings(company_id, 'documents')
+    
+    # Display mapping info
+    if mappings:
+        with st.expander("🔧 Field Mappings for Documents", expanded=False):
+            for m in mappings:
+                st.write(f"**{m['field_label']}** → `{m['source_table']}.{m['source_column']}`")
     
     uploaded_file = st.file_uploader(
         "Upload Document",
@@ -734,9 +861,6 @@ def render_documents(company_id):
         description = st.text_area("Description")
         
         if st.button("📤 Upload Document", type="primary"):
-            import os
-            from datetime import datetime
-            
             doc_dir = f"data/documents/{company_id}"
             os.makedirs(doc_dir, exist_ok=True)
             
@@ -775,9 +899,9 @@ def render_documents(company_id):
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    st.write(f"**Date:** {doc.get('document_date', 'N/A')}")
+                    st.write(f"**Date:** {format_date(doc.get('document_date', 'N/A'))}")
                     if doc.get('expiry_date'):
-                        st.write(f"**Expiry:** {doc['expiry_date']}")
+                        st.write(f"**Expiry:** {format_date(doc['expiry_date'])}")
                         if doc['expiry_date'] < datetime.now().date():
                             st.error("⚠️ EXPIRED")
                 
@@ -794,3 +918,232 @@ def render_documents(company_id):
                         st.error("❌ Failed to delete document")
     else:
         st.info("No documents uploaded.")
+
+
+# =============================================================================
+# FIELD MAPPING MANAGEMENT
+# =============================================================================
+
+def render_field_mappings(company_id):
+    """Render field mapping management interface"""
+    st.markdown("### 🔧 Custom Field Mappings")
+    st.caption("Map form fields to company data for auto-fill")
+    
+    db = get_db_manager()
+    
+    # Get existing mappings
+    mappings = db.get_field_mappings(company_id)
+    
+    # Form type selector
+    form_types = [
+        'basic_info', 'licenses', 'financial', 'personnel', 
+        'equipment', 'experience', 'documents', 'tender_submission',
+        'technical_offer', 'financial_offer'
+    ]
+    
+    selected_form_type = st.selectbox(
+        "Select Form Type",
+        form_types,
+        format_func=lambda x: x.replace('_', ' ').title()
+    )
+    
+    # Filter mappings by form type
+    filtered_mappings = [m for m in mappings if m.get('form_type') == selected_form_type] if mappings else []
+    
+    # Create new mapping
+    with st.expander("➕ Create New Field Mapping", expanded=False):
+        with st.form("create_mapping_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                field_id = st.text_input("Field ID *", help="Unique identifier for the field")
+                field_label = st.text_input("Field Label *", help="Display label for the field")
+                field_type = st.selectbox(
+                    "Field Type",
+                    ['text', 'number', 'date', 'select', 'checkbox', 'file', 'textarea']
+                )
+                source_table = st.selectbox(
+                    "Source Table",
+                    ['', 'companies', 'company_financials', 'company_personnel', 
+                     'company_equipment', 'company_experience', 'company_licenses']
+                )
+            
+            with col2:
+                source_column = st.text_input("Source Column", help="Column name in the source table")
+                default_value = st.text_input("Default Value", help="Default value if no data found")
+                mapping_rule = st.selectbox(
+                    "Mapping Rule",
+                    ['', 'format_currency', 'format_date', 'format_date_english', 
+                     'uppercase', 'lowercase', 'title_case', 'clean_phone', 
+                     'format_nid', 'join_with_comma']
+                )
+                confidence_score = st.slider(
+                    "Confidence Score",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=1.0,
+                    step=0.05
+                )
+            
+            source_query = st.text_area(
+                "Custom Query (Optional)",
+                help="Custom SQL query to fetch data (overrides source_table/source_column)"
+            )
+            
+            submitted = st.form_submit_button("Create Mapping")
+            
+            if submitted and field_id and field_label:
+                data = {
+                    'form_type': selected_form_type,
+                    'field_id': field_id,
+                    'field_label': field_label,
+                    'field_type': field_type,
+                    'source_table': source_table if source_table else None,
+                    'source_column': source_column if source_column else None,
+                    'source_query': source_query if source_query else None,
+                    'default_value': default_value if default_value else None,
+                    'mapping_rule': mapping_rule if mapping_rule else None,
+                    'confidence_score': confidence_score,
+                    'created_by': st.session_state.user_id
+                }
+                
+                if db.create_field_mapping(company_id, data):
+                    st.success("✅ Field mapping created successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to create field mapping")
+    
+    # Display existing mappings
+    if filtered_mappings:
+        st.markdown(f"### 📋 Existing Mappings for {selected_form_type.replace('_', ' ').title()}")
+        
+        for mapping in filtered_mappings:
+            with st.expander(f"🔗 {mapping['field_label']} ({mapping['field_id']})"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Field ID:** {mapping['field_id']}")
+                    st.write(f"**Field Type:** {mapping.get('field_type', 'text')}")
+                    st.write(f"**Source Table:** {mapping.get('source_table', 'N/A')}")
+                    st.write(f"**Source Column:** {mapping.get('source_column', 'N/A')}")
+                
+                with col2:
+                    st.write(f"**Default Value:** {mapping.get('default_value', 'N/A')}")
+                    st.write(f"**Mapping Rule:** {mapping.get('mapping_rule', 'N/A')}")
+                    st.write(f"**Confidence:** {mapping.get('confidence_score', 0) * 100:.0f}%")
+                    st.write(f"**Active:** {'✅' if mapping.get('is_active') else '❌'}")
+                
+                # Test auto-fill
+                if st.button(f"🧪 Test Auto-Fill", key=f"test_mapping_{mapping['id']}"):
+                    value = db.get_auto_fill_value(company_id, mapping)
+                    if value:
+                        st.success(f"✅ Value found: {value}")
+                    else:
+                        st.warning("⚠️ No value found for this mapping")
+                
+                # Delete mapping
+                if st.button(f"🗑️ Delete Mapping", key=f"del_mapping_{mapping['id']}"):
+                    if db.delete_field_mapping(mapping['id']):
+                        st.success("✅ Mapping deleted successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to delete mapping")
+    else:
+        st.info(f"No mappings found for {selected_form_type.replace('_', ' ').title()}. Create your first mapping above.")
+
+
+# =============================================================================
+# HELPER FUNCTIONS FOR FIELD MAPPING
+# =============================================================================
+
+def display_mapped_field(db, label, value, field_id, mappings):
+    """Display a field with mapping indicator"""
+    mapping = next((m for m in mappings if m.get('field_id') == field_id), None)
+    icon = "🔗" if mapping else "📝"
+    st.write(f"**{label}:** {value} {icon}")
+    if mapping:
+        st.caption(f"Mapped to: {mapping.get('source_table', 'N/A')}.{mapping.get('source_column', 'N/A')}")
+
+
+def show_field_mapping_hint(field_id, value, mappings):
+    """Show mapping hint for a field"""
+    mapping = next((m for m in mappings if m.get('field_id') == field_id), None)
+    if mapping:
+        st.caption(f"🔗 Mapped to: {mapping.get('source_table', 'N/A')}.{mapping.get('source_column', 'N/A')}")
+
+
+def format_date(date_value):
+    """Format date for display"""
+    if not date_value:
+        return None
+    if isinstance(date_value, (datetime, date)):
+        return date_value.strftime('%d-%b-%Y')
+    if isinstance(date_value, str):
+        try:
+            dt = datetime.strptime(date_value, '%Y-%m-%d')
+            return dt.strftime('%d-%b-%Y')
+        except:
+            return date_value
+    return date_value
+
+
+def test_auto_fill(db, company_id, form_type):
+    """Test auto-fill for a form type"""
+    mappings = db.get_field_mappings(company_id, form_type)
+    if not mappings:
+        st.warning(f"No mappings found for {form_type}")
+        return
+    
+    results = {}
+    for mapping in mappings:
+        value = db.get_auto_fill_value(company_id, mapping)
+        if value:
+            results[mapping['field_label']] = value
+    
+    if results:
+        st.success(f"✅ Auto-fill found {len(results)} values")
+        st.json(results)
+    else:
+        st.warning("No values found for auto-fill")
+
+
+def test_personnel_auto_fill(db, person, mappings):
+    """Test auto-fill for a personnel record"""
+    for mapping in mappings:
+        if mapping.get('source_table') == 'company_personnel':
+            field = mapping.get('source_column')
+            value = person.get(field)
+            if value:
+                st.success(f"✅ {mapping['field_label']}: {value}")
+            else:
+                st.info(f"ℹ️ {mapping['field_label']}: No value")
+
+
+def fill_financial_data(db, company_id, financials, mappings):
+    """Fill financial data using mappings"""
+    if not financials:
+        st.warning("No financial records found")
+        return
+    
+    latest = financials[0]  # Most recent
+    for mapping in mappings:
+        field = mapping.get('source_column')
+        if field in latest:
+            value = latest.get(field)
+            if value:
+                st.success(f"✅ {mapping['field_label']}: {value}")
+
+
+def fill_experience_data(db, experiences, mappings):
+    """Fill experience data using mappings"""
+    if not experiences:
+        st.warning("No experience records found")
+        return
+    
+    latest = experiences[0]  # Most recent
+    for mapping in mappings:
+        field = mapping.get('source_column')
+        if field in latest:
+            value = latest.get(field)
+            if value:
+                st.success(f"✅ {mapping['field_label']}: {value}")

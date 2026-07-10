@@ -135,7 +135,7 @@ class RateViewer:
             return
         
         self._render_pwd_rates(data, can_edit, can_export)
-    
+
     def _render_pwd_rates(self, data: pd.DataFrame, can_edit: bool, can_export: bool):
         """Render PWD rates with full features"""
         
@@ -226,19 +226,40 @@ class RateViewer:
             st.session_state.pwd_page_num = 1
             st.session_state.pwd_last_filter = current_filter
         
+        # ===== PAGINATION WITH STREAMLIT COMPONENTS (RELIABLE) =====
+        # Use 3 columns with proper ratios
         col1, col2, col3 = st.columns([1, 3, 1])
+        
         with col1:
             if st.button("◀ Previous", disabled=st.session_state.pwd_page_num <= 1, key="pwd_prev"):
                 st.session_state.pwd_page_num -= 1
                 st.rerun()
         
         with col2:
-            st.write(f"Page {st.session_state.pwd_page_num} of {total_pages} (Total: {total_items} items)")
+            # Center aligned page info
+            st.markdown(
+                f"""
+                <div style='text-align: center; padding-top: 8px;'>
+                    <span style='color: #555;'>
+                        Page <strong>{st.session_state.pwd_page_num}</strong> of <strong>{total_pages}</strong>
+                        <span style='color: #ccc; margin: 0 10px;'>|</span>
+                        Total: <strong>{total_items:,}</strong> items
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col3:
-            if st.button("Next ▶", disabled=st.session_state.pwd_page_num >= total_pages, key="pwd_next"):
-                st.session_state.pwd_page_num += 1
-                st.rerun()
+            # Create a container for the Next button with right alignment
+            next_container = st.container()
+            with next_container:
+                # Use columns within this container to push button right
+                next_col1, next_col2 = st.columns([2, 1])
+                with next_col2:
+                    if st.button("Next ▶", disabled=st.session_state.pwd_page_num >= total_pages, key="pwd_next"):
+                        st.session_state.pwd_page_num += 1
+                        st.rerun()
         
         start_idx = (st.session_state.pwd_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
@@ -252,10 +273,12 @@ class RateViewer:
                 key=f"pwd_editor_{st.session_state.pwd_page_num}"
             )
             
-            if st.button("💾 Save PWD Changes", key="save_pwd"):
-                self._save_pwd_changes(edited_data, data)
-                st.success("✅ PWD rates updated successfully!")
-                st.rerun()
+            col_save1, col_save2, col_save3 = st.columns([1, 2, 1])
+            with col_save2:
+                if st.button("💾 Save PWD Changes", key="save_pwd", use_container_width=True):
+                    self._save_pwd_changes(edited_data, data)
+                    st.success("✅ PWD rates updated successfully!")
+                    st.rerun()
         else:
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
@@ -264,7 +287,6 @@ class RateViewer:
         
         with st.expander("📊 Summary Statistics", expanded=False):
             self._render_summary_stats(filtered_data, rate_columns)
-    
     # =========================================================================
     # LGED MASTER RATES - Using RateCRUD
     # =========================================================================
@@ -381,19 +403,36 @@ class RateViewer:
             st.session_state.lged_page_num = 1
             st.session_state.lged_last_filter = current_filter
         
+        # ===== PAGINATION WITH RIGHT-ALIGNED NEXT BUTTON =====
         col1, col2, col3 = st.columns([1, 3, 1])
+        
         with col1:
             if st.button("◀ Previous", disabled=st.session_state.lged_page_num <= 1, key="lged_prev"):
                 st.session_state.lged_page_num -= 1
                 st.rerun()
         
         with col2:
-            st.write(f"Page {st.session_state.lged_page_num} of {total_pages} (Total: {total_items} items)")
+            st.markdown(
+                f"""
+                <div style='text-align: center; padding-top: 8px;'>
+                    <span style='color: #555;'>
+                        Page <strong>{st.session_state.lged_page_num}</strong> of <strong>{total_pages}</strong>
+                        <span style='color: #ccc; margin: 0 10px;'>|</span>
+                        Total: <strong>{total_items:,}</strong> items
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col3:
-            if st.button("Next ▶", disabled=st.session_state.lged_page_num >= total_pages, key="lged_next"):
-                st.session_state.lged_page_num += 1
-                st.rerun()
+            next_container = st.container()
+            with next_container:
+                next_col1, next_col2 = st.columns([2, 1])
+                with next_col2:
+                    if st.button("Next ▶", disabled=st.session_state.lged_page_num >= total_pages, key="lged_next"):
+                        st.session_state.lged_page_num += 1
+                        st.rerun()
         
         start_idx = (st.session_state.lged_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
@@ -407,19 +446,17 @@ class RateViewer:
                 key=f"lged_editor_{st.session_state.lged_page_num}"
             )
             
-            if st.button("💾 Save LGED Changes", key="save_lged"):
-                self._save_lged_changes(edited_data, data)
-                st.success("✅ LGED rates updated successfully!")
-                st.rerun()
+            col_save1, col_save2, col_save3 = st.columns([1, 2, 1])
+            with col_save2:
+                if st.button("💾 Save LGED Changes", key="save_lged", use_container_width=True):
+                    self._save_lged_changes(edited_data, data)
+                    st.success("✅ LGED rates updated successfully!")
+                    st.rerun()
         else:
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
         if can_export:
             self._render_export_options(pivot_data, "lged_rates_export")
-    
-    # =========================================================================
-    # TENANT RATE BOOKS - Using RateCRUD
-    # =========================================================================
 
 
     def _render_tenant_rate_books(self):
@@ -579,19 +616,36 @@ class RateViewer:
         if 'tenant_page_num' not in st.session_state:
             st.session_state.tenant_page_num = 1
         
+        # ===== PAGINATION WITH RIGHT-ALIGNED NEXT BUTTON =====
         col1, col2, col3 = st.columns([1, 3, 1])
+        
         with col1:
             if st.button("◀ Previous", disabled=st.session_state.tenant_page_num <= 1, key="tenant_prev"):
                 st.session_state.tenant_page_num -= 1
                 st.rerun()
         
         with col2:
-            st.write(f"Page {st.session_state.tenant_page_num} of {total_pages} (Total: {total_items} items)")
+            st.markdown(
+                f"""
+                <div style='text-align: center; padding-top: 8px;'>
+                    <span style='color: #555;'>
+                        Page <strong>{st.session_state.tenant_page_num}</strong> of <strong>{total_pages}</strong>
+                        <span style='color: #ccc; margin: 0 10px;'>|</span>
+                        Total: <strong>{total_items:,}</strong> items
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col3:
-            if st.button("Next ▶", disabled=st.session_state.tenant_page_num >= total_pages, key="tenant_next"):
-                st.session_state.tenant_page_num += 1
-                st.rerun()
+            next_container = st.container()
+            with next_container:
+                next_col1, next_col2 = st.columns([2, 1])
+                with next_col2:
+                    if st.button("Next ▶", disabled=st.session_state.tenant_page_num >= total_pages, key="tenant_next"):
+                        st.session_state.tenant_page_num += 1
+                        st.rerun()
         
         start_idx = (st.session_state.tenant_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
@@ -615,10 +669,12 @@ class RateViewer:
                 key=f"tenant_editor_{selected_book_id}_{selected_version_id}_{st.session_state.tenant_page_num}"
             )
             
-            if st.button("💾 Save Changes", key="save_tenant_changes"):
-                self._save_tenant_pricing_changes(edited_df, items, selected_version_id)
-                st.success("✅ Pricing updated successfully!")
-                st.rerun()
+            col_save1, col_save2, col_save3 = st.columns([1, 2, 1])
+            with col_save2:
+                if st.button("💾 Save Changes", key="save_tenant_changes", use_container_width=True):
+                    self._save_tenant_pricing_changes(edited_df, items, selected_version_id)
+                    st.success("✅ Pricing updated successfully!")
+                    st.rerun()
         else:
             # ✅ Display all 4 columns
             st.dataframe(

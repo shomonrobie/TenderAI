@@ -202,181 +202,50 @@ def get_theme_css():
             transform: translateY(-2px) !important;
             box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3) !important;
         }
-        </style>
-        """
-def get_theme_css_old():
-    """Return global theme CSS"""
-    is_dark = st.session_state.get('dark_mode', False)
-    
-    if is_dark:
-        return """
-        <style>
-        /* Dark Theme */
-        :root {
-            --bg-primary: #0a0a1a;
-            --bg-secondary: #1a1a2e;
-            --bg-card: #1e1e2a;
-            --text-primary: #e0e0e0;
-            --text-secondary: #94a3b8;
-            --border-color: #2a2a35;
-            --accent-primary: #667eea;
-            --accent-secondary: #764ba2;
+        .btn-with-tip {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            margin-bottom: 30px;
         }
         
-        .stApp {
-            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%) !important;
+        .btn-with-tip .tip {
+            visibility: hidden;
+            background: #1e293b;
+            color: #e2e8f0;
+            text-align: center;
+            padding: 6px 12px;
+            border-radius: 6px;
+            position: absolute;
+            z-index: 1;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            border: 1px solid #334155;
         }
         
-        .stMarkdown, h1, h2, h3, h4, h5, h6, p, span, div, label {
-            color: var(--text-primary) !important;
+        .btn-with-tip .tip::before {
+            content: '';
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 6px solid transparent;
+            border-bottom-color: #1e293b;
         }
         
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0a0a1a 0%, #1a1a2e 100%) !important;
-            border-right: 1px solid var(--border-color);
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            background: var(--bg-secondary);
-            color: var(--text-secondary);
-            border-radius: 8px;
-            padding: 0.5rem 1rem;
-            border: 1px solid var(--border-color);
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
-            color: white !important;
-            border-color: transparent;
-        }
-        
-        .stTextInput > div > div > input,
-        .stNumberInput > div > div > input,
-        .stSelectbox > div > div > select,
-        .stTextArea > div > div > textarea {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            color: var(--text-primary) !important;
-            border-radius: 8px !important;
-        }
-        
-        .stTextInput > div > div > input:focus,
-        .stTextArea > div > div > textarea:focus {
-            border-color: var(--accent-primary) !important;
-            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2) !important;
-        }
-        
-        .stButton > button {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
-            color: white !important;
-            border: none !important;
-            border-radius: 8px !important;
-            font-weight: 600 !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4) !important;
-        }
-        
-        .streamlit-expanderHeader {
-            background: rgba(255, 255, 255, 0.03) !important;
-            border-radius: 8px !important;
-            border: 1px solid var(--border-color) !important;
-            color: var(--text-primary) !important;
-        }
-        
-        .stDataFrame, .dataframe {
-            background: var(--bg-card) !important;
-            color: var(--text-primary) !important;
-        }
-        
-        [data-testid="stMetricValue"] {
-            color: var(--text-primary) !important;
-        }
-        
-        [data-testid="stMetricLabel"] {
-            color: var(--text-secondary) !important;
-        }
-        
-        .stAlert {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-radius: 8px !important;
-        }
-        
-        .stCheckbox label {
-            color: var(--text-secondary) !important;
-        }
-        
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: var(--accent-primary);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--accent-secondary);
+        .btn-with-tip:hover .tip {
+            visibility: visible;
+            opacity: 1;
         }
         </style>
-        """
-    else:
-        return """
-        <style>
-        /* Light Theme */
-        :root {
-            --bg-primary: #f8fafc;
-            --bg-secondary: #ffffff;
-            --bg-card: #ffffff;
-            --text-primary: #1e293b;
-            --text-secondary: #64748b;
-            --border-color: #e2e8f0;
-            --accent-primary: #667eea;
-            --accent-secondary: #764ba2;
-        }
-        
-        .stApp {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f8fafc 100%) !important;
-        }
-        
-        [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%) !important;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            background: #f1f5f9;
-            border-radius: 8px;
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
-            color: white !important;
-        }
-        
-        .stButton > button {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
-            color: white !important;
-            border: none !important;
-            border-radius: 8px !important;
-            font-weight: 600 !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3) !important;
-        }
-        </style>
-        """
+
+                """
+
 def render_app_header():
     """Gradient header with working buttons using components.html"""
     
@@ -490,7 +359,6 @@ def render_app_header():
             st.rerun()
     
     # 3. Render custom interactive header using components.html
-    # This bypasses Streamlit's markdown sanitizer which strips onclick events
     components.html(f"""
     <!DOCTYPE html>
     <html>
@@ -507,10 +375,14 @@ def render_app_header():
             border: 1px solid rgba(102, 126, 234, 0.1);
             box-shadow: 0 4px 16px rgba(0,0,0,0.2);
             box-sizing: border-box;
+            position: relative;
+            min-height: 60px;
         }}
         .header-left {{ display: flex; align-items: center; gap: 0.75rem; }}
         .header-left h1 {{ margin: 0; font-size: 1.1rem; font-weight: 700; color: white; white-space: nowrap; }}
-        .header-buttons {{ display: flex; gap: 0.25rem; }}
+        .header-buttons {{ display: flex; gap: 0.25rem; position: relative; }}
+        
+        /* Button styling */
         .header-btn {{
             background: rgba(255, 255, 255, 0.1);
             color: #ffffff;
@@ -521,40 +393,64 @@ def render_app_header():
             cursor: pointer;
             transition: all 0.2s ease;
             min-width: 36px;
-            display: flex; align-items: center; justify-content: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             position: relative;
         }}
         .header-btn:hover {{ 
             background: rgba(255, 255, 255, 0.2);
         }}
-        /* Custom tooltip styling */
-        .header-btn[title]:hover::after {{
-            content: attr(title);
+        
+        /* ===== FIXED TOOLTIP - BELOW BUTTON ===== */
+        .header-btn .tooltip-text {{
+            visibility: hidden;
+            opacity: 0;
             position: absolute;
-            bottom: calc(100% + 8px);
+            top: calc(100% + 8px);
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.9);
             color: white;
-            padding: 4px 10px;
-            border-radius: 4px;
+            padding: 5px 12px;
+            border-radius: 6px;
             font-size: 0.7rem;
             white-space: nowrap;
             z-index: 1000;
             pointer-events: none;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: all 0.25s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            font-weight: 400;
+            letter-spacing: 0.2px;
         }}
-        /* Tooltip arrow */
-        .header-btn[title]:hover::before {{
+        
+        /* Tooltip arrow (pointing up to button) */
+        .header-btn .tooltip-text::before {{
             content: '';
             position: absolute;
-            bottom: calc(100% + 4px);
+            bottom: 100%;
             left: 50%;
             transform: translateX(-50%);
-            border: 5px solid transparent;
-            border-top-color: rgba(0, 0, 0, 0.85);
-            z-index: 1000;
-            pointer-events: none;
+            border: 6px solid transparent;
+            border-bottom-color: rgba(0, 0, 0, 0.9);
+        }}
+        
+        /* Show tooltip on hover */
+        .header-btn:hover .tooltip-text {{
+            visibility: visible;
+            opacity: 1;
+        }}
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {{
+            .header-left h1 {{ font-size: 0.8rem; }}
+            .header-btn {{ padding: 0.2rem 0.4rem; font-size: 0.65rem; min-width: 30px; }}
+            .header-btn .tooltip-text {{ 
+                font-size: 0.6rem; 
+                padding: 4px 8px;
+                top: calc(100% + 6px);
+            }}
         }}
     </style>
     </head>
@@ -565,10 +461,22 @@ def render_app_header():
             <h1>TenderAI - Bangladesh's First AI-Powered Tender Intelligence Platform</h1>
         </div>
         <div class="header-buttons">
-            <button class="header-btn" id="btn-theme" title="Toggle theme (Dark/Light)">{theme_icon}</button>
-            <button class="header-btn" id="btn-profile" title="View and edit your profile">👤</button>
-            <button class="header-btn" id="btn-subscription" title="Manage your subscription plan">💳</button>
-            <button class="header-btn" id="btn-logout" title="Log out of your account">🚪</button>
+            <button class="header-btn" id="btn-theme">
+                {theme_icon}
+                <span class="tooltip-text">Toggle theme (Dark/Light)</span>
+            </button>
+            <button class="header-btn" id="btn-profile">
+                👤
+                <span class="tooltip-text">View and edit your profile</span>
+            </button>
+            <button class="header-btn" id="btn-subscription">
+                💳
+                <span class="tooltip-text">Manage your subscription plan</span>
+            </button>
+            <button class="header-btn" id="btn-logout">
+                🚪
+                <span class="tooltip-text">Log out of your account</span>
+            </button>
         </div>
     </div>
     <script>
@@ -590,6 +498,8 @@ def apply_theme():
     is_dark = st.session_state.get('dark_mode', False)
     current_page = st.session_state.get('page', 'home')
     st.markdown(get_theme_css(), unsafe_allow_html=True)
+
+
 def render_footer():
     """Render e-GP style footer with gradient matching login page"""
     try:
@@ -597,21 +507,19 @@ def render_footer():
     except (ImportError, ModuleNotFoundError):
         __version__ = "1.0.0"
         __version_date__ = datetime.now().strftime("%Y")
-    except Exception as e:
-        # Fallback for any other import errors
+    except Exception:
         __version__ = "1.0.0"
         __version_date__ = datetime.now().strftime("%Y")
     
-    # ✅ SAFELY get current year
     try:
         current_year = datetime.now().strftime("%Y")
     except Exception:
         current_year = "2024"
     
-    st.markdown(f"""
-    <style>
-    .footer {{
-        background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%) !important;
+    # Use st.html for cleaner HTML rendering (Streamlit 1.35+)
+    footer_html = f"""
+    <div style="
+        background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 30%, #16213e 60%, #0a0a1a 100%);
         color: #94a3b8;
         padding: 1.5rem;
         border-radius: 16px;
@@ -620,74 +528,61 @@ def render_footer():
         font-size: 0.82rem;
         border: 1px solid rgba(102, 126, 234, 0.1);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }}
-    .footer .links {{
-        display: flex;
-        justify-content: center;
-        gap: 20px;
-        flex-wrap: wrap;
-        margin-bottom: 10px;
-        font-size: 0.78rem;
-    }}
-    .footer .links a {{
-        color: #94a3b8;
-        text-decoration: none;
-        transition: color 0.3s;
-    }}
-    .footer .links a:hover {{
-        color: #667eea;
-    }}
-    .footer .divider {{
-        color: #2d3748;
-        margin: 0 4px;
-    }}
-    .footer strong {{
-        color: #e0e0e0;
-    }}
-    .footer .highlight {{
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }}
-    .footer .version-info {{
-        font-size: 0.7rem;
-        color: #4a5568;
-        margin-top: 8px;
-    }}
-    .footer .copyright {{
-        font-size: 0.7rem;
-        color: #4a5568;
-        margin-top: 4px;
-    }}
-    </style>
-    <div class="footer">
-        <div class="links">
-            <a href="#">Home</a>
-            <span class="divider">|</span>
-            <a href="#">About TenderAI</a>
-            <span class="divider">|</span>
-            <a href="#">Contact Us</a>
-            <span class="divider">|</span>
-            <a href="#">RSS Feed</a>
-            <span class="divider">|</span>
-            <a href="#">Terms and Conditions</a>
-            <span class="divider">|</span>
-            <a href="#">Service Level</a>
-            <span class="divider">|</span>
-            <a href="#">Disclaimer and Privacy Policy</a>
-            <span class="divider">|</span>
-            <a href="#">New Features</a>
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    ">
+        <div style="
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 0.78rem;
+        ">
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">Home</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">About TenderAI</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">Contact Us</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">RSS Feed</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">Terms and Conditions</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">Service Level</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">Disclaimer and Privacy Policy</a>
+            <span style="color: #2d3748;">|</span>
+            <a href="#" style="color: #94a3b8; text-decoration: none; transition: color 0.3s;">New Features</a>
         </div>
+        
         <div style="font-size:0.7rem; color:#4a5568; margin-bottom:6px;">
             Best viewed in 1024 x 768 and above resolution. 
             Microsoft Edge 109.x or above and Mozilla Firefox 113.x or above and Google Chrome 109.x or above
         </div>
         
-        <div class="version-info">
-            <span class="highlight">TenderAI</span> v{__version__} • {__version_date__} • 
-            Powered by <span class="highlight">Copyright © {current_year} Bangladesh's First AI-Powered Tender Intelligence Platform</span>
+        <div style="font-size: 0.7rem; color: #4a5568; margin-top: 8px;">
+            <span style="
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-weight: bold;
+            ">TenderAI</span> 
+            v{__version__} • {__version_date__} • 
+            Powered by <span style="
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-weight: bold;
+            ">Copyright © {current_year} Bangladesh's First AI-Powered Tender Intelligence Platform</span>
         </div>
-    
     </div>
-    """, unsafe_allow_html=True)
+    """
+    
+    # Use st.html if available (Streamlit 1.35+)
+    try:
+        st.html(footer_html)
+    except AttributeError:
+        # Fallback to st.markdown with unsafe_allow_html
+        st.markdown(footer_html, unsafe_allow_html=True)

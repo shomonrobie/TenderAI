@@ -1,4 +1,4 @@
-# bid_core.py
+# bid_core.py - Fully Refactored
 
 import numpy as np
 from scipy import stats
@@ -7,6 +7,8 @@ from datetime import datetime
 import json
 import math
 import logging
+
+from database.unified_db_manager import get_db_manager
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +91,12 @@ class ConfigManager:
     1. Company-specific override (if set)
     2. System-wide override (if set)
     3. Hardcoded default
+    
+    Uses unified_db_manager for all database operations.
     """
     
     def __init__(self, db=None):
-        self.db = db
+        self.db = db or get_db_manager()
         self._cache = {}
         self._company_cache = {}
     
@@ -105,15 +109,11 @@ class ConfigManager:
             if key in self._cache:
                 return self._cache[key]
             
-            value = self.db.get_config(key)
-            if value is not None:
-                try:
-                    parsed = json.loads(value)
-                    self._cache[key] = parsed
-                    return parsed
-                except (json.JSONDecodeError, TypeError):
-                    self._cache[key] = value
-                    return value
+            config = self.db.get_system_config(key)
+            if config:
+                value = config.get('config_value')
+                self._cache[key] = value
+                return value
             return None
         except Exception as e:
             logger.warning(f"Error getting system config for {key}: {e}")
@@ -129,7 +129,14 @@ class ConfigManager:
             if cache_key in self._company_cache:
                 return self._company_cache[cache_key]
             
-            value = self.db.get_company_config(company_id, key)
+            # Try to get from company settings
+            if hasattr(self.db, 'get_company_config'):
+                value = self.db.get_company_config(company_id, key)
+            else:
+                # Fallback: get company and check attributes
+                company = self.db.get_company_by_id(company_id)
+                value = company.get(key) if company else None
+            
             if value is not None:
                 self._company_cache[cache_key] = value
                 return value
@@ -165,11 +172,24 @@ class ConfigManager:
     def set_company_config(self, company_id: int, key: str, value: Any,
                            description: str = None, user_id: int = None) -> bool:
         """Set company-specific config."""
-        if self.db:
-            return self.db.set_company_config(company_id, key, value, 
-                                              description=description, 
-                                              user_id=user_id)
-        return False
+        if not self.db:
+            return False
+        
+        try:
+            if hasattr(self.db, 'set_company_config'):
+                return self.db.set_company_config(company_id, key, value, 
+                                                  description=description, 
+                                                  user_id=user_id)
+            else:
+                # Fallback: update company attributes
+                company = self.db.get_company_by_id(company_id)
+                if company:
+                    updates = {key: value}
+                    return self.db.update_company(company_id, **updates)
+                return False
+        except Exception as e:
+            logger.error(f"Error setting company config {company_id}:{key}: {e}")
+            return False
     
     def get_nppi_range(self, procurement_type: str, company_id: Optional[int] = None) -> Tuple[float, float]:
         """Get NPPI min and max for a procurement type."""
@@ -187,6 +207,11 @@ class ConfigManager:
             'services': (0.910, 0.940)
         }
         return defaults.get(procurement_type, (0.920, 0.942))
+    
+    def clear_cache(self):
+        """Clear all caches."""
+        self._cache = {}
+        self._company_cache = {}
 
 
 # =============================================================================
@@ -196,6 +221,7 @@ class ConfigManager:
 _config_manager = None
 
 def get_config_manager(db=None):
+    """Get or create the global ConfigManager instance."""
     global _config_manager
     if _config_manager is None or (_config_manager.db is None and db is not None):
         _config_manager = ConfigManager(db)
@@ -241,10 +267,11 @@ def extract_bid_values(competitor_bids):
 class CostEngine:
     """Computes total cost from BOQ items using a cost profile."""
     
-    def __init__(self, boq_items=None, official_estimate=None, cost_profile='competitive'):
+    def __init__(self, boq_items=None, official_estimate=None, cost_profile='competitive', company_id=None):
         self.boq_items = boq_items or []
         self.official_estimate = official_estimate
-        self.cost_profile = cost_profile
+        self.cost_profile = cost_profile or get_config('default_cost_profile', 'competitive', company_id)
+        self.company_id = company_id
         self._cost = None
 
     def compute(self):
@@ -257,7 +284,7 @@ class CostEngine:
                 total += qty * rate
             self._cost = total
         else:
-            factor = get_config('fallback_estimated_cost_factor', 0.85)
+            factor = get_config('fallback_estimated_cost_factor', 0.85, self.company_id)
             if self.official_estimate is None:
                 raise ValueError("Either BOQ or official estimate must be provided.")
             self._cost = self.official_estimate * factor
@@ -279,7 +306,7 @@ class NPPIEngine:
     def __init__(self, company_id=None, procurement_type='works',
                  historical_data=None, nppi_override=None):
         self.company_id = company_id
-        self.procurement_type = procurement_type
+        self.procurement_type = procurement_type or 'works'
         self.historical_data = historical_data or []
         self.nppi_override = nppi_override
         self._factor = None
@@ -328,11 +355,12 @@ class SLTEngine:
     """Computes Weighted Average, Weighted Std Dev, and SLT threshold."""
     
     def __init__(self, official_estimate, competitor_bids,
-                 nppi_factor, procurement_type='works'):
+                 nppi_factor, procurement_type='works', company_id=None):
         self.official_estimate = float(official_estimate)
         self.competitor_bids = extract_bid_values(competitor_bids)
         self.nppi_factor = float(nppi_factor)
-        self.procurement_type = procurement_type
+        self.procurement_type = procurement_type or 'works'
+        self.company_id = company_id
         self._wa = None
         self._wsd = None
         self._slt = None
@@ -342,11 +370,11 @@ class SLTEngine:
         if self.competitor_bids:
             mean_comp = np.mean(self.competitor_bids)
         else:
-            mean_comp = self.official_estimate * get_config('fallback_mean_competitor_ratio', 0.95)
+            mean_comp = self.official_estimate * get_config('fallback_mean_competitor_ratio', 0.95, self.company_id)
 
-        w1 = get_config('slt_weight_mean_competitor', 0.50)
-        w2 = get_config('slt_weight_official_estimate', 0.20)
-        w3 = get_config('slt_weight_nppi_price', 0.30)
+        w1 = get_config('slt_weight_mean_competitor', 0.50, self.company_id)
+        w2 = get_config('slt_weight_official_estimate', 0.20, self.company_id)
+        w3 = get_config('slt_weight_nppi_price', 0.30, self.company_id)
         
         wa = w1 * mean_comp + w2 * self.official_estimate + w3 * nppi_price
 
@@ -389,7 +417,7 @@ class CompetitorEngine:
     @staticmethod
     def generate(competitor_count, official_estimate,
                  min_price_pct=0.88, max_price_pct=1.08,
-                 pattern='realistic', random_seed=42):
+                 pattern='realistic', random_seed=42, company_id=None):
         np.random.seed(random_seed)
         min_bid = official_estimate * min_price_pct
         max_bid = official_estimate * max_price_pct
@@ -397,20 +425,20 @@ class CompetitorEngine:
         if pattern == 'uniform':
             bids = np.random.uniform(min_bid, max_bid, competitor_count)
         elif pattern == 'realistic':
-            alpha = get_config('beta_alpha_realistic', 4.0)
-            beta = get_config('beta_beta_realistic', 3.0)
+            alpha = get_config('beta_alpha_realistic', 4.0, company_id)
+            beta = get_config('beta_beta_realistic', 3.0, company_id)
             ratios = np.random.beta(alpha, beta, competitor_count)
             scaled_ratios = min_price_pct + ratios * (max_price_pct - min_price_pct)
             bids = official_estimate * scaled_ratios
         elif pattern == 'aggressive':
-            low = get_config('triangular_low_aggressive', 0.88)
-            peak = get_config('triangular_peak_aggressive', 0.90)
-            high = get_config('triangular_high_aggressive', 0.96)
+            low = get_config('triangular_low_aggressive', 0.88, company_id)
+            peak = get_config('triangular_peak_aggressive', 0.90, company_id)
+            high = get_config('triangular_high_aggressive', 0.96, company_id)
             ratios = np.random.triangular(low, peak, high, competitor_count)
             bids = official_estimate * ratios
         elif pattern == 'conservative':
-            mean_ratio = get_config('normal_mean_conservative', 0.98)
-            std_ratio = get_config('normal_std_conservative', 0.025)
+            mean_ratio = get_config('normal_mean_conservative', 0.98, company_id)
+            std_ratio = get_config('normal_std_conservative', 0.025, company_id)
             ratios = np.random.normal(mean_ratio, std_ratio, competitor_count)
             ratios = np.clip(ratios, min_price_pct, max_price_pct)
             bids = official_estimate * ratios
@@ -420,14 +448,14 @@ class CompetitorEngine:
         return [round(float(b), 3) for b in bids]
 
     @staticmethod
-    def prepare_input(competitor_bids, official_estimate):
+    def prepare_input(competitor_bids, official_estimate, company_id=None):
         """Clean user-provided competitor bids, fallback to generated if needed."""
         if competitor_bids and len(competitor_bids) > 0:
             bids = extract_bid_values(competitor_bids)
             if bids:
                 return bids, np.mean(bids), np.std(bids), len(bids)
         fallback_count = 5
-        bids = CompetitorEngine.generate(fallback_count, official_estimate)
+        bids = CompetitorEngine.generate(fallback_count, official_estimate, company_id=company_id)
         return bids, np.mean(bids), np.std(bids), len(bids)
 
 
@@ -461,8 +489,9 @@ class WinProbabilityEngine:
             return 0.50
         z = (mean_comp - self.bid_price) / std_comp
         prob = stats.norm.cdf(z)
-        return np.clip(prob, get_config('win_probability_clamp_min', 0.05),
-                       get_config('win_probability_clamp_max', 0.95))
+        clamp_min = get_config('win_probability_clamp_min', 0.05, self.company_id)
+        clamp_max = get_config('win_probability_clamp_max', 0.95, self.company_id)
+        return np.clip(prob, clamp_min, clamp_max)
 
     def compute_multi_factor(self):
         """Five-factor model."""
@@ -574,31 +603,32 @@ class WinProbabilityEngine:
         weights = [0.30, 0.25, 0.20, 0.15, 0.10]
         scores = [score1, score2, score3, score4, score5]
         prob = sum(s * w for s, w in zip(scores, weights))
-        prob = np.clip(prob, get_config('win_probability_clamp_min', 0.05),
-                       get_config('win_probability_clamp_max', 0.95))
+        clamp_min = get_config('win_probability_clamp_min', 0.05, self.company_id)
+        clamp_max = get_config('win_probability_clamp_max', 0.95, self.company_id)
+        prob = np.clip(prob, clamp_min, clamp_max)
         return prob
 
     def compute_confidence(self):
         """Confidence score based on data richness."""
-        conf = get_config('confidence_base', 0.70)
+        conf = get_config('confidence_base', 0.70, self.company_id)
         num_comp = len(self.competitor_bids)
         if num_comp >= 10:
-            conf += get_config('confidence_bonus_competitor_count', 0.10)
+            conf += get_config('confidence_bonus_competitor_count', 0.10, self.company_id)
         elif num_comp >= 5:
             conf += 0.05
         elif num_comp < 3:
-            conf += get_config('confidence_penalty_sparse_data', -0.10)
+            conf += get_config('confidence_penalty_sparse_data', -0.10, self.company_id)
 
         if self.historical_data:
             our_wins = sum(1 for r in self.historical_data if r.get('winning_company_type') == 'Our Company')
             if our_wins >= 5:
-                conf += get_config('confidence_bonus_historical_our_wins', 0.10)
+                conf += get_config('confidence_bonus_historical_our_wins', 0.10, self.company_id)
             elif len(self.historical_data) >= 20:
                 conf += 0.05
             elif len(self.historical_data) < 5:
-                conf += get_config('confidence_penalty_sparse_data', -0.10)
+                conf += get_config('confidence_penalty_sparse_data', -0.10, self.company_id)
 
-        conf += get_config('confidence_bonus_factor_consistency', 0.05)
+        conf += get_config('confidence_bonus_factor_consistency', 0.05, self.company_id)
         return np.clip(conf, 0.50, 0.95)
 
     def get_win_probability(self, method='multi_factor'):
@@ -624,28 +654,29 @@ class OptimumBidEngine:
     
     def __init__(self, official_estimate, estimated_cost, competitor_bids,
                  slt_threshold, nppi_factor, risk_tolerance='moderate',
-                 procurement_type='works'):
+                 procurement_type='works', company_id=None):
         self.official_estimate = float(official_estimate)
         self.estimated_cost = float(estimated_cost)
         self.competitor_bids = extract_bid_values(competitor_bids)
         self.slt_threshold = float(slt_threshold)
         self.nppi_factor = float(nppi_factor)
-        self.risk_tolerance = risk_tolerance
-        self.procurement_type = procurement_type
+        self.risk_tolerance = risk_tolerance or 'moderate'
+        self.procurement_type = procurement_type or 'works'
+        self.company_id = company_id
         self._optimal_bid = None
 
     def compute(self):
         if self.competitor_bids:
             mean_comp = np.mean(self.competitor_bids)
-            base = mean_comp * get_config('base_bid_ratio_with_competitors', 0.98)
+            base = mean_comp * get_config('base_bid_ratio_with_competitors', 0.98, self.company_id)
         else:
-            base = self.official_estimate * get_config('base_bid_ratio_no_competitors', 0.89)
+            base = self.official_estimate * get_config('base_bid_ratio_no_competitors', 0.89, self.company_id)
 
-        risk_mult = get_nested_config('risk_multipliers', self.risk_tolerance, 1.00)
+        risk_mult = get_nested_config('risk_multipliers', self.risk_tolerance, 1.00, self.company_id)
         bid = base * risk_mult
 
-        min_bid = self.slt_threshold * get_config('slt_threshold_multiplier', 1.01)
-        max_bid = self.official_estimate * get_config('bid_upper_clamp_factor', 0.98)
+        min_bid = self.slt_threshold * get_config('slt_threshold_multiplier', 1.01, self.company_id)
+        max_bid = self.official_estimate * get_config('bid_upper_clamp_factor', 0.98, self.company_id)
         bid = max(bid, min_bid)
         bid = min(bid, max_bid)
 

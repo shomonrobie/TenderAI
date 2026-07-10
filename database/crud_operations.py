@@ -2604,4 +2604,1014 @@ class DatabaseCRUD:
             'by_user': user_result if user_result else []
         }
     
-    
+    def get_extension_fill_usage(self, user_id: int, days: int = 30) -> Dict:
+        """
+        Get extension auto-fill usage statistics
+        
+        Args:
+            user_id: User ID to get usage for
+            days: Number of days to look back (default: 30)
+        
+        Returns:
+            Dict: Usage statistics by field type
+        """
+        db = self._get_db()
+        
+        try:
+            # Get all extension fill logs for the user
+            all_logs = db.query("""
+                SELECT field_type, used_at 
+                FROM extension_fill_log 
+                WHERE user_id = ? 
+                ORDER BY used_at DESC
+            """, (user_id,))
+            
+            if not all_logs or len(all_logs) == 0:
+                return {}
+            
+            # Filter in Python for date range
+            import datetime
+            from collections import defaultdict
+            
+            now = datetime.datetime.now()
+            cutoff = now - datetime.timedelta(days=days)
+            
+            usage_counts = defaultdict(int)
+            
+            for row in all_logs:
+                used_at = row.get('used_at')
+                if used_at:
+                    try:
+                        # Parse the date
+                        if isinstance(used_at, datetime.datetime):
+                            dt = used_at
+                        elif isinstance(used_at, str):
+                            # Try different formats
+                            try:
+                                dt = datetime.datetime.fromisoformat(used_at.replace('Z', '+00:00'))
+                            except:
+                                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d']:
+                                    try:
+                                        dt = datetime.datetime.strptime(used_at, fmt)
+                                        break
+                                    except:
+                                        continue
+                                else:
+                                    continue
+                        else:
+                            continue
+                        
+                        # Check if within date range
+                        if dt >= cutoff:
+                            field_type = row.get('field_type', 'unknown')
+                            usage_counts[field_type] += 1
+                            
+                    except Exception as e:
+                        print(f"Error parsing date {used_at}: {e}")
+                        continue
+            
+            return dict(usage_counts)
+            
+        except Exception as e:
+            print(f"Error getting extension fill usage: {e}")
+            return {}
+
+
+    def log_extension_fill(self, user_id: int, field_type: str,
+                        source_type: str, source_id: int) -> bool:
+        """
+        Log extension auto-fill usage
+        
+        Args:
+            user_id: User ID
+            field_type: Type of field being filled
+            source_type: Source of the fill (e.g., 'personnel', 'equipment')
+            source_id: ID of the source record
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            # Insert the log entry
+            result = db.execute("""
+                INSERT INTO extension_fill_log (user_id, field_type, source_type, source_id)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, field_type, source_type, source_id))
+            
+            return result > 0
+            
+        except Exception as e:
+            print(f"Error logging extension fill: {e}")
+            return False
+    def update_system_config(self, config_key: str, config_value: Dict) -> bool:
+        """
+        Update or insert system configuration
+        
+        Args:
+            config_key: The configuration key (e.g., 'email_settings', 'security_settings')
+            config_value: Dictionary of configuration values
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            import datetime
+            
+            # Convert config_value to JSON string
+            config_json = json.dumps(config_value)
+            
+            # Check if config exists
+            existing = db.query_one("""
+                SELECT id FROM system_config WHERE config_key = ?
+            """, (config_key,))
+            
+            if existing:
+                # Update existing
+                db.execute("""
+                    UPDATE system_config 
+                    SET config_value = ?, updated_at = ?
+                    WHERE config_key = ?
+                """, (config_json, datetime.datetime.now().isoformat(), config_key))
+            else:
+                # Insert new
+                db.execute("""
+                    INSERT INTO system_config (config_key, config_value, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, (config_key, config_json, datetime.datetime.now().isoformat(), datetime.datetime.now().isoformat()))
+            
+            return True
+        except Exception as e:
+            print(f"Error updating system config '{config_key}': {e}")
+            return False
+
+
+    def get_all_system_configs(self) -> Dict[str, Dict]:
+        """
+        Get all system configurations
+        
+        Returns:
+            Dictionary with all config keys and their values
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            results = db.query("""
+                SELECT config_key, config_value, updated_at
+                FROM system_config 
+                ORDER BY config_key
+            """)
+            
+            configs = {}
+            for row in results:
+                key = row.get('config_key')
+                value = row.get('config_value')
+                
+                # Parse JSON if string
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except:
+                        pass
+                
+                configs[key] = {
+                    'config_value': value,
+                    'updated_at': row.get('updated_at')
+                }
+            
+            return configs
+        except Exception as e:
+            print(f"Error getting all system configs: {e}")
+            return {}
+
+
+    def delete_system_config(self, config_key: str) -> bool:
+        """
+        Delete system configuration by key
+        
+        Args:
+            config_key: The configuration key to delete
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            db.execute("""
+                DELETE FROM system_config WHERE config_key = ?
+            """, (config_key,))
+            return True
+        except Exception as e:
+            print(f"Error deleting system config '{config_key}': {e}")
+            return False
+
+
+    def get_email_config(self) -> Dict:
+        """
+        Get email configuration settings
+        
+        Returns:
+            Dictionary with email settings
+        """
+        config = self.get_system_config('email_settings')
+        if config:
+            return config.get('config_value', {})
+        return {}
+
+
+    def update_email_config(self, settings: Dict) -> bool:
+        """
+        Update email configuration settings
+        
+        Args:
+            settings: Dictionary with email settings
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.update_system_config('email_settings', settings)
+
+
+    def get_security_config(self) -> Dict:
+        """
+        Get security configuration settings
+        
+        Returns:
+            Dictionary with security settings
+        """
+        config = self.get_system_config('security_settings')
+        if config:
+            return config.get('config_value', {})
+        return {}
+
+
+    def update_security_config(self, settings: Dict) -> bool:
+        """
+        Update security configuration settings
+        
+        Args:
+            settings: Dictionary with security settings
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.update_system_config('security_settings', settings)
+
+
+    def get_system_config_settings(self) -> Dict:
+        """
+        Get system configuration settings
+        
+        Returns:
+            Dictionary with system settings
+        """
+        config = self.get_system_config('system_settings')
+        if config:
+            return config.get('config_value', {})
+        return {}
+
+
+    def update_system_config_settings(self, settings: Dict) -> bool:
+        """
+        Update system configuration settings
+        
+        Args:
+            settings: Dictionary with system settings
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.update_system_config('system_settings', settings)
+
+
+    def get_performance_config(self) -> Dict:
+        """
+        Get performance configuration settings
+        
+        Returns:
+            Dictionary with performance settings
+        """
+        config = self.get_system_config('performance_settings')
+        if config:
+            return config.get('config_value', {})
+        return {}
+
+
+    def update_performance_config(self, settings: Dict) -> bool:
+        """
+        Update performance configuration settings
+        
+        Args:
+            settings: Dictionary with performance settings
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.update_system_config('performance_settings', settings)
+
+
+    def get_maintenance_mode(self) -> bool:
+        """
+        Check if maintenance mode is enabled
+        
+        Returns:
+            True if maintenance mode is enabled, False otherwise
+        """
+        settings = self.get_system_config_settings()
+        return settings.get('enable_maintenance_mode', False)
+
+
+    def set_maintenance_mode(self, enabled: bool) -> bool:
+        """
+        Set maintenance mode
+        
+        Args:
+            enabled: True to enable, False to disable
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        settings = self.get_system_config_settings()
+        settings['enable_maintenance_mode'] = enabled
+        return self.update_system_config_settings(settings)
+
+
+    def get_registration_status(self) -> bool:
+        """
+        Check if registration is enabled
+        
+        Returns:
+            True if registration is enabled, False otherwise
+        """
+        settings = self.get_system_config_settings()
+        return settings.get('enable_registration', True)
+
+
+    def set_registration_status(self, enabled: bool) -> bool:
+        """
+        Set registration status
+        
+        Args:
+            enabled: True to enable, False to disable
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        settings = self.get_system_config_settings()
+        settings['enable_registration'] = enabled
+        return self.update_system_config_settings(settings)
+
+
+    def clear_system_cache(self) -> bool:
+        """
+        Clear system cache
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # You can add cache clearing logic here
+            # For example, clear any cached queries, session data, etc.
+            
+            # If you have a cache dictionary, clear it
+            if hasattr(self, '_cache'):
+                self._cache = {}
+            
+            # If you have Redis or other cache, clear it here
+            # redis_client.flushdb() etc.
+            
+            return True
+        except Exception as e:
+            print(f"Error clearing system cache: {e}")
+            return False
+
+
+    def init_system_config_table(self) -> bool:
+        """
+        Initialize system_config table if it doesn't exist
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            # Check if table exists
+            result = db.query_one("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='system_config'
+            """)
+            
+            if not result:
+                # Create table
+                db.execute("""
+                    CREATE TABLE IF NOT EXISTS system_config (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        config_key TEXT UNIQUE NOT NULL,
+                        config_value TEXT,
+                        created_at TEXT,
+                        updated_at TEXT
+                    )
+                """)
+                
+                # Insert default configurations
+                import json
+                import datetime
+                
+                defaults = {
+                    'email_settings': {
+                        'smtp_host': 'smtp.gmail.com',
+                        'smtp_port': 587,
+                        'smtp_user': '',
+                        'smtp_password': '',
+                        'from_email': '',
+                        'from_name': 'TenderAI'
+                    },
+                    'security_settings': {
+                        'require_2fa': False,
+                        'session_timeout': 30,
+                        'max_login_attempts': 5,
+                        'password_policy': 'strong',
+                        'enable_ssl': True,
+                        'force_https': True
+                    },
+                    'system_settings': {
+                        'enable_maintenance_mode': False,
+                        'enable_registration': True,
+                        'enable_analytics': True,
+                        'default_language': 'en',
+                        'timezone': 'UTC',
+                        'date_format': 'YYYY-MM-DD',
+                        'enable_audit_log': True
+                    },
+                    'performance_settings': {
+                        'cache_enabled': True,
+                        'cache_duration': 300,
+                        'max_query_limit': 1000,
+                        'enable_query_logging': True,
+                        'enable_api_caching': True,
+                        'compression_enabled': True
+                    }
+                }
+                
+                now = datetime.datetime.now().isoformat()
+                for key, value in defaults.items():
+                    db.execute("""
+                        INSERT INTO system_config (config_key, config_value, created_at, updated_at)
+                        VALUES (?, ?, ?, ?)
+                    """, (key, json.dumps(value), now, now))
+                
+                print("System config table initialized with defaults")
+            
+            return True
+        except Exception as e:
+            print(f"Error initializing system config table: {e}")
+            return False
+
+# =============================================================================
+# SYSTEM CONFIGURATION METHODS (Supabase compatible)
+# =============================================================================
+
+    def get_system_config(self, config_key: str) -> Optional[Dict]:
+        """
+        Get system configuration by key.
+        
+        Args:
+            config_key: The configuration key (e.g., 'email_settings', 'security_settings')
+        
+        Returns:
+            Dictionary with config data or None if not found
+        """
+        db = self._get_db()
+        
+        try:
+            # Table has: key, value, updated_at, updated_by
+            result = db.query_one("""
+                SELECT key, value, updated_at, updated_by
+                FROM system_config 
+                WHERE key = ?
+            """, (config_key,))
+            
+            if result:
+                # Parse JSON if value is a string
+                if isinstance(result.get('value'), str):
+                    try:
+                        import json
+                        result['value'] = json.loads(result['value'])
+                    except:
+                        pass
+                
+                # Map to expected format for backward compatibility
+                return {
+                    'config_key': result.get('key'),
+                    'config_value': result.get('value'),
+                    'updated_at': result.get('updated_at'),
+                    'updated_by': result.get('updated_by')
+                }
+            return None
+        except Exception as e:
+            print(f"Error getting system config '{config_key}': {e}")
+            return None
+
+
+    def update_system_config(self, config_key: str, config_value: Dict) -> bool:
+        """
+        Update or insert system configuration.
+        
+        Args:
+            config_key: The configuration key (e.g., 'email_settings', 'security_settings')
+            config_value: Dictionary of configuration values
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            import datetime
+            
+            value_json = json.dumps(config_value)
+            now = datetime.datetime.now().isoformat()
+            user_id = st.session_state.get('user_id') if hasattr(st, 'session_state') else None
+            
+            # Check if config exists
+            existing = db.query_one("""
+                SELECT key FROM system_config WHERE key = ?
+            """, (config_key,))
+            
+            if existing:
+                db.execute("""
+                    UPDATE system_config 
+                    SET value = ?, updated_at = ?, updated_by = ?
+                    WHERE key = ?
+                """, (value_json, now, user_id, config_key))
+            else:
+                db.execute("""
+                    INSERT INTO system_config (key, value, updated_at, updated_by)
+                    VALUES (?, ?, ?, ?)
+                """, (config_key, value_json, now, user_id))
+            
+            return True
+        except Exception as e:
+            print(f"Error updating system config '{config_key}': {e}")
+            return False
+
+
+    def get_all_system_configs(self) -> Dict[str, Dict]:
+        """
+        Get all system configurations.
+        
+        Returns:
+            Dictionary with all config keys and their values
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            results = db.query("""
+                SELECT key, value, updated_at, updated_by
+                FROM system_config 
+                ORDER BY key
+            """)
+            
+            configs = {}
+            for row in results:
+                key = row.get('key')
+                value = row.get('value')
+                
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except:
+                        pass
+                
+                configs[key] = {
+                    'config_value': value,
+                    'updated_at': row.get('updated_at'),
+                    'updated_by': row.get('updated_by')
+                }
+            
+            return configs
+        except Exception as e:
+            print(f"Error getting all system configs: {e}")
+            return {}
+
+
+    def delete_system_config(self, config_key: str) -> bool:
+        """Delete system configuration by key."""
+        db = self._get_db()
+        
+        try:
+            db.execute("""
+                DELETE FROM system_config WHERE key = ?
+            """, (config_key,))
+            return True
+        except Exception as e:
+            print(f"Error deleting system config '{config_key}': {e}")
+            return False
+
+
+    # =============================================================================
+    # COMPANY CONFIGURATION METHODS
+    # =============================================================================
+
+    def get_company_config(self, company_id: int, config_key: str) -> Optional[Any]:
+        """
+        Get company-specific configuration.
+        
+        Args:
+            company_id: Company ID
+            config_key: Configuration key
+        
+        Returns:
+            Configuration value or None if not found
+        """
+        db = self._get_db()
+        
+        try:
+            # Check if company_settings table exists with key/value columns
+            result = db.query_one("""
+                SELECT value FROM company_settings 
+                WHERE company_id = ? AND key = ?
+            """, (company_id, config_key))
+            
+            if result:
+                value = result.get('value')
+                if isinstance(value, str):
+                    try:
+                        import json
+                        return json.loads(value)
+                    except:
+                        return value
+                return value
+            
+            # If not found, try to get from company attributes
+            company = self.get_company_by_id(company_id)
+            if company and config_key in company:
+                return company.get(config_key)
+            
+            return None
+        except Exception as e:
+            print(f"Error getting company config {company_id}:{config_key}: {e}")
+            return None
+
+
+    def set_company_config(self, company_id: int, config_key: str, config_value: Any,
+                        description: str = None, user_id: int = None) -> bool:
+        """
+        Set company-specific configuration.
+        
+        Args:
+            company_id: Company ID
+            config_key: Configuration key
+            config_value: Configuration value
+            description: Optional description
+            user_id: Optional user ID who made the change
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            import datetime
+            
+            # Convert to JSON if it's a dict or list
+            if isinstance(config_value, (dict, list)):
+                value_json = json.dumps(config_value)
+            else:
+                value_json = str(config_value)
+            
+            now = datetime.datetime.now().isoformat()
+            
+            # Check if exists
+            existing = db.query_one("""
+                SELECT id FROM company_settings 
+                WHERE company_id = ? AND key = ?
+            """, (company_id, config_key))
+            
+            if existing:
+                db.execute("""
+                    UPDATE company_settings 
+                    SET value = ?, description = ?, updated_at = ?, updated_by = ?
+                    WHERE company_id = ? AND key = ?
+                """, (value_json, description, now, user_id, company_id, config_key))
+            else:
+                db.execute("""
+                    INSERT INTO company_settings 
+                    (company_id, key, value, description, created_at, updated_at, created_by, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (company_id, config_key, value_json, description, now, now, user_id, user_id))
+            
+            return True
+        except Exception as e:
+            print(f"Error setting company config {company_id}:{config_key}: {e}")
+            return False
+
+
+    def get_all_company_configs(self, company_id: int) -> Dict[str, Any]:
+        """
+        Get all company-specific configurations.
+        
+        Args:
+            company_id: Company ID
+        
+        Returns:
+            Dictionary of all company configs
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            configs = {}
+            
+            # Get from company_settings table
+            results = db.query("""
+                SELECT key, value, description, updated_at
+                FROM company_settings 
+                WHERE company_id = ?
+            """, (company_id,))
+            
+            for row in results:
+                key = row.get('key')
+                value = row.get('value')
+                
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except:
+                        pass
+                
+                configs[key] = {
+                    'config_value': value,
+                    'description': row.get('description'),
+                    'updated_at': row.get('updated_at')
+                }
+            
+            # Also get from company attributes
+            company = self.get_company_by_id(company_id)
+            if company:
+                for key, value in company.items():
+                    if key not in ['id', 'created_at', 'updated_at', 'created_by', 'updated_by']:
+                        if key not in configs:
+                            configs[key] = {
+                                'config_value': value,
+                                'description': 'Company attribute',
+                                'updated_at': company.get('updated_at')
+                            }
+            
+            return configs
+        except Exception as e:
+            print(f"Error getting all company configs for {company_id}: {e}")
+            return {}
+
+
+    def delete_company_config(self, company_id: int, config_key: str) -> bool:
+        """Delete company-specific configuration."""
+        db = self._get_db()
+        
+        try:
+            db.execute("""
+                DELETE FROM company_settings 
+                WHERE company_id = ? AND key = ?
+            """, (company_id, config_key))
+            return True
+        except Exception as e:
+            print(f"Error deleting company config {company_id}:{config_key}: {e}")
+            return False
+
+
+    # =============================================================================
+    # COMPANY SETTINGS SHORTCUT METHODS
+    # =============================================================================
+
+    def get_company_setting(self, company_id: int, setting_key: str, default: Any = None) -> Any:
+        """
+        Get a company setting with default fallback.
+        
+        Args:
+            company_id: Company ID
+            setting_key: Setting key
+            default: Default value if not found
+        
+        Returns:
+            Setting value or default
+        """
+        value = self.get_company_config(company_id, setting_key)
+        return value if value is not None else default
+
+
+    def update_company_setting(self, company_id: int, setting_key: str, 
+                            setting_value: Any, user_id: int = None) -> bool:
+        """
+        Update a company setting.
+        
+        Args:
+            company_id: Company ID
+            setting_key: Setting key
+            setting_value: Setting value
+            user_id: Optional user ID
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.set_company_config(company_id, setting_key, setting_value, user_id=user_id)
+
+
+    def get_company_settings_batch(self, company_id: int, setting_keys: List[str]) -> Dict[str, Any]:
+        """
+        Get multiple company settings at once.
+        
+        Args:
+            company_id: Company ID
+            setting_keys: List of setting keys
+        
+        Returns:
+            Dictionary of setting key-value pairs
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            placeholders = ','.join(['?'] * len(setting_keys))
+            results = db.query(f"""
+                SELECT key, value FROM company_settings 
+                WHERE company_id = ? AND key IN ({placeholders})
+            """, (company_id, *setting_keys))
+            
+            settings = {}
+            for row in results:
+                key = row.get('key')
+                value = row.get('value')
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except:
+                        pass
+                settings[key] = value
+            
+            return settings
+        except Exception as e:
+            print(f"Error getting company settings batch: {e}")
+            return {}
+
+
+    # =============================================================================
+    # COMPANY ATTRIBUTE HELPERS
+    # =============================================================================
+
+    def get_company_attribute(self, company_id: int, attr_name: str, default: Any = None) -> Any:
+        """
+        Get a company attribute directly.
+        
+        Args:
+            company_id: Company ID
+            attr_name: Attribute name
+            default: Default value if not found
+        
+        Returns:
+            Attribute value or default
+        """
+        company = self.get_company_by_id(company_id)
+        if company:
+            return company.get(attr_name, default)
+        return default
+
+
+    def update_company_attribute(self, company_id: int, attr_name: str, attr_value: Any) -> bool:
+        """
+        Update a company attribute directly.
+        
+        Args:
+            company_id: Company ID
+            attr_name: Attribute name
+            attr_value: Attribute value
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.update_company(company_id, **{attr_name: attr_value})
+
+
+    # =============================================================================
+    # CONFIGURATION INITIALIZATION
+    # =============================================================================
+
+    def init_system_config_table(self) -> bool:
+        """
+        Initialize system_config table with default values if it doesn't exist.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        db = self._get_db()
+        
+        try:
+            import json
+            import datetime
+            
+            # Check if table exists
+            result = db.query_one("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name = 'system_config'
+            """)
+            
+            if not result:
+                # Create table with correct column names
+                db.execute("""
+                    CREATE TABLE system_config (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_by INTEGER
+                    )
+                """)
+                
+                # Create company_settings table
+                db.execute("""
+                    CREATE TABLE company_settings (
+                        id SERIAL PRIMARY KEY,
+                        company_id INTEGER NOT NULL,
+                        key TEXT NOT NULL,
+                        value TEXT,
+                        description TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_by INTEGER,
+                        updated_by INTEGER,
+                        UNIQUE(company_id, key)
+                    )
+                """)
+                
+                # Insert default configurations
+                now = datetime.datetime.now().isoformat()
+                defaults = {
+                    'email_settings': {
+                        'smtp_host': 'smtp.gmail.com',
+                        'smtp_port': 587,
+                        'smtp_user': '',
+                        'smtp_password': '',
+                        'from_email': '',
+                        'from_name': 'TenderAI'
+                    },
+                    'security_settings': {
+                        'require_2fa': False,
+                        'session_timeout': 30,
+                        'max_login_attempts': 5,
+                        'password_policy': 'strong',
+                        'enable_ssl': True,
+                        'force_https': True
+                    },
+                    'system_settings': {
+                        'enable_maintenance_mode': False,
+                        'enable_registration': True,
+                        'enable_analytics': True,
+                        'default_language': 'en',
+                        'timezone': 'UTC',
+                        'date_format': 'YYYY-MM-DD',
+                        'enable_audit_log': True
+                    },
+                    'performance_settings': {
+                        'cache_enabled': True,
+                        'cache_duration': 300,
+                        'max_query_limit': 1000,
+                        'enable_query_logging': True,
+                        'enable_api_caching': True,
+                        'compression_enabled': True
+                    }
+                }
+                
+                for key, value in defaults.items():
+                    db.execute("""
+                        INSERT INTO system_config (key, value, updated_at)
+                        VALUES (?, ?, ?)
+                    """, (key, json.dumps(value), now))
+                
+                print("System config tables initialized with defaults")
+            else:
+                # Check if table has correct columns
+                columns = db.query("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'system_config'
+                """)
+                
+                column_names = [c.get('column_name') for c in columns]
+                
+                # If table exists but has wrong columns, try to migrate
+                if 'key' not in column_names or 'value' not in column_names:
+                    print("Warning: system_config table has wrong column names. Expected: key, value")
+                    print(f"Current columns: {column_names}")
+                    # You might want to handle migration here
+            
+            return True
+        except Exception as e:
+            print(f"Error initializing system config table: {e}")
+            return False

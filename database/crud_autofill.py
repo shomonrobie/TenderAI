@@ -1303,3 +1303,285 @@ class AutoFillCRUD:
             ORDER BY contract_value DESC
         """, (company_id, search_term, min_value))
         return results if results else []
+    
+
+    # =========================================================================
+    # FIELD MAPPING - CORRECTED (Using ? for Supabase compatibility)
+    # =========================================================================
+
+    def get_field_mappings(self, company_id: int, form_type: str = None) -> List[Dict]:
+        """Get field mappings for a company"""
+        try:
+            db = self._get_db()
+            
+            # Use ? for all parameters (Supabase compatible)
+            query = """
+                SELECT * FROM custom_field_mappings 
+                WHERE company_id = ? AND is_active = TRUE
+            """
+            params = [company_id]
+            
+            if form_type:
+                query += " AND form_type = ?"
+                params.append(form_type)
+            
+            query += " ORDER BY form_type, field_label"
+            
+            results = db.query(query, tuple(params))
+            return results if results else []
+        except Exception as e:
+            logger.error(f"Error getting field mappings: {e}")
+            return []
+
+    def create_field_mapping(self, company_id: int, data: Dict) -> bool:
+        """Create a new field mapping"""
+        try:
+            db = self._get_db()
+            
+            # Use ? for all parameters
+            result = db.execute("""
+                INSERT INTO custom_field_mappings (
+                    company_id, form_type, field_id, field_label, field_type,
+                    source_table, source_column, source_query, default_value,
+                    mapping_rule, confidence_score, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                company_id,
+                data.get('form_type'),
+                data.get('field_id'),
+                data.get('field_label'),
+                data.get('field_type', 'text'),
+                data.get('source_table'),
+                data.get('source_column'),
+                data.get('source_query'),
+                data.get('default_value'),
+                data.get('mapping_rule'),
+                data.get('confidence_score', 1.0),
+                data.get('created_by')
+            ))
+            
+            return result > 0
+        except Exception as e:
+            logger.error(f"Error creating field mapping: {e}")
+            return False
+
+    def update_field_mapping(self, mapping_id: int, data: Dict) -> bool:
+        """Update a field mapping"""
+        try:
+            db = self._get_db()
+            
+            set_clause = []
+            params = []
+            
+            allowed_fields = [
+                'field_id', 'field_label', 'field_type', 'source_table',
+                'source_column', 'source_query', 'default_value',
+                'mapping_rule', 'confidence_score', 'is_active'
+            ]
+            
+            for field in allowed_fields:
+                if field in data:
+                    set_clause.append(f"{field} = ?")
+                    params.append(data[field])
+            
+            if not set_clause:
+                return False
+            
+            params.append(mapping_id)
+            query = f"""
+                UPDATE custom_field_mappings 
+                SET {', '.join(set_clause)}, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """
+            
+            result = db.execute(query, tuple(params))
+            return result > 0
+        except Exception as e:
+            logger.error(f"Error updating field mapping: {e}")
+            return False
+
+    def delete_field_mapping(self, mapping_id: int) -> bool:
+        """Soft delete a field mapping"""
+        try:
+            db = self._get_db()
+            result = db.execute(
+                "UPDATE custom_field_mappings SET is_active = FALSE WHERE id = ?",
+                (mapping_id,)
+            )
+            return result > 0
+        except Exception as e:
+            logger.error(f"Error deleting field mapping: {e}")
+            return False
+
+    def get_auto_fill_value(self, company_id: int, mapping: Dict) -> Any:
+        """Get auto-fill value for a mapping"""
+        try:
+            db = self._get_db()
+            
+            # If custom query is provided
+            if mapping.get('source_query'):
+                result = db.query_one(mapping['source_query'])
+                if result:
+                    return result.get('value') or result.get(mapping.get('source_column'))
+                return mapping.get('default_value')
+            
+            # If source table and column are provided
+            if mapping.get('source_table') and mapping.get('source_column'):
+                table = mapping['source_table']
+                column = mapping['source_column']
+                
+                # Use ? for all parameters
+                if table == 'companies':
+                    query = f"SELECT {column} FROM companies WHERE id = ?"
+                    result = db.query_one(query, (company_id,))
+                    if result:
+                        value = result.get(column)
+                        if value and mapping.get('mapping_rule'):
+                            value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                        return value or mapping.get('default_value')
+                
+                elif table == 'company_financials':
+                    query = f"""
+                        SELECT {column} FROM company_financials 
+                        WHERE company_id = ? 
+                        ORDER BY fiscal_year DESC, created_at DESC 
+                        LIMIT 1
+                    """
+                    result = db.query_one(query, (company_id,))
+                    if result:
+                        value = result.get(column)
+                        if value and mapping.get('mapping_rule'):
+                            value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                        return value or mapping.get('default_value')
+                
+                elif table == 'company_personnel':
+                    # Get key personnel first
+                    query = f"""
+                        SELECT {column} FROM company_personnel 
+                        WHERE company_id = ? AND is_key_personnel = TRUE
+                        ORDER BY created_at LIMIT 1
+                    """
+                    result = db.query_one(query, (company_id,))
+                    if not result:
+                        # Fallback to any personnel
+                        query = f"""
+                            SELECT {column} FROM company_personnel 
+                            WHERE company_id = ?
+                            ORDER BY created_at LIMIT 1
+                        """
+                        result = db.query_one(query, (company_id,))
+                    
+                    if result:
+                        value = result.get(column)
+                        if value and mapping.get('mapping_rule'):
+                            value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                        return value or mapping.get('default_value')
+                
+                elif table == 'company_experience':
+                    query = f"""
+                        SELECT {column} FROM company_experience 
+                        WHERE company_id = ? AND is_completed = TRUE
+                        ORDER BY award_date DESC LIMIT 1
+                    """
+                    result = db.query_one(query, (company_id,))
+                    if result:
+                        value = result.get(column)
+                        if value and mapping.get('mapping_rule'):
+                            value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                        return value or mapping.get('default_value')
+                
+                elif table == 'company_equipment':
+                    if column == 'count':
+                        query = "SELECT COUNT(*) as count FROM company_equipment WHERE company_id = ?"
+                        result = db.query_one(query, (company_id,))
+                        if result:
+                            return result.get('count')
+                    else:
+                        query = f"SELECT {column} FROM company_equipment WHERE company_id = ? LIMIT 1"
+                        result = db.query_one(query, (company_id,))
+                        if result:
+                            value = result.get(column)
+                            if value and mapping.get('mapping_rule'):
+                                value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                            return value or mapping.get('default_value')
+                
+                elif table == 'company_licenses':
+                    query = f"""
+                        SELECT {column} FROM company_licenses 
+                        WHERE company_id = ? AND status = 'active'
+                        ORDER BY created_at DESC LIMIT 1
+                    """
+                    result = db.query_one(query, (company_id,))
+                    if result:
+                        value = result.get(column)
+                        if value and mapping.get('mapping_rule'):
+                            value = self._apply_mapping_rule(value, mapping['mapping_rule'])
+                        return value or mapping.get('default_value')
+            
+            return mapping.get('default_value')
+        except Exception as e:
+            logger.error(f"Error getting auto-fill value: {e}")
+            return mapping.get('default_value')
+        
+    def _apply_mapping_rule(self, value: Any, rule: str) -> Any:
+        """Apply transformation rules to values"""
+        if not value:
+            return value
+        
+        try:
+            if rule == 'format_currency':
+                try:
+                    val = float(value)
+                    return f"৳{val:,.2f}"
+                except:
+                    return value
+            
+            elif rule == 'format_date':
+                if isinstance(value, (datetime, date)):
+                    return value.strftime('%d/%m/%Y')
+                elif isinstance(value, str):
+                    try:
+                        dt = datetime.strptime(value, '%Y-%m-%d')
+                        return dt.strftime('%d/%m/%Y')
+                    except:
+                        return value
+                return value
+            
+            elif rule == 'format_date_english':
+                if isinstance(value, (datetime, date)):
+                    return value.strftime('%d-%m-%Y')
+                elif isinstance(value, str):
+                    try:
+                        dt = datetime.strptime(value, '%Y-%m-%d')
+                        return dt.strftime('%d-%m-%Y')
+                    except:
+                        return value
+                return value
+            
+            elif rule == 'uppercase':
+                return str(value).upper()
+            
+            elif rule == 'lowercase':
+                return str(value).lower()
+            
+            elif rule == 'title_case':
+                return str(value).title()
+            
+            elif rule == 'clean_phone':
+                return ''.join(filter(str.isdigit, str(value)))
+            
+            elif rule == 'format_nid':
+                val = str(value).replace('-', '')
+                if len(val) >= 10:
+                    return f"{val[:4]}-{val[4:8]}-{val[8:]}"
+                return value
+            
+            elif rule == 'join_with_comma':
+                if isinstance(value, list):
+                    return ', '.join(str(v) for v in value)
+                return value
+            
+            else:
+                return value
+        except Exception as e:
+            logger.error(f"Error applying mapping rule {rule}: {e}")
