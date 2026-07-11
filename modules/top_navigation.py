@@ -1,4 +1,4 @@
-# modules/top_navigation.py
+# modules/top_navigation.py (v4.02)
 import streamlit as st
 
 def render_top_navigation():
