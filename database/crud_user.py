@@ -1,9 +1,4 @@
-# database/crud_user.py - Complete User CRUD with ALL methods
-
-"""
-CRUD Operations for User Management Module
-All database operations for users, roles, permissions, social links, activity logs, and password management
-"""
+# database/crud_user.py - Fixed version with proper placeholder handling
 
 from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime, timedelta
@@ -446,6 +441,9 @@ class UserCRUD:
     
     def _verify_password(self, password: str, hashed: str) -> bool:
         """Verify a password against its bcrypt hash"""
+        print(f"🔍 _verify_password called for user {user_id}")
+        # print(f"🔍 Using self._verify_password: {hasattr(self, '_verify_password')}")
+
         try:
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
         except (bcrypt.InvalidHashError, ValueError, TypeError):
@@ -455,7 +453,8 @@ class UserCRUD:
         """Check if user has a password set"""
         db = self._get_db()
         try:
-            query = "SELECT password FROM users WHERE id = %s"
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            query = "SELECT password FROM users WHERE id = ?"
             result = db.query_one(query, (user_id,))
             if result:
                 password = result.get('password')
@@ -469,8 +468,11 @@ class UserCRUD:
         """Change user password with verification of current password"""
         db = self._get_db()
         try:
-            # Get current password hash
-            query = "SELECT password FROM users WHERE id = %s"
+            print(f"🔍 change_user_password called for user {user_id}")
+            print(f"🔍 Using self._verify_password: {hasattr(self, '_verify_password')}")
+
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            query = "SELECT password FROM users WHERE id = ?"
             result = db.query_one(query, (user_id,))
             
             if not result:
@@ -488,12 +490,12 @@ class UserCRUD:
             # Hash new password
             hashed = self._hash_password(new_password)
             
-            # Update password
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
             update_query = """
                 UPDATE users 
-                SET password = %s, 
-                    updated_at = NOW() 
-                WHERE id = %s
+                SET password = ?, 
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
             """
             db.execute(update_query, (hashed, user_id))
             
@@ -510,8 +512,8 @@ class UserCRUD:
         """Set password for OAuth user (no current password verification)"""
         db = self._get_db()
         try:
-            # Check if user exists
-            query = "SELECT id FROM users WHERE id = %s"
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            query = "SELECT id FROM users WHERE id = ?"
             result = db.query_one(query, (user_id,))
             
             if not result:
@@ -520,12 +522,12 @@ class UserCRUD:
             # Hash new password
             hashed = self._hash_password(new_password)
             
-            # Update password
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
             update_query = """
                 UPDATE users 
-                SET password = %s, 
-                    updated_at = NOW() 
-                WHERE id = %s
+                SET password = ?, 
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
             """
             db.execute(update_query, (hashed, user_id))
             
@@ -550,17 +552,17 @@ class UserCRUD:
             # Hash the password
             hashed = self._hash_password(new_password)
             
-            # Update in database
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
             update_query = """
                 UPDATE users 
-                SET password = %s, 
-                    updated_at = NOW() 
-                WHERE id = %s
+                SET password = ?, 
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
             """
             db.execute(update_query, (hashed, user_id))
             
             # Check if any rows were affected
-            check = db.query_one("SELECT id FROM users WHERE id = %s", (user_id,))
+            check = db.query_one("SELECT id FROM users WHERE id = ?", (user_id,))
             if not check:
                 return False, "User not found"
             
@@ -588,13 +590,13 @@ class UserCRUD:
         try:
             expires_at = (datetime.now() + timedelta(minutes=expires_in_minutes)).isoformat()
             
-            # Delete old tokens first
-            db.execute("DELETE FROM password_reset_tokens WHERE email = %s", (email,))
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            db.execute("DELETE FROM password_reset_tokens WHERE email = ?", (email,))
             
             # Insert new token
             insert_query = """
                 INSERT INTO password_reset_tokens (email, token, expires_at, created_at) 
-                VALUES (%s, %s, %s, %s)
+                VALUES (?, ?, ?, ?)
             """
             db.execute(insert_query, (email, token, expires_at, datetime.now().isoformat()))
             return True
@@ -606,10 +608,11 @@ class UserCRUD:
         """Verify reset token and return email if valid"""
         db = self._get_db()
         try:
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
             query = """
                 SELECT email, expires_at 
                 FROM password_reset_tokens 
-                WHERE token = %s AND expires_at > %s AND used = FALSE
+                WHERE token = ? AND expires_at > ? AND used = FALSE
             """
             result = db.query_one(query, (token, datetime.now()))
             return result.get('email') if result else None
@@ -621,7 +624,8 @@ class UserCRUD:
         """Mark reset token as used"""
         db = self._get_db()
         try:
-            query = "UPDATE password_reset_tokens SET used = TRUE WHERE token = %s"
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            query = "UPDATE password_reset_tokens SET used = TRUE WHERE token = ?"
             db.execute(query, (token,))
             return True
         except Exception as e:
@@ -634,7 +638,8 @@ class UserCRUD:
         db = self._get_db()
         try:
             hashed = self._hash_password(new_password)
-            query = "UPDATE users SET password = %s, updated_at = NOW() WHERE email = %s"
+            # ✅ FIXED: Use ? placeholder for both SQLite and Supabase
+            query = "UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?"
             db.execute(query, (hashed, email))
             return True
         except Exception as e:
@@ -1240,63 +1245,67 @@ class UserCRUD:
         # Return default permissions
         return self._get_default_permissions(role_name)
 
-    # def get_role_permissions(self, role_name: str) -> Dict[str, Any]:
-    #     """Get permissions for a role"""
-    #     db = self._get_db()
+    def _get_default_roles(self):
+        """Get default roles"""
+        return [
+            {'id': 1, 'role': 'admin', 'role_name': 'admin', 'permissions': {}},
+            {'id': 2, 'role': 'system_admin', 'role_name': 'system_admin', 'permissions': {}},
+            {'id': 3, 'role': 'company_admin', 'role_name': 'company_admin', 'permissions': {}},
+            {'id': 4, 'role': 'manager', 'role_name': 'manager', 'permissions': {}},
+            {'id': 5, 'role': 'company_manager', 'role_name': 'company_manager', 'permissions': {}},
+            {'id': 6, 'role': 'analyst', 'role_name': 'analyst', 'permissions': {}},
+            {'id': 7, 'role': 'viewer', 'role_name': 'viewer', 'permissions': {}},
+            {'id': 8, 'role': 'system_support', 'role_name': 'system_support', 'permissions': {}},
+            {'id': 9, 'role': 'system_auditor', 'role_name': 'system_auditor', 'permissions': {}}
+        ]
+
+    def _get_default_permissions(self, role_name: str) -> Dict[str, Any]:
+        """Get default permissions for a role"""
+        default_perms = {
+            'viewer': {
+                'manage_users': False, 'manage_tenders': False, 'run_analysis': False,
+                'view_reports': True, 'export_data': False, 'change_plans': False,
+                'manage_team': False, 'delete_any': False,
+                'view_rates': True, 'edit_rates': False, 'delete_rates': False,
+                'manage_zones': False, 'manage_chapters': False,
+                'manage_parents': False, 'manage_children': False, 'manage_versions': False
+            },
+            'analyst': {
+                'manage_users': False, 'manage_tenders': False, 'run_analysis': True,
+                'view_reports': True, 'export_data': True, 'change_plans': False,
+                'manage_team': False, 'delete_any': False,
+                'view_rates': True, 'edit_rates': False, 'delete_rates': False,
+                'manage_zones': False, 'manage_chapters': False,
+                'manage_parents': False, 'manage_children': False, 'manage_versions': False
+            },
+            'manager': {
+                'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
+                'view_reports': True, 'export_data': True, 'change_plans': False,
+                'manage_team': True, 'delete_any': False,
+                'view_rates': True, 'edit_rates': True, 'delete_rates': False,
+                'manage_zones': False, 'manage_chapters': False,
+                'manage_parents': False, 'manage_children': False, 'manage_versions': False
+            },
+            'company_admin': {
+                'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
+                'view_reports': True, 'export_data': True, 'change_plans': False,
+                'manage_team': True, 'delete_any': False,
+                'view_rates': True, 'edit_rates': True, 'delete_rates': True,
+                'manage_zones': True, 'manage_chapters': True,
+                'manage_parents': True, 'manage_children': True, 'manage_versions': True
+            },
+            'admin': {
+                'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
+                'view_reports': True, 'export_data': True, 'change_plans': True,
+                'manage_team': True, 'delete_any': True,
+                'view_rates': True, 'edit_rates': True, 'delete_rates': True,
+                'manage_zones': True, 'manage_chapters': True,
+                'manage_parents': True, 'manage_children': True, 'manage_versions': True
+            }
+        }
         
-    #     # Try to get from role_permissions table
-    #     result = db.query_one("""
-    #         SELECT permissions FROM role_permissions WHERE role_name = ?
-    #     """, (role_name,))
-        
-    #     if result and result.get('permissions'):
-    #         return result['permissions']
-        
-    #     # Default permissions based on role
-    #     default_perms = {
-    #         'viewer': {
-    #             'manage_users': False, 'manage_tenders': False, 'run_analysis': False,
-    #             'view_reports': True, 'export_data': False, 'change_plans': False,
-    #             'manage_team': False, 'delete_any': False,
-    #             'view_rates': True, 'edit_rates': False, 'delete_rates': False,
-    #             'manage_zones': False, 'manage_chapters': False,
-    #             'manage_parents': False, 'manage_children': False, 'manage_versions': False
-    #         },
-    #         'analyst': {
-    #             'manage_users': False, 'manage_tenders': False, 'run_analysis': True,
-    #             'view_reports': True, 'export_data': True, 'change_plans': False,
-    #             'manage_team': False, 'delete_any': False,
-    #             'view_rates': True, 'edit_rates': False, 'delete_rates': False,
-    #             'manage_zones': False, 'manage_chapters': False,
-    #             'manage_parents': False, 'manage_children': False, 'manage_versions': False
-    #         },
-    #         'manager': {
-    #             'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
-    #             'view_reports': True, 'export_data': True, 'change_plans': False,
-    #             'manage_team': True, 'delete_any': False,
-    #             'view_rates': True, 'edit_rates': True, 'delete_rates': False,
-    #             'manage_zones': False, 'manage_chapters': False,
-    #             'manage_parents': False, 'manage_children': False, 'manage_versions': False
-    #         },
-    #         'company_admin': {
-    #             'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
-    #             'view_reports': True, 'export_data': True, 'change_plans': False,
-    #             'manage_team': True, 'delete_any': False,
-    #             'view_rates': True, 'edit_rates': True, 'delete_rates': True,
-    #             'manage_zones': True, 'manage_chapters': True,
-    #             'manage_parents': True, 'manage_children': True, 'manage_versions': True
-    #         },
-    #         'admin': {
-    #             'manage_users': True, 'manage_tenders': True, 'run_analysis': True,
-    #             'view_reports': True, 'export_data': True, 'change_plans': True,
-    #             'manage_team': True, 'delete_any': True,
-    #             'view_rates': True, 'edit_rates': True, 'delete_rates': True,
-    #             'manage_zones': True, 'manage_chapters': True,
-    #             'manage_parents': True, 'manage_children': True, 'manage_versions': True
-    #         }
-    #     }
-        
-    #     return default_perms.get(role_name, default_perms['viewer'])
+        return default_perms.get(role_name, default_perms['viewer'])
+    
     def update_role_permissions(self, role_name: str, permissions: Dict[str, Any]) -> bool:
         """Update role permissions in role_permissions table"""
         db = self._get_db()
@@ -1342,66 +1351,6 @@ class UserCRUD:
         except Exception as e:
             print(f"Error updating role permissions: {e}")
             return False
-
-        
-    # def update_role_permissions(self, role_name: str, permissions: Dict[str, Any]) -> bool:
-    #     """Update role permissions"""
-    #     db = self._get_db()
-        
-    #     try:
-    #         existing = db.query_one(
-    #             "SELECT id FROM role_permissions WHERE role_name = ?",
-    #             (role_name,)
-    #         )
-            
-    #         if existing:
-    #             db.execute("""
-    #                 UPDATE role_permissions
-    #                 SET permissions = ?, updated_at = ?
-    #                 WHERE role_name = ?
-    #             """, (permissions, datetime.now().isoformat(), role_name))
-    #         else:
-    #             db.execute("""
-    #                 INSERT INTO role_permissions (role_name, permissions, created_at)
-    #                 VALUES (?, ?, ?)
-    #             """, (role_name, permissions, datetime.now().isoformat()))
-            
-    #         return True
-    #     except Exception as e:
-    #         logger.error(f"Error updating role permissions: {e}")
-    #         return False
-    
-    # # =========================================================================
-    # # COMPANY METHODS
-    # # =========================================================================
-    
-    # def get_all_companies(self) -> List[Dict[str, Any]]:
-    #     """Fetch all companies from database"""
-    #     db = self._get_db()
-    #     return db.query("""
-    #         SELECT id, company_name, email, phone, division, district, created_at, status 
-    #         FROM companies 
-    #         ORDER BY company_name ASC
-    #     """)
-    
-    # def get_company_by_id(self, company_id: int) -> Optional[Dict[str, Any]]:
-    #     """Get company by ID"""
-    #     db = self._get_db()
-    #     return db.query_one("""
-    #         SELECT id, company_name, email, phone, division, district, 
-    #             is_individual, created_at, registration_number, vat_number
-    #         FROM companies 
-    #         WHERE id = ?
-    #     """, (company_id,))
-    
-    # def get_company_by_name(self, company_name: str) -> Optional[Dict[str, Any]]:
-    #     """Get company by name"""
-    #     db = self._get_db()
-    #     return db.query_one("""
-    #         SELECT id, company_name, email, phone, division, district
-    #         FROM companies 
-    #         WHERE company_name = ?
-    #     """, (company_name,))
     
     # =========================================================================
     # HELPER METHODS
@@ -1490,6 +1439,7 @@ class UserCRUD:
         except Exception as e:
             print(f"Error creating OTP: {e}")
             return None
+    
     def get_valid_otp(self, contact_type: str, contact_value: str, otp_code: str, 
                     purpose: str, max_attempts: int) -> Optional[Dict]:
         """Get a valid OTP record"""

@@ -764,11 +764,112 @@ class PWDImportWizard:
         items_with_rates = len(edited_df[edited_df['has_rates'] == True])
         parents = len(edited_df[(edited_df['has_rates'] == False) & (edited_df['dot_count'] >= 1)])
         
-        # ✅ Use SystemRateCRUD for version history
+        # ✅ Get versions using the correct method
         versions = self.db.get_rate_versions_dict('PWD')
-        versions_df = pd.DataFrame(versions) if versions else pd.DataFrame()
-        if not versions_df.empty and 'edition_year' in versions_df.columns:
+        
+        # DEBUG: Check what was returned
+        print(f"🔍 get_rate_versions_dict returned: {len(versions) if versions else 0} versions")
+        if versions:
+            print(f"🔍 First version keys: {list(versions[0].keys())}")
+        
+        # Check if versions exist
+        if not versions:
+            st.warning("ℹ️ No existing versions found for PWD. You can only create a new version.")
+            
+            # Auto-select new version mode
+            import_mode = "new_version"
+            version_id = None
+            version_number = None
+            confirm_update = True  # Not needed for new version
+            
+            st.markdown("---")
+            st.markdown("#### 📋 Data to be Saved")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Configuration**")
+                st.write(f"Version Name: {config['version_name']}")
+                st.write(f"Edition Year: {config['edition_year']}")
+                st.write(f"Chapter: {config['chapter_num']}")
+                st.write(f"**Action:** Create New Version")
+            
+            with col2:
+                st.markdown("**Statistics**")
+                st.write(f"Total Items: {total_items}")
+                st.write(f"Items with Rates: {items_with_rates}")
+                st.write(f"Parent Headers: {parents}")
+            
+            notes = st.text_area("Notes (optional)", key="pwd_import_notes")
+            
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("◀️ Back to Edit", use_container_width=True):
+                    st.session_state.pwd_wizard_step = 3
+                    st.rerun()
+            
+            with col2:
+                if st.button("💾 **Import to Database**", type="primary", use_container_width=True):
+                    hierarchy = self._build_hierarchy_from_df(edited_df, config['chapter_num'])
+                    
+                    with st.spinner("Saving to database..."):
+                        try:
+                            result_version_id = self.db.save_pwd_hierarchy_enhanced(
+                                hierarchy=hierarchy,
+                                version_name=config['version_name'],
+                                edition_year=config['edition_year'],
+                                effective_date=datetime.now().date(),
+                                selected_chapters={config['chapter_num']: {'name': f"Chapter {config['chapter_num']}"}}
+                            )
+                            result = {
+                                'success': True, 
+                                'version_id': result_version_id, 
+                                'message': "Import successful"
+                            }
+                        except Exception as e:
+                            result = {'success': False, 'message': str(e)}
+                        
+                        if result.get('success'):
+                            st.success("✅ Data imported successfully!")
+                            st.balloons()
+                            st.session_state.pwd_wizard_step = 6
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Import failed: {result.get('message', 'Unknown error')}")
+            
+            return
+        
+        # Convert to DataFrame
+        versions_df = pd.DataFrame(versions)
+        print(f"🔍 Versions DataFrame columns: {versions_df.columns.tolist()}")
+        
+        # Filter by edition year
+        if 'edition_year' in versions_df.columns:
             versions_df = versions_df[versions_df['edition_year'] == config['edition_year']]
+            print(f"🔍 Filtered by edition_year {config['edition_year']}: {len(versions_df)} versions")
+        
+        # ✅ Create display dataframe with correct column names from the actual data
+        display_data = []
+        for _, row in versions_df.iterrows():
+            display_row = {}
+            
+            # Safe column access with correct column names
+            display_row['version_number'] = row.get('version_number', 'N/A')
+            display_row['is_active'] = "✅ Active" if row.get('is_active') else "📦 Archived"
+            
+            # Use created_at or effective_from or release_date
+            display_row['created_at'] = row.get('created_at') or row.get('effective_from') or row.get('release_date') or 'N/A'
+            
+            # ✅ Use total_rates (not total_items) - this was the main issue!
+            display_row['total_items'] = row.get('total_rates', 0)
+            
+            # Also include edition_year for reference
+            display_row['edition_year'] = row.get('edition_year', '')
+            
+            display_data.append(display_row)
+        
+        display_df = pd.DataFrame(display_data) if display_data else pd.DataFrame()
         
         st.markdown("### 🔄 Import Mode Selection")
         
@@ -790,58 +891,74 @@ class PWDImportWizard:
         confirm_update = False
         
         if import_mode == "update_chapter":
-            if versions_df.empty:
+            if display_df.empty:
                 st.error("❌ No existing versions found. Please create a new version first.")
                 import_mode = "new_version"
             else:
                 st.info(f"📊 Existing versions for PWD {config['edition_year']}:")
-                display_df = versions_df.copy()
-                if 'is_active' in display_df.columns:
-                    display_df['is_active'] = display_df['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
-                st.dataframe(display_df[['version_number', 'is_active', 'created_at', 'total_items']], 
-                            use_container_width=True, hide_index=True)
                 
+                # ✅ Show dataframe with available columns
+                available_cols = ['version_number', 'is_active', 'created_at', 'total_items']
+                available_cols = [col for col in available_cols if col in display_df.columns]
+                
+                if available_cols:
+                    st.dataframe(display_df[available_cols], use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(display_df, use_container_width=True, hide_index=True)
+                
+                # Build version options from the original versions_df
                 version_options = []
                 for _, row in versions_df.iterrows():
+                    version_id_val = row.get('id')
+                    version_num = row.get('version_number', version_id_val)
+                    version_name_val = row.get('version_name', f"Version {version_num}")
+                    is_active = row.get('is_active', False)
+                    edition_year_val = row.get('edition_year', '')
+                    total_rates = row.get('total_rates', 0)
+                    
                     version_options.append({
-                        'id': row['id'],
-                        'number': row['version_number'],
-                        'label': f"Version {row['version_number']} ({'Active' if row['is_active'] else 'Archived'})"
+                        'id': version_id_val,
+                        'number': version_num,
+                        'label': f"{version_name_val} ({edition_year_val}) - {'Active' if is_active else 'Archived'} - {total_rates} items"
                     })
                 
-                selected_version = st.selectbox(
-                    "Select version to update:",
-                    options=version_options,
-                    format_func=lambda x: x['label'],
-                    key="pwd_version_select"
-                )
-                
-                version_id = selected_version['id']
-                version_number = selected_version['number']
-                
-                st.warning(f"""
-                ⚠️ **YOU ARE ABOUT TO REPLACE THE FOLLOWING DATA IN VERSION {version_number}:**
-                
-                | Item | Value |
-                |------|-------|
-                | **Edition Year** | {config['edition_year']} |
-                | **Version** | {version_number} |
-                | **Chapter** | **Chapter {config['chapter_num']}** |
-                
-                **What will be replaced:**
-                - ✅ **ENTIRE Chapter {config['chapter_num']}** (all items in this chapter)
-                - ✅ Other chapters will remain **UNCHANGED**
-                
-                **Data being imported:**
-                - Total Items: {total_items}
-                - Items with Rates: {items_with_rates}
-                - Parent Headers: {parents}
-                """)
-                
-                confirm_update = st.checkbox(
-                    f"✓ I understand that I am REPLACING Chapter {config['chapter_num']} in Version {version_number}",
-                    key="confirm_pwd_chapter_update"
-                )
+                if version_options:
+                    selected_version = st.selectbox(
+                        "Select version to update:",
+                        options=version_options,
+                        format_func=lambda x: x['label'],
+                        key="pwd_version_select"
+                    )
+                    
+                    version_id = selected_version['id']
+                    version_number = selected_version['number']
+                    
+                    st.warning(f"""
+                    ⚠️ **YOU ARE ABOUT TO REPLACE THE FOLLOWING DATA IN VERSION {version_number}:**
+                    
+                    | Item | Value |
+                    |------|-------|
+                    | **Edition Year** | {config['edition_year']} |
+                    | **Version** | {version_number} |
+                    | **Chapter** | **Chapter {config['chapter_num']}** |
+                    
+                    **What will be replaced:**
+                    - ✅ **ENTIRE Chapter {config['chapter_num']}** (all items in this chapter)
+                    - ✅ Other chapters will remain **UNCHANGED**
+                    
+                    **Data being imported:**
+                    - Total Items: {total_items}
+                    - Items with Rates: {items_with_rates}
+                    - Parent Headers: {parents}
+                    """)
+                    
+                    confirm_update = st.checkbox(
+                        f"✓ I understand that I am REPLACING Chapter {config['chapter_num']} in Version {version_number}",
+                        key="confirm_pwd_chapter_update"
+                    )
+                else:
+                    st.error("❌ No valid versions available for selection.")
+                    import_mode = "new_version"
         
         st.markdown("---")
         st.markdown("#### 📋 Data to be Saved")
@@ -884,13 +1001,11 @@ class PWDImportWizard:
                 
                 with st.spinner("Saving to database..."):
                     if import_mode == "update_chapter" and version_id:
-                        # ✅ Use SystemRateCRUD for chapter update
                         result = self._update_pwd_chapter(
                             hierarchy, version_id, config['edition_year'], 
                             config['chapter_num'], notes
                         )
                     else:
-                        # ✅ Use SystemRateCRUD for new version
                         try:
                             result_version_id = self.db.save_pwd_hierarchy_enhanced(
                                 hierarchy=hierarchy,
@@ -914,6 +1029,8 @@ class PWDImportWizard:
                         st.rerun()
                     else:
                         st.error(f"❌ Import failed: {result.get('message', 'Unknown error')}")
+    
+
     
     def _build_hierarchy_from_df(self, df, chapter_num):
         """Build hierarchy from DataFrame"""

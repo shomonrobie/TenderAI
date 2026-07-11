@@ -54,16 +54,24 @@ class SystemRateCRUD:
             ORDER BY CAST(chapter_number AS INTEGER)
         """)
         return pd.DataFrame(results) if results else pd.DataFrame()
-    
     def get_pwd_chapters_dict(self) -> List[Dict]:
         """Get PWD chapters as list of dictionaries"""
-        db = self._get_db()
-        return db.query("""
-            SELECT chapter_number, chapter_name, description 
-            FROM pwd_chapters 
-            ORDER BY CAST(chapter_number AS INTEGER)
-        """)
-    
+        try:
+            db = self._get_db()
+            
+            # Use db.query which handles both SQLite and Supabase
+            result = db.query("""
+                SELECT chapter_number, chapter_name, description 
+                FROM pwd_chapters 
+                ORDER BY chapter_number
+            """)
+            
+            return result if result else []
+            
+        except Exception as e:
+            print(f"❌ Error getting PWD chapters: {e}")
+            return []
+
     # ---------- PWD Parents ----------
     def get_pwd_parents(self, chapter_number: str = None) -> pd.DataFrame:
         """Get PWD parents as DataFrame"""

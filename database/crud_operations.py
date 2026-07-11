@@ -139,23 +139,7 @@ class DatabaseCRUD:
             if callable(method):
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
     
-    # def _bind_equipment_methods(self):
-    #     """Bind equipment CRUD methods to DatabaseCRUD"""
-    #     for method_name in dir(self._equipment_crud):
-    #         if method_name.startswith('_'):
-    #             continue
-    #         method = getattr(self._equipment_crud, method_name)
-    #         if callable(method):
-    #             setattr(self, method_name, method.__get__(self, DatabaseCRUD))
     
-    # def _bind_experience_methods(self):
-    #     """Bind experience CRUD methods to DatabaseCRUD"""
-    #     for method_name in dir(self._experience_crud):
-    #         if method_name.startswith('_'):
-    #             continue
-    #         method = getattr(self._experience_crud, method_name)
-    #         if callable(method):
-    #             setattr(self, method_name, method.__get__(self, DatabaseCRUD))
 
     def _bind_competitor_methods(self):
         """Bind all CompetitorCRUD methods to this instance"""
@@ -200,6 +184,7 @@ class DatabaseCRUD:
             if conn is None:
                 conn = get_connection()
             return conn.cursor()
+    
     
     def execute(self, sql: str, params: tuple = None) -> int:
         """Execute SQL with parameter substitution (database-agnostic)"""
@@ -3615,3 +3600,23 @@ class DatabaseCRUD:
         except Exception as e:
             print(f"Error initializing system config table: {e}")
             return False
+    def get_active_version(self, source=None) -> List[Dict]:
+        """Get active version for a source or all active versions"""
+        db = self._get_db()
+        
+        if source:
+            results = db.query("""
+                SELECT * FROM rate_versions 
+                WHERE source = ? AND is_active = 1
+                ORDER BY edition_year DESC
+                LIMIT 1
+            """, (source,))
+        else:
+            results = db.query("""
+                SELECT * FROM rate_versions 
+                WHERE is_active = 1
+                ORDER BY source, edition_year DESC
+            """)
+        
+        # ✅ Ensure each row is a dict
+        return [dict(row) for row in results] if results else []

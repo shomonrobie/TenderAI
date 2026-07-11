@@ -4,6 +4,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
+import hashlib
+from functools import lru_cache
 from modules.rbac import (
     rbac, can_view_rates, can_edit_rates, can_delete_rates,
     can_import_rates, render_role_badge, require_permission,
@@ -17,54 +19,141 @@ class RateCRUDForms:
     
     def __init__(self, db):
         self.db = db or get_db_manager()
+        self._cache = {}
+    
+    # ========== CACHING HELPERS ==========
+    @st.cache_data(ttl=300)
+    def _get_cached_chapters(_self, source: str):
+        """Cache chapters data"""
+        try:
+            return _self.db.get_chapters(source) if hasattr(_self.db, 'get_chapters') else []
+        except Exception:
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_parents(_self, source: str):
+        """Cache parents data"""
+        try:
+            return _self.db.get_parents(source) if hasattr(_self.db, 'get_parents') else []
+        except Exception:
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_children(_self, source: str):
+        """Cache children data"""
+        try:
+            return _self.db.get_children(source) if hasattr(_self.db, 'get_children') else []
+        except Exception:
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_zones(_self, source: str):
+        """Cache zones data"""
+        try:
+            return _self.db.get_zones(source) if hasattr(_self.db, 'get_zones') else []
+        except Exception:
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_versions(_self, source: str):
+        """Cache versions data"""
+        try:
+            return _self.db.get_versions(source) if hasattr(_self.db, 'get_versions') else []
+        except Exception:
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_sections(_self, chapter_num: str):
+        """Cache sections data"""
+        try:
+            return _self.db.get_sections_for_chapter(chapter_num) if hasattr(_self.db, 'get_sections_for_chapter') else []
+        except Exception:
+            return []
+    
+    def _clear_cache(self):
+        """Clear all cached data"""
+        for method in ['_get_cached_chapters', '_get_cached_parents', '_get_cached_children', 
+                       '_get_cached_zones', '_get_cached_versions', '_get_cached_sections']:
+            if hasattr(self, method):
+                getattr(self, method).clear()
+    
+    def _log_audit_with_duplicate_check(self, action, entity_type, entity_id, old_data=None, new_data=None):
+        """Log audit trail with duplicate prevention"""
+        try:
+            # Generate a hash based on the operation details
+            audit_data = f"{action}_{entity_type}_{entity_id}_{json.dumps(old_data)}_{json.dumps(new_data)}"
+            audit_hash = hashlib.md5(audit_data.encode()).hexdigest()
+            
+            # Check if this audit was already logged
+            if not hasattr(st.session_state, '_audit_hashes'):
+                st.session_state._audit_hashes = set()
+            
+            if audit_hash in st.session_state._audit_hashes:
+                return
+            
+            user_id = st.session_state.get('user_id', 0)
+            username = st.session_state.get('username', 'unknown')
+            role = st.session_state.get('user_role', 'viewer')
+            
+            # Direct insert - all columns are nullable, so this always works
+            self.db.execute("""
+                INSERT INTO rate_audit_log 
+                (user_id, username, role, action, entity_type, entity_id, old_data, new_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                username,
+                role,
+                action,
+                entity_type,
+                entity_id,
+                json.dumps(old_data) if old_data else None,
+                json.dumps(new_data) if new_data else None
+            ))
+            
+            st.session_state._audit_hashes.add(audit_hash)
+            
+            # Limit the set size to prevent memory issues
+            if len(st.session_state._audit_hashes) > 200:
+                st.session_state._audit_hashes = set(list(st.session_state._audit_hashes)[-100:])
+            
+            st.toast(f"📝 Audit: {username} - {action} {entity_type}: {entity_id}")
+        except Exception as e:
+            print(f"Audit log error: {e}")
     
     def _log_audit(self, action, entity_type, entity_id, old_data=None, new_data=None):
         """Log audit trail"""
         try:
-            # Use the db's audit log method if available, otherwise use direct insert
-            if hasattr(self.db, 'log_audit'):
-                self.db.log_audit(
-                    user_id=st.session_state.get('user_id', 0),
-                    username=st.session_state.get('username', 'unknown'),
-                    role=st.session_state.get('user_role', 'viewer'),
-                    action=action,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    old_data=old_data,
-                    new_data=new_data
-                )
-            else:
-                # Fallback: direct insert
-                self.db.execute("""
-                    INSERT INTO rate_audit_log (user_id, username, role, action, entity_type, entity_id, old_data, new_data)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    st.session_state.get('user_id', 0),
-                    st.session_state.get('username', 'unknown'),
-                    st.session_state.get('user_role', 'viewer'),
-                    action,
-                    entity_type,
-                    entity_id,
-                    json.dumps(old_data) if old_data else None,
-                    json.dumps(new_data) if new_data else None
-                ))
+            user_id = st.session_state.get('user_id', 0)
+            username = st.session_state.get('username', 'unknown')
+            role = st.session_state.get('user_role', 'viewer')
             
-            st.toast(f"📝 Audit: {st.session_state.get('username')} - {action} {entity_type}: {entity_id}")
+            self.db.execute("""
+                INSERT INTO rate_audit_log 
+                (user_id, username, role, action, entity_type, entity_id, old_data, new_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                username,
+                role,
+                action,
+                entity_type,
+                entity_id,
+                json.dumps(old_data) if old_data else None,
+                json.dumps(new_data) if new_data else None
+            ))
+            
+            st.toast(f"📝 Audit: {username} - {action} {entity_type}: {entity_id}")
         except Exception as e:
-            st.warning(f"Audit log error: {e}")
+            print(f"Audit log error: {e}")
     
     def _check_permission(self, permission):
-        """
-        Check if user has permission for rate management.
-        Uses RBAC module for consistency.
-        """
+        """Check if user has permission for rate management."""
         user_role = st.session_state.get('user_role', 'viewer')
         
-        # Admin users have full access
         if user_role in ['admin', 'system_admin']:
             return True
         
-        # Use RBAC module for permission checks
         if permission == 'read':
             return can_view_rates()
         elif permission == 'update':
@@ -79,7 +168,6 @@ class RateCRUDForms:
     def render(self):
         """Main interface with separate tabs for each CRUD operation"""
         
-        # Check basic permission
         if not self._check_permission('read'):
             st.error("❌ You don't have permission to view this page")
             return
@@ -87,10 +175,8 @@ class RateCRUDForms:
         user_role = st.session_state.get('user_role', 'viewer')
         company_id = st.session_state.get('company_id')
         
-        # Render role badge
         render_role_badge()
         
-        # Show subscription info if company user
         if company_id:
             from modules.subscription_manager import SubscriptionManager
             sub_manager = SubscriptionManager(self.db)
@@ -108,7 +194,6 @@ class RateCRUDForms:
         </div>
         """, unsafe_allow_html=True)
         
-        # Source selection
         source = st.radio(
             "Select Rate Schedule",
             options=["PWD", "LGED"],
@@ -116,7 +201,6 @@ class RateCRUDForms:
             key="crud_source"
         )
         
-        # Edition year
         edition_year = st.number_input(
             "Edition Year",
             min_value=2020,
@@ -126,7 +210,6 @@ class RateCRUDForms:
             help="Select which version/year these rates belong to"
         )
         
-        # Debug mode toggle (only for admins)
         show_debug = False
         if user_role in ['admin', 'system_admin']:
             show_debug = st.checkbox("🐛 Show Debug Info", value=False, key="debug_mode")
@@ -156,7 +239,6 @@ class RateCRUDForms:
             self._version_crud(source, show_debug)
     
     def _get_user_permissions(self, role):
-        """Get permissions for a role"""
         permissions = {
             'admin': ['create', 'read', 'update', 'delete'],
             'system_admin': ['create', 'read', 'update', 'delete'],
@@ -175,31 +257,32 @@ class RateCRUDForms:
         st.markdown("### 🗺️ Manage Zones")
         
         can_edit = self._check_permission('update')
-        can_delete = self._check_permission('delete')
         
         if not can_edit:
             st.info("ℹ️ You have view-only access to zones")
         
-        # Load existing zones using CRUD method
-        zones = self.db.get_zones(source) if hasattr(self.db, 'get_zones') else self._get_zones_fallback(source)
+        # ✅ Use cached zones
+        zones = self._get_cached_zones(source)
         
         if zones:
             st.markdown("#### Existing Zones (Double-click to edit)")
             
-            # Convert to DataFrame for editing
-            df = pd.DataFrame([{
-                'Code': z.get('code', ''),
-                'Name': z.get('name', ''),
-                'Description': z.get('description', ''),
-                'Divisions': z.get('divisions', ''),
-                'Accessibility Bonus %': z.get('accessibility_bonus', 0) * 100
-            } for z in zones])
+            # Build DataFrame efficiently
+            df_data = []
+            append = df_data.append
+            for z in zones:
+                append({
+                    'Code': z.get('code', ''),
+                    'Name': z.get('name', ''),
+                    'Description': z.get('description', ''),
+                    'Divisions': z.get('divisions', ''),
+                    'Accessibility Bonus %': z.get('accessibility_bonus', 0) * 100
+                })
+            df = pd.DataFrame(df_data)
             
-            # Debug info
             if show_debug:
                 st.write(f"Debug: Loaded {len(zones)} zones from database")
             
-            # Editable table
             if can_edit:
                 edited_df = st.data_editor(
                     df,
@@ -215,14 +298,12 @@ class RateCRUDForms:
                     }
                 )
                 
-                # Check for changes and save
                 if not edited_df.equals(df):
                     for idx in edited_df.index:
                         if not edited_df.loc[idx].equals(df.loc[idx]):
                             old_data = df.loc[idx].to_dict()
                             new_data = edited_df.loc[idx].to_dict()
                             
-                            # Save changes using CRUD method
                             self.db.update_zone(
                                 source=source,
                                 code=edited_df.loc[idx, 'Code'],
@@ -237,12 +318,11 @@ class RateCRUDForms:
                             if show_debug:
                                 st.success(f"✅ Updated zone: {edited_df.loc[idx, 'Code']}")
                     
+                    self._clear_cache()
                     st.rerun()
             else:
-                # View-only display
                 st.dataframe(df, use_container_width=True, hide_index=True)
         
-        # Add new zone (only if user has create permission)
         if self._check_permission('create'):
             with st.expander("➕ Add New Zone", expanded=False):
                 col1, col2 = st.columns(2)
@@ -263,6 +343,7 @@ class RateCRUDForms:
                         st.success(f"✅ Added Zone: {zone_code} - {zone_name}")
                         if show_debug:
                             st.code(f"Inserted into database: zone_code={zone_code}")
+                        self._clear_cache()
                         st.rerun()
                     else:
                         st.error("Please fill Zone Code and Zone Name")
@@ -270,9 +351,8 @@ class RateCRUDForms:
     def _get_zones_fallback(self, source):
         """Fallback method for zones if CRUD method not available"""
         try:
-            conn = self.db.get_connection()
             if source == "PWD":
-                zones = [
+                return [
                     {'code': 'Dhaka', 'name': 'Dhaka & Mymensingh Division', 'description': 'Capital region', 
                     'divisions': 'Dhaka, Mymensingh', 'accessibility_bonus': 0},
                     {'code': 'Chattogram', 'name': 'Chattogram & Sylhet Division', 'description': 'Port city region', 
@@ -288,7 +368,7 @@ class RateCRUDForms:
                     FROM lged_zone_mapping 
                     ORDER BY zone_code
                 """)
-                zones = [
+                return [
                     {
                         'code': r.get('code'),
                         'name': r.get('name'),
@@ -297,16 +377,10 @@ class RateCRUDForms:
                         'description': r.get('description', '')
                     } for r in results
                 ]
-            return zones
-        except Exception as e:
-            if show_debug:
-                st.error(f"Zone load error: {e}")
+        except Exception:
             return []
     
     # ========== CHAPTER CRUD ==========
-    
-    # modules/rate_crud_forms.py - Full _chapter_crud and _child_crud
-
     def _chapter_crud(self, source, show_debug):
         """Chapter CRUD with editable table"""
         
@@ -314,17 +388,11 @@ class RateCRUDForms:
         
         can_edit = self._check_permission('update')
         
-        # Load existing chapters using CRUD method
-        try:
-            chapters = self.db.get_chapters(source) if hasattr(self.db, 'get_chapters') else []
-        except Exception as e:
-            if show_debug:
-                st.error(f"Error loading chapters: {e}")
-            chapters = []
+        # ✅ Use cached chapters
+        chapters = self._get_cached_chapters(source)
         
         if not chapters:
             st.info(f"No chapters found for {source}. Add chapters below.")
-            chapters = []
         
         if chapters:
             df = pd.DataFrame(chapters)
@@ -333,7 +401,6 @@ class RateCRUDForms:
                 if col not in df.columns:
                     df[col] = ''
             
-            # Convert chapter_number to string for display
             if 'chapter_number' in df.columns:
                 df['chapter_number'] = df['chapter_number'].astype(str)
             
@@ -356,40 +423,64 @@ class RateCRUDForms:
                         }
                     )
                     
-                    # Check for changes
                     if not edited_df.equals(df):
-                        for idx in edited_df.index:
-                            if not edited_df.loc[idx].equals(df.loc[idx]):
-                                old_name = df.loc[idx, 'chapter_name']
-                                new_name = edited_df.loc[idx, 'chapter_name']
-                                old_desc = df.loc[idx, 'description'] if 'description' in df.columns else ''
-                                new_desc = edited_df.loc[idx, 'description'] if 'description' in edited_df.columns else ''
-                                
-                                # Update chapter using CRUD method
-                                try:
-                                    # Update chapter name
-                                    if new_name != old_name:
-                                        self.db.update_chapter(source, edited_df.loc[idx, 'chapter_number'], new_name)
-                                    
-                                    # Update description if method exists
-                                    if hasattr(self.db, 'update_chapter_description') and new_desc != old_desc:
-                                        self.db.update_chapter_description(source, edited_df.loc[idx, 'chapter_number'], new_desc)
-                                    
-                                    self._log_audit('UPDATE', 'chapter', edited_df.loc[idx, 'chapter_number'], 
-                                                {'name': old_name, 'description': old_desc}, 
-                                                {'name': new_name, 'description': new_desc})
-                                    
-                                    if show_debug:
-                                        st.success(f"✅ Updated chapter: {edited_df.loc[idx, 'chapter_number']}")
-                                except Exception as e:
-                                    if show_debug:
-                                        st.error(f"Error updating chapter: {e}")
+                        # Generate a hash of the changes to detect duplicates
+                        changes_hash = hashlib.md5(
+                            json.dumps(edited_df.to_dict()).encode()
+                        ).hexdigest()
                         
-                        st.rerun()
+                        if not hasattr(st.session_state, '_chapter_processed'):
+                            st.session_state._chapter_processed = set()
+                        
+                        if changes_hash not in st.session_state._chapter_processed:
+                            st.session_state._chapter_processed.add(changes_hash)
+                            
+                            for idx in edited_df.index:
+                                if not edited_df.loc[idx].equals(df.loc[idx]):
+                                    old_data = df.loc[idx].to_dict()
+                                    new_data = edited_df.loc[idx].to_dict()
+                                    
+                                    try:
+                                        chapter_num = str(edited_df.loc[idx, 'chapter_number'])
+                                        
+                                        if new_data.get('chapter_name') != old_data.get('chapter_name'):
+                                            self.db.update_chapter(
+                                                source, 
+                                                chapter_num, 
+                                                edited_df.loc[idx, 'chapter_name']
+                                            )
+                                        
+                                        if hasattr(self.db, 'update_chapter_description'):
+                                            if new_data.get('description') != old_data.get('description'):
+                                                self.db.update_chapter_description(
+                                                    source, 
+                                                    chapter_num, 
+                                                    edited_df.loc[idx, 'description']
+                                                )
+                                        
+                                        self._log_audit_with_duplicate_check(
+                                            'UPDATE', 
+                                            'chapter', 
+                                            chapter_num, 
+                                            old_data, 
+                                            new_data
+                                        )
+                                        
+                                        if show_debug:
+                                            st.success(f"✅ Updated chapter: {chapter_num}")
+                                            
+                                    except Exception as e:
+                                        if show_debug:
+                                            st.error(f"Error updating chapter: {e}")
+                            
+                            self._clear_cache()
+                            st.rerun()
+                        else:
+                            if show_debug:
+                                st.info("⏭️ Skipping duplicate chapter update")
                 else:
                     st.dataframe(df, use_container_width=True, hide_index=True)
         
-        # Add new chapter
         if self._check_permission('create'):
             with st.expander("➕ Add New Chapter", expanded=False):
                 col1, col2 = st.columns(2)
@@ -405,21 +496,26 @@ class RateCRUDForms:
                         try:
                             self.db.save_chapter(source, chapter_num, chapter_name)
                             
-                            # Save description if method exists
                             if hasattr(self.db, 'update_chapter_description'):
                                 self.db.update_chapter_description(source, chapter_num, chapter_description)
                             
-                            self._log_audit('CREATE', 'chapter', chapter_num, None, 
-                                        {'number': chapter_num, 'name': chapter_name, 'description': chapter_description})
+                            self._log_audit_with_duplicate_check(
+                                'CREATE', 
+                                'chapter', 
+                                chapter_num, 
+                                None, 
+                                {'number': chapter_num, 'name': chapter_name, 'description': chapter_description}
+                            )
+                            
                             st.success(f"✅ Added Chapter {chapter_num}: {chapter_name}")
                             if show_debug:
                                 st.code(f"Inserted into database: chapter_number={chapter_num}")
+                            self._clear_cache()
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error adding chapter: {e}")
                     else:
                         st.error("Please fill both fields")
-
 
     def _child_crud(self, source, edition_year, show_debug):
         """Child CRUD with editable table"""
@@ -428,47 +524,28 @@ class RateCRUDForms:
         
         can_edit = self._check_permission('update')
         
-        # Load existing parents for dropdown
-        try:
-            parents = self.db.get_parents(source) if hasattr(self.db, 'get_parents') else []
-        except Exception as e:
-            if show_debug:
-                st.error(f"Error loading parents: {e}")
-            parents = []
+        # ✅ Use cached data
+        parents = self._get_cached_parents(source)
         
         if not parents:
             st.warning("⚠️ No parents found. Please add parents first in the 'Parents' tab.")
             return
         
-        # Load existing children using CRUD method
-        try:
-            children = self.db.get_children(source) if hasattr(self.db, 'get_children') else []
-        except Exception as e:
-            if show_debug:
-                st.error(f"Error loading children: {e}")
-            children = []
+        children = self._get_cached_children(source)
         
         if show_debug:
             st.write(f"Debug: Loaded {len(children)} children from database")
         
-        # ========== DISPLAY EXISTING CHILDREN (if any) ==========
         if children:
             st.markdown("#### Existing Children (Double-click to edit)")
             
-            # Get zone names with safe handling
-            try:
-                zones = self.db.get_zones(source) if hasattr(self.db, 'get_zones') else []
-            except Exception as e:
-                if show_debug:
-                    st.error(f"Error loading zones: {e}")
-                zones = []
-            
-            # Filter out zones with None or empty code
+            zones = self._get_cached_zones(source)
             valid_zones = [z for z in zones if z.get('code')]
             zone_names = [z.get('code', '') for z in valid_zones]
             
-            # Build DataFrame
+            # Build DataFrame efficiently
             data = []
+            append = data.append
             for child in children:
                 row = {
                     'Code': child.get('code', ''),
@@ -476,20 +553,19 @@ class RateCRUDForms:
                     'Description': child.get('description', ''),
                     'Unit': child.get('unit', '')
                 }
+                rates = child.get('rates', {})
                 for zone in zone_names:
-                    if zone:  # Only add if zone name is not empty
-                        row[zone] = child.get('rates', {}).get(zone, 0)
-                data.append(row)
+                    if zone:
+                        row[zone] = rates.get(zone, 0)
+                append(row)
             
             if data:
                 df = pd.DataFrame(data)
                 
-                # Ensure all rate columns are numeric
                 for zone in zone_names:
                     if zone and zone in df.columns:
                         df[zone] = pd.to_numeric(df[zone], errors='coerce').fillna(0)
                 
-                # Create column config
                 column_config = {
                     "Code": st.column_config.TextColumn("Code", disabled=True),
                     "Parent": st.column_config.SelectboxColumn("Parent", options=[p.get('code', '') for p in parents if p.get('code')]),
@@ -497,9 +573,8 @@ class RateCRUDForms:
                     "Unit": st.column_config.SelectboxColumn("Unit", options=["", "cum", "sqm", "meter", "each", "job", "set", "kg", "hour", "month", "day", "km"])
                 }
                 
-                # Add zone columns with safe keys
                 for zone in zone_names:
-                    if zone:  # Only add if zone name is not empty
+                    if zone:
                         column_config[zone] = st.column_config.NumberColumn(
                             f"{zone}", 
                             format="%.2f",
@@ -516,17 +591,15 @@ class RateCRUDForms:
                         key=f"child_editor_{source}"
                     )
                     
-                    # Check for changes
                     if not edited_df.equals(df):
                         for idx in edited_df.index:
                             if not edited_df.loc[idx].equals(df.loc[idx]):
                                 old_data = df.loc[idx].to_dict()
                                 new_data = edited_df.loc[idx].to_dict()
                                 
-                                # Get rates for this child with safe zone names
                                 rates = {}
                                 for zone in zone_names:
-                                    if zone:  # Only add if zone name is not empty
+                                    if zone:
                                         rates[zone] = edited_df.loc[idx].get(zone, 0)
                                 
                                 try:
@@ -548,18 +621,17 @@ class RateCRUDForms:
                                     if show_debug:
                                         st.error(f"Error updating child: {e}")
                         
+                        self._clear_cache()
                         st.rerun()
                 else:
                     st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info("No valid child data to display.")
-        
         else:
             st.info("No child items found. Use the form below to add new child items.")
         
         st.markdown("---")
         
-        # ========== ADD NEW CHILD ==========
         st.markdown("#### ➕ Add New Child Item")
         
         with st.form(f"add_child_form_{source}", clear_on_submit=True):
@@ -567,8 +639,6 @@ class RateCRUDForms:
             
             with col1:
                 child_code = st.text_input("Child Code", placeholder="01.1.1 or 1.01.01", key=f"child_code_{source}")
-                
-                # Parent selection dropdown
                 parent_options = ["-- Select Parent --"] + [f"{p.get('code', '')} - {p.get('description', '')[:50]}..." for p in parents if p.get('code')]
                 selected_parent = st.selectbox("Select Parent", parent_options, key=f"child_parent_{source}")
                 
@@ -584,27 +654,16 @@ class RateCRUDForms:
             with col2:
                 child_desc = st.text_area("Description", placeholder="Item description", height=100, key=f"child_desc_{source}")
             
-            # Rate fields with safe zone handling
-            try:
-                zones = self.db.get_zones(source) if hasattr(self.db, 'get_zones') else []
-            except Exception as e:
-                if show_debug:
-                    st.error(f"Error loading zones: {e}")
-                zones = []
-            
-            # Filter out zones with None or empty code
+            zones = self._get_cached_zones(source)
             valid_zones = [z for z in zones if z.get('code')]
             
             if valid_zones:
                 st.markdown("##### Rates by Zone")
-                
-                # Use columns only for valid zones
                 rate_cols = st.columns(len(valid_zones))
                 rates = {}
                 for i, zone in enumerate(valid_zones):
                     zone_code = zone.get('code', '')
                     zone_name = zone.get('name', zone_code)
-                    # Use zone_code as the key, ensure it's not None
                     safe_key = f"new_child_rate_{zone_code}_{source}" if zone_code else f"new_child_rate_{i}_{source}"
                     with rate_cols[i]:
                         rates[zone_code] = st.number_input(
@@ -625,7 +684,6 @@ class RateCRUDForms:
                     st.error(f"Child code must start with parent code '{parent_code}'")
                 else:
                     try:
-                        # Save to database using CRUD method
                         self.db.save_child(
                             source=source,
                             child_code=child_code,
@@ -646,12 +704,13 @@ class RateCRUDForms:
                         st.success(f"✅ Added Child: {child_code} under parent {parent_code}")
                         if show_debug:
                             st.code(f"Inserted into database: child_code={child_code}, parent={parent_code}")
+                        self._clear_cache()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error saving child: {e}")
             elif submitted:
                 st.error("Please fill all required fields (Code, Description, and Parent)")
-                
+    
     # ========== SECTION CRUD ==========
     def _section_crud(self, source, show_debug=False):
         """LGED Section CRUD with editable table"""
@@ -668,25 +727,21 @@ class RateCRUDForms:
         if not can_edit:
             st.info("ℹ️ Sections are view-only. Contact system admin for modifications.")
         
-        # First, select a chapter
         st.markdown("#### Step 1: Select Chapter")
         
-        try:
-            chapters = self.db.get_chapters("LGED") if hasattr(self.db, 'get_chapters') else []
-        except Exception as e:
-            st.error(f"Error loading chapters: {e}")
-            chapters = []
+        chapters = self._get_cached_chapters("LGED")
         
         if not chapters:
             st.warning("⚠️ No LGED chapters found. Please add chapters first in the 'Chapters' tab.")
             return
         
         chapter_options = []
+        append = chapter_options.append
         for ch in chapters:
             chapter_num = str(ch.get('chapter_number', ''))
             chapter_name = ch.get('chapter_name', '')
             if chapter_num:
-                chapter_options.append(f"{chapter_num} - {chapter_name}")
+                append(f"{chapter_num} - {chapter_name}")
         
         if not chapter_options:
             st.warning("⚠️ No valid chapters found.")
@@ -703,43 +758,19 @@ class RateCRUDForms:
             
             st.markdown(f"#### Step 2: Sections for Chapter {chapter_num}")
             
-            # 🔍 DEBUG: Show that we're querying
             if show_debug:
                 st.write(f"🔍 Querying sections for chapter: {chapter_num}")
             
-            # Load existing sections using CRUD method
-            try:
-                sections = self.db.get_sections_for_chapter(chapter_num) if hasattr(self.db, 'get_sections_for_chapter') else []
-            except Exception as e:
-                if show_debug:
-                    st.error(f"Error loading sections: {e}")
-                sections = []
+            sections = self._get_cached_sections(chapter_num)
             
-            # 🔍 DEBUG: Show raw data
             if show_debug:
                 st.write(f"🔍 Found {len(sections)} sections for chapter {chapter_num}")
-                if sections:
-                    st.write("🔍 First section:", sections[0] if sections else "None")
-                    st.write("🔍 All sections:", sections)
-                else:
-                    st.warning("⚠️ No sections returned from database!")
-                    # Try direct query to debug
-                    try:
-                        direct_result = self.db.query("""
-                            SELECT id, section_number, section_name, description, display_order
-                            FROM lged_sections 
-                            WHERE chapter_number = ?
-                            ORDER BY display_order, section_number
-                        """, (chapter_num,))
-                        st.write(f"🔍 Direct query result: {direct_result}")
-                    except Exception as e:
-                        st.write(f"🔍 Direct query error: {e}")
             
             if sections:
-                # Build DataFrame
                 df_data = []
+                append = df_data.append
                 for s in sections:
-                    df_data.append({
+                    append({
                         'Section Number': str(s.get('section_number', '')),
                         'Section Name': s.get('section_name', ''),
                         'Description': s.get('description', ''),
@@ -763,7 +794,6 @@ class RateCRUDForms:
                             }
                         )
                         
-                        # Check for changes
                         if not edited_df.equals(df):
                             for idx in edited_df.index:
                                 if not edited_df.loc[idx].equals(df.loc[idx]):
@@ -780,6 +810,7 @@ class RateCRUDForms:
                                     except Exception as e:
                                         if show_debug:
                                             st.error(f"Error updating section: {e}")
+                            self._clear_cache()
                             st.rerun()
                     else:
                         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -788,7 +819,6 @@ class RateCRUDForms:
             else:
                 st.info(f"No sections found for Chapter {chapter_num}. Add sections below.")
             
-            # Add new section (admin only)
             if self._check_permission('create'):
                 with st.expander("➕ Add New Section", expanded=False):
                     col1, col2 = st.columns(2)
@@ -821,6 +851,7 @@ class RateCRUDForms:
                                         'description': section_description
                                     })
                                     st.success(f"✅ Added Section: {section_number}")
+                                    self._clear_cache()
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error saving section: {e}")
@@ -829,7 +860,6 @@ class RateCRUDForms:
                         else:
                             st.error("Please fill required fields")
 
-    
     def _validate_lged_section_number(self, section_number: str, chapter_num: str) -> bool:
         """Validate LGED section number format (e.g., 3.01, 3.02, 3.10)"""
         if not section_number or '.' not in section_number:
@@ -839,11 +869,9 @@ class RateCRUDForms:
         if len(parts) != 2:
             return False
         
-        # Check if chapter number matches
         if parts[0] != chapter_num:
             return False
         
-        # Check if second part is valid two-digit number (01-99)
         try:
             section_part = int(parts[1])
             return 1 <= section_part <= 99
@@ -858,8 +886,7 @@ class RateCRUDForms:
         
         can_edit = self._check_permission('update')
         
-        # Load existing parents using CRUD method
-        parents = self.db.get_parents(source) if hasattr(self.db, 'get_parents') else []
+        parents = self._get_cached_parents(source)
         
         if show_debug:
             st.write(f"Debug: Loaded {len(parents)} parents from database")
@@ -867,8 +894,8 @@ class RateCRUDForms:
         if parents:
             st.markdown("#### Existing Parents (Double-click to edit)")
             
-            # Build DataFrame
             df_data = []
+            append = df_data.append
             for p in parents:
                 row = {
                     'Code': p.get('code', ''),
@@ -877,13 +904,12 @@ class RateCRUDForms:
                 }
                 if source == "LGED":
                     row['Section'] = p.get('section_number', '')
-                df_data.append(row)
+                append(row)
             
             df = pd.DataFrame(df_data)
             
             if can_edit:
-                # Get chapters for dropdown
-                chapters = self.db.get_chapters(source) if hasattr(self.db, 'get_chapters') else []
+                chapters = self._get_cached_chapters(source)
                 chapter_options = [ch.get('chapter_number', '') for ch in chapters] if chapters else []
                 
                 if source == "PWD":
@@ -892,10 +918,10 @@ class RateCRUDForms:
                         "Chapter": st.column_config.SelectboxColumn("Chapter", options=chapter_options) if chapter_options else st.column_config.TextColumn("Chapter"),
                         "Description": st.column_config.TextColumn("Description", width="large")
                     }
-                else:  # LGED
+                else:
                     section_options = [""]
                     if not df.empty and df.iloc[0]['Chapter']:
-                        sections = self.db.get_sections_for_chapter(str(df.iloc[0]['Chapter'])) if hasattr(self.db, 'get_sections_for_chapter') else []
+                        sections = self._get_cached_sections(str(df.iloc[0]['Chapter']))
                         section_options = [""] + [s.get('section_number', '') for s in sections] if sections else [""]
                     
                     column_config = {
@@ -913,7 +939,6 @@ class RateCRUDForms:
                     column_config=column_config
                 )
                 
-                # Check for changes
                 if not edited_df.equals(df):
                     for idx in edited_df.index:
                         if not edited_df.loc[idx].equals(df.loc[idx]):
@@ -934,17 +959,14 @@ class RateCRUDForms:
                             if show_debug:
                                 st.success(f"✅ Updated parent: {edited_df.loc[idx, 'Code']}")
                     
+                    self._clear_cache()
                     st.rerun()
             else:
                 st.dataframe(df, use_container_width=True, hide_index=True)
         
-        # Add new parent
         if self._check_permission('create'):
             with st.expander("➕ Add New Parent", expanded=False):
-                if source == "PWD":
-                    chapters = self.db.get_chapters(source) if hasattr(self.db, 'get_chapters') else []
-                else:
-                    chapters = self.db.get_chapters(source) if hasattr(self.db, 'get_chapters') else []
+                chapters = self._get_cached_chapters(source)
                 
                 chapter_options = ["-- Select Chapter --"]
                 chapter_map = {}
@@ -962,10 +984,9 @@ class RateCRUDForms:
                     else:
                         parent_chapter = ""
                     
-                    # Section selection for LGED
                     parent_section = ""
                     if source == "LGED" and parent_chapter:
-                        sections = self.db.get_sections_for_chapter(parent_chapter) if hasattr(self.db, 'get_sections_for_chapter') else []
+                        sections = self._get_cached_sections(parent_chapter)
                         if sections:
                             section_options = ["-- No Section --"] + [s.get('section_number', '') for s in sections]
                             selected_section = st.selectbox("Section (Optional)", section_options, key="parent_section")
@@ -987,6 +1008,7 @@ class RateCRUDForms:
                         st.success(f"✅ Added Parent: {parent_code}")
                         if show_debug:
                             st.code(f"Inserted into database: parent_code={parent_code}")
+                        self._clear_cache()
                         st.rerun()
                     else:
                         st.error("Please fill all required fields (Code, Chapter, Description)")
@@ -999,8 +1021,7 @@ class RateCRUDForms:
         
         can_edit = self._check_permission('update')
         
-        # Load versions using CRUD method
-        versions = self.db.get_versions(source) if hasattr(self.db, 'get_versions') else []
+        versions = self._get_cached_versions(source)
         
         if show_debug:
             st.write(f"Debug: Loaded {len(versions)} versions from database")
@@ -1012,7 +1033,6 @@ class RateCRUDForms:
                 df['is_active'] = df['is_active'].apply(lambda x: "✅ Active" if x else "📦 Archived")
             st.dataframe(df, use_container_width=True, hide_index=True)
             
-            # Set active version (only for users with update permission)
             if can_edit:
                 st.markdown("---")
                 st.markdown("#### Set Active Version")
@@ -1031,11 +1051,11 @@ class RateCRUDForms:
                         st.success("✅ Version activated!")
                         if show_debug:
                             st.code(f"Activated version ID: {version_to_activate}")
+                        self._clear_cache()
                         st.rerun()
                     else:
                         st.error("Failed to activate version")
         
-        # Add new version
         if self._check_permission('create'):
             with st.expander("➕ Add New Version", expanded=False):
                 col1, col2 = st.columns(2)
@@ -1063,6 +1083,7 @@ class RateCRUDForms:
                             st.success(f"✅ Added Version: {version_name} ({edition_year})")
                             if show_debug:
                                 st.code(f"Inserted version: {version_name}, year={edition_year}")
+                            self._clear_cache()
                             st.rerun()
                         else:
                             st.warning(f"Version for {source} {edition_year} already exists!")

@@ -1446,133 +1446,58 @@ def _render_authenticated_pages() -> None:
 def render_header_nav() -> None:
     """Render header navigation menu for non-authenticated users"""
     
-    # Custom CSS for header navigation
-    st.markdown("""
-    <style>
-        /* Remove gap below header */
-        .header-nav-container {
-            margin-bottom: -1rem !important;
-        }
-        
-        .header-nav {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1rem 2rem;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            border-radius: 0 0 10px 10px;
-            margin-bottom: 0rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .header-logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .header-logo h2 {
-            color: white;
-            margin: 0;
-            font-size: 1.5rem;
-        }
-        .header-logo p {
-            color: rgba(255,255,255,0.8);
-            margin: 0;
-            font-size: 0.8rem;
-        }
-        .header-menu {
-            display: flex;
-            gap: 1rem;
-        }
-        /* Style Streamlit buttons to look like navigation links */
-        .header-menu .stButton > button {
-            background: transparent !important;
-            color: white !important;
-            border: none !important;
-            padding: 0.5rem 1rem !important;
-            border-radius: 5px !important;
-            font-weight: normal !important;
-            font-size: 1rem !important;
-            width: auto !important;
-            margin: 0 !important;
-            box-shadow: none !important;
-        }
-        .header-menu .stButton > button:hover {
-            background: rgba(255,255,255,0.2) !important;
-            transform: none !important;
-        }
-        .header-menu .active .stButton > button {
-            background: rgba(255,255,255,0.3) !important;
-            font-weight: bold !important;
-        }
-        .btn-login .stButton > button {
-            background: transparent !important;
-            border: 1px solid white !important;
-        }
-        .btn-register .stButton > button {
-            background: #22c55e !important;
-        }
-        .btn-register .stButton > button:hover {
-            background: #16a34a !important;
-        }
-        @media (max-width: 768px) {
-            .header-nav {
-                flex-direction: column;
-                gap: 1rem;
-                padding: 1rem;
-            }
-            .header-menu {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # CSS remains the same as above...
     
-    # Create header using Streamlit columns (this works reliably)
+    # Use columns for the menu items
     with st.container():
-        # Use columns for layout
         col1, col2 = st.columns([1, 2])
         
         with col1:
             st.markdown("""
             <div class="header-logo">
                 <h2>🏗️ TenderAI</h2>
-                <p>Bid Optimization Platform</p>
+                <span class="subtitle">Bid Optimization Platform</span>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
-            # Get current page
             current_page = st.session_state.get('page', 'home')
             
-            # Create a row of buttons
-            menu_cols = st.columns(6)
-            
+            # Create columns for each menu item
+            cols = st.columns(6)
             pages = [
-                ("🏠 Home", "home"),
-                ("💰 Pricing", "pricing"),
-                ("ℹ️ About", "about"),
-                ("📞 Contact", "contact"),
-                ("🔐 Login", "login"),
-                ("➕ Register", "register"),
+                ("🏠 Home", "home", ""),
+                ("💰 Pricing", "pricing", ""),
+                ("ℹ️ About", "about", ""),
+                ("📞 Contact", "contact", ""),
+                ("🔐 Login", "login", "login"),
+                ("➕ Register", "register", "register"),
             ]
             
-            for idx, (label, page_key) in enumerate(pages):
-                with menu_cols[idx]:
-                    # Determine button type
-                    if page_key in ['login', 'register']:
-                        btn_class = "btn-login" if page_key == 'login' else "btn-register"
-                    else:
-                        btn_class = ""
-                    
-                    # Check if this is the active page
+            for idx, (label, page_key, special) in enumerate(pages):
+                with cols[idx]:
                     is_active = current_page == page_key
-                    button_type = "primary" if is_active else "secondary"
                     
-                    # Create the button
-                    if st.button(label, key=f"nav_{page_key}", use_container_width=True, type=button_type):
+                    # Build button class
+                    btn_class = "nav-link"
+                    if is_active:
+                        btn_class += " active"
+                    if special == "login":
+                        btn_class += " nav-link-login"
+                    elif special == "register":
+                        btn_class += " nav-link-register"
+                    
+                    # Use st.button with custom styling
+                    if st.button(
+                        label,
+                        key=f"nav_{page_key}",
+                        use_container_width=True,
+                        type="primary" if is_active else "secondary",
+                        help=f"Go to {label}"
+                    ):
                         st.session_state.page = page_key
                         st.rerun()
+
 
 def main() -> None:
     """

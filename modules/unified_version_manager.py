@@ -38,8 +38,11 @@ def render_active_versions(db):
     """Show currently active versions"""
     
     st.markdown("#### ✅ Currently Active Versions")
-    
+    if db is None:
+        db = get_db_manager() 
     # ✅ Use db directly
+    
+
     active_versions = db.get_active_version()
     
     if not active_versions:
@@ -100,7 +103,8 @@ def render_version_history(db):
     """Show complete version history for both PWD and LGED"""
     
     st.markdown("#### 📜 Complete Version History")
-    
+    if db is None:
+        db = get_db_manager()
     # Filter by source
     source_filter = st.selectbox(
         "Filter by Source",
@@ -238,7 +242,8 @@ def render_version_comparison(db):
     """Compare two versions side by side"""
     
     st.markdown("#### 📊 Compare Versions")
-    
+    if db is None:
+        db = get_db_manager()
     # ✅ Use db directly
     all_versions = db.get_all_versions()
     
@@ -314,7 +319,8 @@ def render_version_comparison(db):
 def register_version_after_import(db, source, version_name, edition_year, effective_date, 
                                   total_parents, total_children, total_rates):
     """Call this after successful import to register the version"""
-    
+    if db is None:
+        db = get_db_manager()
     # ✅ Use db directly
     version_id = db.add_version({
         'source': source,

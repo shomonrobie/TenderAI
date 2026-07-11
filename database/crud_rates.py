@@ -1207,21 +1207,52 @@ class RateCRUD:
     
     def update_zone(self, source: str, code: str, name: str, description: str,
                     divisions: str, bonus: float) -> bool:
-        """Update zone"""
-        db = self._get_db()
-        
-        if source == "LGED":
-            try:
-                db.execute("""
+        """Update zone using direct Supabase"""
+        try:
+            db = self._get_db()
+            
+            # Only LGED has zone updates
+            if source != "LGED":
+                logger.warning(f"Zone updates only supported for LGED, got {source}")
+                return False
+            
+            table = "lged_zone_mapping"
+            
+            print(f"🔍 update_zone: code={code}, name={name}, bonus={bonus}")
+            
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                # Direct Supabase update
+                response = db.supabase.table(table).update({
+                    "zone_name": name,
+                    "divisions": divisions,
+                    "accessibility_bonus": bonus,
+                    "description": description
+                }).eq("zone_code", code).execute()
+                
+                if response.data:
+                    print(f"✅ Updated zone {code}")
+                    return True
+                else:
+                    # Verify the update
+                    verify = db.supabase.table(table).select("zone_name").eq("zone_code", code).execute()
+                    if verify.data and verify.data[0].get('zone_name') == name:
+                        print(f"✅ Verified zone {code} updated")
+                        return True
+                    return False
+            else:
+                # SQLite fallback
+                result = db.execute("""
                     UPDATE lged_zone_mapping 
                     SET zone_name = ?, divisions = ?, accessibility_bonus = ?, description = ?
                     WHERE zone_code = ?
                 """, (name, divisions, bonus, description, code))
-                return True
-            except Exception as e:
-                logger.error(f"Error updating zone: {e}")
-                return False
-        return False
+                return result > 0 if result else False
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating zone: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     # =========================================================================
     # CHAPTER OPERATIONS
@@ -1280,20 +1311,80 @@ class RateCRUD:
             return False
     
     def update_chapter(self, source: str, chapter_num: str, new_name: str) -> bool:
-        """Update chapter name"""
-        db = self._get_db()
-        
-        table = "pwd_chapters" if source == "PWD" else "lged_chapters"
+        """Update chapter name using direct Supabase"""
         try:
-            db.execute(f"""
-                UPDATE {table} 
-                SET chapter_name = ?
-                WHERE chapter_number = ?
-            """, (new_name, chapter_num))
-            return True
+            db = self._get_db()
+            table = "pwd_chapters" if source == "PWD" else "lged_chapters"
+            
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                # Direct Supabase update - NO SQL PARSING!
+                response = db.supabase.table(table).update({
+                    "chapter_name": new_name
+                }).eq("chapter_number", chapter_num).execute()
+                
+                if response.data:
+                    print(f"✅ Updated chapter {chapter_num} to '{new_name}'")
+                    return True
+                else:
+                    # Verify the update
+                    verify = db.supabase.table(table).select("chapter_name").eq("chapter_number", chapter_num).execute()
+                    if verify.data and verify.data[0].get('chapter_name') == new_name:
+                        return True
+                    return False
+            else:
+                # SQLite fallback
+                result = db.execute(f"""
+                    UPDATE {table} 
+                    SET chapter_name = ?
+                    WHERE chapter_number = ?
+                """, (new_name, chapter_num))
+                return result > 0 if result else False
+                
         except Exception as e:
-            logger.error(f"Error updating chapter: {e}")
+            print(f"❌ Error updating chapter: {e}")
             return False
+
+    
+    
+    def update_chapter_description(self, source: str, chapter_num: str, description: str) -> bool:
+        """Update chapter description using direct Supabase"""
+        try:
+            db = self._get_db()
+            table = "pwd_chapters" if source == "PWD" else "lged_chapters"
+            
+            print(f"🔍 update_chapter_description: chapter={chapter_num}, description={description}")
+            
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                # Direct Supabase update
+                response = db.supabase.table(table).update({
+                    "description": description
+                }).eq("chapter_number", chapter_num).execute()
+                
+                if response.data:
+                    print(f"✅ Updated chapter {chapter_num} description")
+                    return True
+                else:
+                    # Verify the update
+                    verify = db.supabase.table(table).select("description").eq("chapter_number", chapter_num).execute()
+                    if verify.data and verify.data[0].get('description') == description:
+                        print(f"✅ Verified chapter {chapter_num} description updated")
+                        return True
+                    return False
+            else:
+                # SQLite fallback
+                result = db.execute(f"""
+                    UPDATE {table} 
+                    SET description = ?
+                    WHERE chapter_number = ?
+                """, (description, chapter_num))
+                return result > 0 if result else False
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating chapter description: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     
     # =========================================================================
     # SECTION OPERATIONS (LGED only)
@@ -1360,20 +1451,48 @@ class RateCRUD:
             return False
     
     def update_section(self, chapter_num: str, section_number: str, section_name: str,
-                       description: str, display_order: int) -> bool:
-        """Update section in lged_sections table"""
-        db = self._get_db()
-        
+                   description: str, display_order: int) -> bool:
+        """Update section in lged_sections table using direct Supabase"""
         try:
-            db.execute("""
-                UPDATE lged_sections 
-                SET section_name = ?, description = ?, display_order = ?
-                WHERE chapter_number = ? AND section_number = ?
-            """, (section_name, description, display_order, chapter_num, section_number))
-            return True
+            db = self._get_db()
+            table = "lged_sections"
+            
+            print(f"🔍 update_section: chapter={chapter_num}, section={section_number}, name={section_name}")
+            
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                # Direct Supabase update
+                response = db.supabase.table(table).update({
+                    "section_name": section_name,
+                    "description": description,
+                    "display_order": display_order
+                }).eq("chapter_number", chapter_num).eq("section_number", section_number).execute()
+                
+                if response.data:
+                    print(f"✅ Updated section {section_number} in chapter {chapter_num}")
+                    return True
+                else:
+                    # Verify the update
+                    verify = db.supabase.table(table).select("section_name").eq("chapter_number", chapter_num).eq("section_number", section_number).execute()
+                    if verify.data and verify.data[0].get('section_name') == section_name:
+                        print(f"✅ Verified section {section_number} updated")
+                        return True
+                    return False
+            else:
+                # SQLite fallback
+                result = db.execute("""
+                    UPDATE lged_sections 
+                    SET section_name = ?, description = ?, display_order = ?
+                    WHERE chapter_number = ? AND section_number = ?
+                """, (section_name, description, display_order, chapter_num, section_number))
+                return result > 0 if result else False
+                
         except Exception as e:
-            logger.error(f"Error updating section: {e}")
+            logger.error(f"❌ Error updating section: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+
+
     
     def delete_section(self, chapter_num: str, section_number: str) -> bool:
         """Delete section from lged_sections table"""
@@ -1467,27 +1586,63 @@ class RateCRUD:
             return False
     
     def update_parent(self, source: str, parent_code: str, description: str,
-                      chapter: str, section: str = '') -> bool:
-        """Update parent in database"""
-        db = self._get_db()
-        
+                    chapter: str, section: str = '') -> bool:
+        """Update parent in database using direct Supabase"""
         try:
-            if source == "PWD":
-                db.execute("""
-                    UPDATE pwd_parents 
-                    SET chapter_number = ?, description = ?
-                    WHERE pwd_code = ?
-                """, (chapter, description, parent_code))
-            else:  # LGED
-                db.execute("""
-                    UPDATE lged_parents 
-                    SET chapter_number = ?, section_number = ?, description = ?
-                    WHERE code = ?
-                """, (chapter, section, description, parent_code))
-            return True
+            db = self._get_db()
+            table = "pwd_parents" if source == "PWD" else "lged_parents"
+            
+            print(f"🔍 update_parent: source={source}, code={parent_code}, chapter={chapter}, section={section}")
+            
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                # Build update data
+                update_data = {
+                    "chapter_number": chapter,
+                    "description": description
+                }
+                
+                # For LGED, also update section
+                if source == "LGED" and section:
+                    update_data["section_number"] = section
+                
+                # Determine the ID column name
+                id_column = "pwd_code" if source == "PWD" else "code"
+                
+                # Direct Supabase update
+                response = db.supabase.table(table).update(update_data).eq(id_column, parent_code).execute()
+                
+                if response.data:
+                    print(f"✅ Updated parent {parent_code}")
+                    return True
+                else:
+                    # Verify the update
+                    verify = db.supabase.table(table).select("description").eq(id_column, parent_code).execute()
+                    if verify.data and verify.data[0].get('description') == description:
+                        print(f"✅ Verified parent {parent_code} updated")
+                        return True
+                    return False
+            else:
+                # SQLite fallback
+                if source == "PWD":
+                    result = db.execute("""
+                        UPDATE pwd_parents 
+                        SET chapter_number = ?, description = ?
+                        WHERE pwd_code = ?
+                    """, (chapter, description, parent_code))
+                else:  # LGED
+                    result = db.execute("""
+                        UPDATE lged_parents 
+                        SET chapter_number = ?, section_number = ?, description = ?
+                        WHERE code = ?
+                    """, (chapter, section, description, parent_code))
+                return result > 0 if result else False
+                
         except Exception as e:
-            logger.error(f"Error updating parent: {e}")
+            logger.error(f"❌ Error updating parent: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+
     
     # =========================================================================
     # CHILD OPERATIONS
