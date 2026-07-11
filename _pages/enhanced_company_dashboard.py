@@ -13,7 +13,7 @@ def show():
     """Enhanced Company Dashboard with Knowledge Repository"""
     
     # Verify access
-    if st.session_state.user_role not in ['company_admin', 'admin', 'system_admin', 'manager', 'analyst', 'viewer']:
+    if st.session_state.user_role not in ['company_admin', 'admin', 'system_admin', 'manager', 'analyst', 'viewer', 'individual']:
         st.error("🔒 Access denied. Company access required.")
         return
     

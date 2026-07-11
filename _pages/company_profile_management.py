@@ -14,7 +14,7 @@ def show():
     """Company Profile Management - Complete company data for e-GP bids"""
     
     # Check access
-    if st.session_state.user_role not in ['admin', 'system_admin', 'company_admin', 'manager', 'analyst']:
+    if st.session_state.user_role not in ['admin', 'system_admin', 'company_admin', 'manager', 'analyst', 'individual']:
         st.error("🔒 Access denied. Company access required.")
         return
     
