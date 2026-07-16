@@ -1,4 +1,4 @@
-# modules/pwd_import_wizard.py - Fully Refactored to use SystemRateCRUD
+# modules/pwd_import_wizard.py - Completely Refactored for Supabase Only
 
 import streamlit as st
 import pandas as pd
@@ -14,9 +14,152 @@ class PWDImportWizard:
     """PWD Rate Schedule Import Wizard for Excel files with chapter-based replacement"""
     
     def __init__(self, db_instance=None):
-        self.db = db_instance or get_db_manager()  # ✅ Use cached db manager
-        self.rollback_manager = None
+        """Initialize with database manager instance"""
+        self.db = db_instance or get_db_manager()
     
+    # =========================================================
+    # CACHING METHODS
+    # =========================================================
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_chapters(_self):
+        """Get cached PWD chapters"""
+        try:
+            chapters = _self.db.get_pwd_chapters_dict()
+            if chapters:
+                print(f"✅ Loaded {len(chapters)} chapters from cache")
+                return chapters
+            else:
+                print(f"⚠️ No chapters returned from get_pwd_chapters_dict")
+                return []
+        except Exception as e:
+            print(f"❌ Error caching chapters: {e}")
+            return []
+    
+    @st.cache_data(ttl=300)
+    def _get_cached_versions(_self):
+        """Get cached PWD versions - checks actual data"""
+        try:
+            versions = _self.db.get_rate_versions_dict('PWD')
+            if versions:
+                valid_versions = []
+                for v in versions:
+                    version_id = v.get('id')
+                    total_rates = v.get('total_rates', 0)
+                    total_children = v.get('total_children', 0)
+                    
+                    # ✅ Check if stats are stale (data exists but stats show 0)
+                    if total_rates == 0 and total_children == 0:
+                        try:
+                            db = _self.db._get_db() if hasattr(_self.db, '_get_db') else _self.db
+                            
+                            # Check if there's actual data
+                            child_check = db.query_one(
+                                "SELECT COUNT(*) as count FROM pwd_children WHERE version_id = ?", 
+                                (version_id,)
+                            )
+                            if child_check and child_check.get('count', 0) > 0:
+                                print(f"🔄 Version {version_id} has data but stats are 0 - updating...")
+                                if hasattr(_self.db, '_update_version_stats'):
+                                    _self.db._update_version_stats(version_id)
+                                # Re-fetch the version after update
+                                v = _self.db.query_one(
+                                    "SELECT * FROM rate_versions WHERE id = ?", 
+                                    (version_id,)
+                                )
+                                if v:
+                                    total_rates = v.get('total_rates', 0)
+                                    total_children = v.get('total_children', 0)
+                        except Exception as e:
+                            print(f"⚠️ Error checking version {version_id}: {e}")
+                    
+                    # ✅ Include versions with actual data
+                    if total_rates > 0 or total_children > 0:
+                        valid_versions.append(v)
+                
+                print(f"✅ Found {len(versions)} total PWD versions, {len(valid_versions)} with data")
+                return valid_versions
+            return []
+        except Exception as e:
+            print(f"Error caching versions: {e}")
+            return []
+
+    
+    def _clear_cache(self):
+        """Clear all cached data"""
+        try:
+            st.cache_data.clear()
+        except:
+            pass
+        for method in ['_get_cached_chapters', '_get_cached_versions']:
+            if hasattr(self, method):
+                try:
+                    getattr(self, method).clear()
+                except:
+                    pass
+    
+    # =========================================================
+    # RENDER METHODS
+    # =========================================================
+    # =========================================================
+    # BUILD HIERARCHY
+    # =========================================================
+    def _build_hierarchy_from_df(self, df, chapter_num):
+        """Build hierarchy from DataFrame"""
+        hierarchy = {
+            'parents': [],
+            'children': []
+        }
+        
+        parent_codes = set()
+        append_parent = hierarchy['parents'].append
+        append_child = hierarchy['children'].append
+        
+        for _, row in df.iterrows():
+            if row.get('has_rates', False):
+                # Child with rates
+                rates = {}
+                if pd.notna(row.get('zone_a')) and row.get('zone_a'):
+                    rates['Zone-A'] = row['zone_a']
+                if pd.notna(row.get('zone_b')) and row.get('zone_b'):
+                    rates['Zone-B'] = row['zone_b']
+                if pd.notna(row.get('zone_c')) and row.get('zone_c'):
+                    rates['Zone-C'] = row['zone_c']
+                if pd.notna(row.get('zone_d')) and row.get('zone_d'):
+                    rates['Zone-D'] = row['zone_d']
+                
+                parent_code = row.get('parent_code') if pd.notna(row.get('parent_code')) and row.get('parent_code') != '' else None
+                
+                append_child({
+                    'pwd_code': row['item_code'],
+                    'parent_code': parent_code,
+                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
+                    'unit': row.get('unit', '') if pd.notna(row.get('unit')) else '',
+                    'rates': rates
+                })
+                
+                if parent_code:
+                    parent_codes.add(parent_code)
+            else:
+                # ✅ Parent WITHOUT rates - NO edition_year (doesn't exist in table)
+                append_parent({
+                    'code': row['item_code'],
+                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
+                    'chapter': chapter_num
+                })
+                parent_codes.add(row['item_code'])
+        
+        # ✅ Add missing parents
+        for parent_code in parent_codes:
+            if not any(p['code'] == parent_code for p in hierarchy['parents']):
+                append_parent({
+                    'code': parent_code,
+                    'description': f"Parent {parent_code}",
+                    'chapter': chapter_num
+                })
+        
+        return hierarchy
+
     def render(self):
         """Render the PWD import wizard"""
         
@@ -45,8 +188,7 @@ class PWDImportWizard:
             ("2️⃣ Map Data", 2),
             ("3️⃣ Review & Edit", 3),
             ("4️⃣ Validate", 4),
-            ("5️⃣ Rollback", 5),
-            ("6️⃣ Complete", 6)
+            ("5️⃣ Complete", 5)
         ]
         
         cols = st.columns(len(steps))
@@ -71,9 +213,7 @@ class PWDImportWizard:
         elif st.session_state.pwd_wizard_step == 4:
             self._step4_validate()
         elif st.session_state.pwd_wizard_step == 5:
-            self._step5_rollback()
-        elif st.session_state.pwd_wizard_step == 6:
-            self._step6_complete()
+            self._step5_complete()
     
     # =========================================================
     # STEP 1: UPLOAD
@@ -120,24 +260,35 @@ class PWDImportWizard:
             st.markdown("---")
             st.markdown("### 📚 Chapter Selection")
 
-            # ✅ Use SystemRateCRUD for chapters
-            chapters = self.db.get_pwd_chapters_dict()
+            # Load chapters using db
+            chapters = self._load_chapters()
 
             if not chapters:
                 st.error("❌ No chapters found in database. Please add chapters first.")
                 st.info("Go to **Rate Management → Chapters** tab to add PWD chapters.")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📝 Go to Rate Management", use_container_width=True):
+                        st.session_state.page = "rate_management"
+                        st.rerun()
+                with col2:
+                    if st.button("🔄 Refresh Chapters", use_container_width=True):
+                        self._clear_cache()
+                        st.rerun()
                 return
 
             st.success(f"✅ Loaded {len(chapters)} chapters successfully")
 
             chapter_options = []
+            append = chapter_options.append
             for ch in chapters:
                 ch_num = str(ch.get('chapter_number', '')).strip()
                 ch_name = str(ch.get('chapter_name', '')).strip()
                 if (ch_num and ch_name and 
                     ch_num.lower() not in ['nan', 'none', 'null', ''] and
                     ch_name.lower() not in ['nan', 'none', 'null', 'chapter_name']):
-                    chapter_options.append(f"{ch_num} - {ch_name}")
+                    append(f"{ch_num} - {ch_name}")
 
             if not chapter_options:
                 st.error("❌ No valid chapters found")
@@ -175,6 +326,45 @@ class PWDImportWizard:
                     st.error(f"Error: {e}")
     
     # =========================================================
+    # CHAPTER LOADING
+    # =========================================================
+    
+    def _load_chapters(self):
+        """Load chapters using multiple methods"""
+        
+        # Method 1: Try the normal way
+        try:
+            chapters = self.db.get_pwd_chapters_dict()
+            if chapters:
+                return chapters
+        except Exception as e:
+            print(f"⚠️ Normal method failed: {e}")
+        
+        # Method 2: Try raw SQL
+        try:
+            if hasattr(self.db, 'query'):
+                sql = "SELECT * FROM pwd_chapters ORDER BY chapter_number"
+                chapters = self.db.query(sql)
+                if chapters:
+                    print(f"✅ Loaded {len(chapters)} chapters via raw SQL")
+                    return chapters
+        except Exception as e:
+            print(f"⚠️ Raw SQL failed: {e}")
+        
+        # Method 3: Try direct Supabase
+        try:
+            if hasattr(self.db, 'supabase') and self.db.supabase:
+                response = self.db.supabase.table("pwd_chapters").select("*").order("chapter_number").execute()
+                if hasattr(response, 'data') and response.data:
+                    print(f"✅ Loaded {len(response.data)} chapters via direct Supabase")
+                    return response.data
+        except Exception as e:
+            print(f"⚠️ Direct Supabase failed: {e}")
+        
+        return []
+
+    
+    # =========================================================
     # EXCEL EXTRACTION
     # =========================================================
     
@@ -197,18 +387,32 @@ class PWDImportWizard:
             header_row_idx = 0
         
         def get_rate_value(val):
-            if pd.isna(val) or val == 'nan' or val == '':
+            # ✅ Returns None for ANY invalid value
+            if val is None:
                 return None
+            if pd.isna(val):
+                return None
+            if val == 'nan' or val == 'NaN' or val == '' or val == ' ':
+                return None
+            
+            val_str = str(val).strip()
+            if val_str == '' or val_str == 'nan' or val_str == 'NaN' or val_str == '0' or val_str == '0.0':
+                return None
+            
             try:
-                cleaned = str(val).replace(',', '').replace('Tk.', '').replace('tk.', '').strip()
+                cleaned = val_str.replace(',', '').replace('Tk.', '').replace('tk.', '').strip()
                 match = re.search(r'[\d,]+\.?\d*', cleaned)
                 if match:
                     cleaned = match.group().replace(',', '')
-                return float(cleaned)
+                    return float(cleaned)
             except:
-                return None
+                pass
+            
+            return None
+
         
         # Process each row after header
+        append_item = extracted_items.append
         for idx in range(header_row_idx + 1, len(df)):
             row = df.iloc[idx]
             
@@ -251,7 +455,7 @@ class PWDImportWizard:
                 if len(parts) >= 2:
                     parent_code = '.'.join(parts[:-1])
             
-            extracted_items.append({
+            append_item({
                 'item_code': item_code,
                 'description': description,
                 'unit': unit,
@@ -341,6 +545,7 @@ class PWDImportWizard:
             st.info("🤖 **Auto-Detect Mode:** System will automatically assign parents based on code patterns.")
             st.caption("Example: '01.1.1' → Parent: '01.1'")
             
+            append_assigned = assigned_items.append
             for _, row in items_with_rates.iterrows():
                 code = str(row['item_code'])
                 code_parts = code.split('.')
@@ -351,7 +556,7 @@ class PWDImportWizard:
                     if suggested_parent in items_without_rates['item_code'].values:
                         parent_code = suggested_parent
                 
-                assigned_items.append({
+                append_assigned({
                     'temp_id': row['temp_id'],
                     'item_code': row['item_code'],
                     'description': row['description'],
@@ -365,7 +570,7 @@ class PWDImportWizard:
                 })
             
             for _, row in items_without_rates.iterrows():
-                assigned_items.append({
+                append_assigned({
                     'temp_id': row['temp_id'],
                     'item_code': row['item_code'],
                     'description': row['description'],
@@ -391,6 +596,7 @@ class PWDImportWizard:
                     desc_short = str(row['description'])[:60] if pd.notna(row['description']) else ""
                     parent_options.append((row['item_code'], f"{row['item_code']} - {desc_short}..."))
             
+            append_assigned = assigned_items.append
             for idx, row in items_with_rates.iterrows():
                 with st.expander(f"📝 Assign Parent for: {row['item_code']}", expanded=(idx < 3)):
                     col1, col2 = st.columns([1, 1])
@@ -417,7 +623,7 @@ class PWDImportWizard:
                         
                         parent_code = selected_parent[0] if isinstance(selected_parent, tuple) and selected_parent[0] else None
                         
-                        assigned_items.append({
+                        append_assigned({
                             'temp_id': row['temp_id'],
                             'item_code': row['item_code'],
                             'description': row['description'],
@@ -431,7 +637,7 @@ class PWDImportWizard:
                         })
             
             for _, row in items_without_rates.iterrows():
-                assigned_items.append({
+                append_assigned({
                     'temp_id': row['temp_id'],
                     'item_code': row['item_code'],
                     'description': row['description'],
@@ -448,6 +654,7 @@ class PWDImportWizard:
             st.info("📝 **Table Edit Mode:** Edit parent_code directly in the table.")
             
             table_data = []
+            append_table = table_data.append
             for _, row in df.iterrows():
                 has_rates_flag = row['has_rates']
                 
@@ -464,7 +671,7 @@ class PWDImportWizard:
                 if len(str(row['description'])) > 80:
                     desc_text = desc_text + "..."
                 
-                table_data.append({
+                append_table({
                     'item_code': row['item_code'],
                     'description': desc_text,
                     'unit': row['unit'] if pd.notna(row['unit']) else '',
@@ -497,8 +704,9 @@ class PWDImportWizard:
                 }
             )
             
+            append_assigned = assigned_items.append
             for idx, row in edited_table.iterrows():
-                assigned_items.append({
+                append_assigned({
                     'temp_id': idx,
                     'item_code': row['item_code'],
                     'description': row['description'],
@@ -548,8 +756,9 @@ class PWDImportWizard:
         with col2:
             if assigned_items and st.button("➡️ Next: Review & Edit", type="primary", use_container_width=True):
                 final_items = []
+                append_final = final_items.append
                 for _, row in result_df.iterrows():
-                    final_items.append({
+                    append_final({
                         'item_code': row['item_code'],
                         'description': row['description'],
                         'unit': row['unit'] if pd.notna(row['unit']) else '',
@@ -593,16 +802,25 @@ class PWDImportWizard:
             if col not in df.columns:
                 df[col] = None
         
-        if 'has_rates' not in df.columns:
-            df['has_rates'] = df.apply(
-                lambda row: any([
-                    pd.notna(row.get('zone_a')) and row.get('zone_a', 0) > 0,
-                    pd.notna(row.get('zone_b')) and row.get('zone_b', 0) > 0,
-                    pd.notna(row.get('zone_c')) and row.get('zone_c', 0) > 0,
-                    pd.notna(row.get('zone_d')) and row.get('zone_d', 0) > 0
-                ]), axis=1
-            )
+        # if 'has_rates' not in df.columns:
+        #     df['has_rates'] = df.apply(
+        #         lambda row: any([
+        #             pd.notna(row.get('zone_a')) and row.get('zone_a', 0) > 0,
+        #             pd.notna(row.get('zone_b')) and row.get('zone_b', 0) > 0,
+        #             pd.notna(row.get('zone_c')) and row.get('zone_c', 0) > 0,
+        #             pd.notna(row.get('zone_d')) and row.get('zone_d', 0) > 0
+        #         ]), axis=1
+        #     )
         
+        print(f"🔍 DEBUG - has_rates column exists: {'has_rates' in df.columns}")
+        if 'has_rates' in df.columns:
+            print(f"🔍 DEBUG - has_rates value counts: {df['has_rates'].value_counts().to_dict()}")
+            # Check 26.01 specifically
+            row_26_01 = df[df['item_code'] == '26.01']
+            if not row_26_01.empty:
+                print(f"🔍 DEBUG - 26.01 has_rates: {row_26_01.iloc[0]['has_rates']}")
+                print(f"🔍 DEBUG - 26.01 zone_a: {row_26_01.iloc[0]['zone_a']}")
+
         if 'dot_count' not in df.columns:
             df['dot_count'] = df['item_code'].apply(lambda x: str(x).count('.') if pd.notna(x) else 0)
         
@@ -643,20 +861,20 @@ class PWDImportWizard:
         
         st.markdown("---")
         st.markdown("#### 📊 Data Statistics")
-        
+
         total_items = len(edited_df)
         items_with_rates = len(edited_df[edited_df['has_rates'] == True])
-        parents = len(edited_df[(edited_df['has_rates'] == False) & (edited_df['dot_count'] >= 1)])
+        parents = len(edited_df[edited_df['has_rates'] == False])  # ✅ SIMPLER: Just count items with NO rates
         children_with_parents = len(edited_df[(edited_df['has_rates'] == True) & (edited_df['parent_code'].notna()) & (edited_df['parent_code'] != '')])
         leaf_items = len(edited_df[(edited_df['has_rates'] == True) & ((edited_df['parent_code'].isna()) | (edited_df['parent_code'] == ''))])
-        
+
         col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Total Items", total_items)
         col2.metric("With Rates", items_with_rates)
-        col3.metric("Parent Headers", parents)
+        col3.metric("Parent Headers", parents)  # ✅ Now shows 63
         col4.metric("Child Items", children_with_parents)
         col5.metric("Leaf Items", leaf_items)
-        
+
         st.markdown("---")
         st.markdown("#### 💾 Export Data for Verification")
         
@@ -707,12 +925,24 @@ class PWDImportWizard:
         st.markdown("---")
         st.markdown("#### 🔗 Parent-Child Relationship Summary")
         
+        st.markdown("#### 🔗 Parent-Child Relationship Summary")
+
         if children_with_parents > 0:
             parent_summary = edited_df[edited_df['parent_code'].notna() & (edited_df['parent_code'] != '')].groupby('parent_code').size().reset_index(name='child_count')
             parent_summary.columns = ['Parent Code', 'Child Count']
             st.dataframe(parent_summary, use_container_width=True, hide_index=True)
+            
+            # ✅ Show total parents count
+            st.caption(f"📊 {len(parent_summary)} unique parents with {children_with_parents} total child items")
         else:
             st.info("No child items with parent assignments found.")
+            
+        # ✅ Also show parent items without rates
+        parent_items = edited_df[edited_df['has_rates'] == False]
+        if not parent_items.empty:
+            st.caption(f"📋 {len(parent_items)} parent items without rates:")
+            st.dataframe(parent_items[['item_code', 'description']], use_container_width=True, hide_index=True)
+
         
         if leaf_items > 0:
             st.info(f"💡 {leaf_items} leaf items (have rates but no parent). These will be treated as standalone items.")
@@ -762,116 +992,48 @@ class PWDImportWizard:
         
         total_items = len(edited_df)
         items_with_rates = len(edited_df[edited_df['has_rates'] == True])
-        parents = len(edited_df[(edited_df['has_rates'] == False) & (edited_df['dot_count'] >= 1)])
+        parents = len(edited_df[edited_df['has_rates'] == False])
+        children_with_parents = len(edited_df[(edited_df['has_rates'] == True) & (edited_df['parent_code'].notna()) & (edited_df['parent_code'] != '')])
+        leaf_items = len(edited_df[(edited_df['has_rates'] == True) & ((edited_df['parent_code'].isna()) | (edited_df['parent_code'] == ''))])
         
-        # ✅ Get versions using the correct method
-        versions = self.db.get_rate_versions_dict('PWD')
+        # ✅ Debug prints
+        print(f"🔍 Step 4 - Total: {total_items}, With Rates: {items_with_rates}, Parents: {parents}")
+        print(f"🔍 Step 4 - Child Items: {children_with_parents}, Leaf Items: {leaf_items}")
         
-        # DEBUG: Check what was returned
-        print(f"🔍 get_rate_versions_dict returned: {len(versions) if versions else 0} versions")
-        if versions:
-            print(f"🔍 First version keys: {list(versions[0].keys())}")
-        
-        # Check if versions exist
-        if not versions:
-            st.warning("ℹ️ No existing versions found for PWD. You can only create a new version.")
+        # Get ALL versions using db
+        with st.spinner("Loading versions..."):
+            all_versions = self.db.get_rate_versions_dict('PWD')
+            print(f"🔍 All PWD versions: {len(all_versions) if all_versions else 0}")
             
-            # Auto-select new version mode
-            import_mode = "new_version"
-            version_id = None
-            version_number = None
-            confirm_update = True  # Not needed for new version
-            
-            st.markdown("---")
-            st.markdown("#### 📋 Data to be Saved")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Configuration**")
-                st.write(f"Version Name: {config['version_name']}")
-                st.write(f"Edition Year: {config['edition_year']}")
-                st.write(f"Chapter: {config['chapter_num']}")
-                st.write(f"**Action:** Create New Version")
-            
-            with col2:
-                st.markdown("**Statistics**")
-                st.write(f"Total Items: {total_items}")
-                st.write(f"Items with Rates: {items_with_rates}")
-                st.write(f"Parent Headers: {parents}")
-            
-            notes = st.text_area("Notes (optional)", key="pwd_import_notes")
-            
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("◀️ Back to Edit", use_container_width=True):
-                    st.session_state.pwd_wizard_step = 3
-                    st.rerun()
-            
-            with col2:
-                if st.button("💾 **Import to Database**", type="primary", use_container_width=True):
-                    hierarchy = self._build_hierarchy_from_df(edited_df, config['chapter_num'])
+            if all_versions:
+                for v in all_versions:
+                    print(f"   Version {v.get('id')}: total_rates={v.get('total_rates', 0)}, total_children={v.get('total_children', 0)}")
                     
-                    with st.spinner("Saving to database..."):
-                        try:
-                            result_version_id = self.db.save_pwd_hierarchy_enhanced(
-                                hierarchy=hierarchy,
-                                version_name=config['version_name'],
-                                edition_year=config['edition_year'],
-                                effective_date=datetime.now().date(),
-                                selected_chapters={config['chapter_num']: {'name': f"Chapter {config['chapter_num']}"}}
-                            )
-                            result = {
-                                'success': True, 
-                                'version_id': result_version_id, 
-                                'message': "Import successful"
-                            }
-                        except Exception as e:
-                            result = {'success': False, 'message': str(e)}
-                        
-                        if result.get('success'):
-                            st.success("✅ Data imported successfully!")
-                            st.balloons()
-                            st.session_state.pwd_wizard_step = 6
-                            st.rerun()
-                        else:
-                            st.error(f"❌ Import failed: {result.get('message', 'Unknown error')}")
-            
-            return
+                    # If stats are 0 but data exists, update them
+                    if v.get('total_rates', 0) == 0 and v.get('total_children', 0) == 0:
+                        # Check if there's actual data
+                        db = self.db._get_db() if hasattr(self.db, '_get_db') else self.db
+                        child_check = db.query_one(
+                            "SELECT COUNT(*) as count FROM pwd_children WHERE version_id = ?", 
+                            (v.get('id'),)
+                        )
+                        if child_check and child_check.get('count', 0) > 0:
+                            print(f"⚠️ Version {v.get('id')} has data but stats are 0 - updating...")
+                            # Call update stats
+                            if hasattr(self.db, '_update_version_stats'):
+                                self.db._update_version_stats(v.get('id'))
+
         
-        # Convert to DataFrame
-        versions_df = pd.DataFrame(versions)
-        print(f"🔍 Versions DataFrame columns: {versions_df.columns.tolist()}")
-        
-        # Filter by edition year
-        if 'edition_year' in versions_df.columns:
-            versions_df = versions_df[versions_df['edition_year'] == config['edition_year']]
-            print(f"🔍 Filtered by edition_year {config['edition_year']}: {len(versions_df)} versions")
-        
-        # ✅ Create display dataframe with correct column names from the actual data
-        display_data = []
-        for _, row in versions_df.iterrows():
-            display_row = {}
-            
-            # Safe column access with correct column names
-            display_row['version_number'] = row.get('version_number', 'N/A')
-            display_row['is_active'] = "✅ Active" if row.get('is_active') else "📦 Archived"
-            
-            # Use created_at or effective_from or release_date
-            display_row['created_at'] = row.get('created_at') or row.get('effective_from') or row.get('release_date') or 'N/A'
-            
-            # ✅ Use total_rates (not total_items) - this was the main issue!
-            display_row['total_items'] = row.get('total_rates', 0)
-            
-            # Also include edition_year for reference
-            display_row['edition_year'] = row.get('edition_year', '')
-            
-            display_data.append(display_row)
-        
-        display_df = pd.DataFrame(display_data) if display_data else pd.DataFrame()
+        # Get versions with data for validation
+        versions_with_data = self._get_cached_versions()
+        has_valid_version = versions_with_data and len(versions_with_data) > 0
+        has_any_version = all_versions and len(all_versions) > 0
         
         st.markdown("### 🔄 Import Mode Selection")
+        
+        # If there's a version but it's empty, suggest creating a new version
+        if has_any_version and not has_valid_version:
+            st.info(f"ℹ️ Found {len(all_versions)} version(s) but they have no data. You can create a new version or update an empty version.")
         
         import_mode = st.radio(
             "Select import mode:",
@@ -891,35 +1053,47 @@ class PWDImportWizard:
         confirm_update = False
         
         if import_mode == "update_chapter":
-            if display_df.empty:
+            # Show ALL versions (including empty ones) for update
+            if not all_versions:
                 st.error("❌ No existing versions found. Please create a new version first.")
                 import_mode = "new_version"
             else:
-                st.info(f"📊 Existing versions for PWD {config['edition_year']}:")
+                st.info(f"📊 Existing versions for PWD:")
                 
-                # ✅ Show dataframe with available columns
-                available_cols = ['version_number', 'is_active', 'created_at', 'total_items']
-                available_cols = [col for col in available_cols if col in display_df.columns]
+                # Create display dataframe with all versions
+                display_data = []
+                append_display = display_data.append
+                for row in all_versions:
+                    display_row = {}
+                    display_row['Version'] = row.get('version_number', 'N/A')
+                    display_row['Edition'] = row.get('edition_year', '')
+                    display_row['Status'] = "✅ Active" if row.get('is_active') else "📦 Archived"
+                    display_row['Created'] = str(row.get('created_at', ''))[:16] if row.get('created_at') else 'N/A'
+                    display_row['Items'] = row.get('total_rates', 0)
+                    display_row['Has Data'] = "✅ Yes" if (row.get('total_rates', 0) > 0 or row.get('total_children', 0) > 0) else "⚠️ Empty"
+                    append_display(display_row)
                 
-                if available_cols:
-                    st.dataframe(display_df[available_cols], use_container_width=True, hide_index=True)
-                else:
+                display_df = pd.DataFrame(display_data) if display_data else pd.DataFrame()
+                
+                if not display_df.empty:
                     st.dataframe(display_df, use_container_width=True, hide_index=True)
                 
-                # Build version options from the original versions_df
+                # Build version options from all versions
                 version_options = []
-                for _, row in versions_df.iterrows():
+                append_version = version_options.append
+                for row in all_versions:
                     version_id_val = row.get('id')
                     version_num = row.get('version_number', version_id_val)
                     version_name_val = row.get('version_name', f"Version {version_num}")
                     is_active = row.get('is_active', False)
                     edition_year_val = row.get('edition_year', '')
                     total_rates = row.get('total_rates', 0)
+                    has_data = "✅" if (total_rates > 0 or row.get('total_children', 0) > 0) else "⚠️ Empty"
                     
-                    version_options.append({
+                    append_version({
                         'id': version_id_val,
                         'number': version_num,
-                        'label': f"{version_name_val} ({edition_year_val}) - {'Active' if is_active else 'Archived'} - {total_rates} items"
+                        'label': f"{version_name_val} ({edition_year_val}) - {has_data} - {'Active' if is_active else 'Archived'}"
                     })
                 
                 if version_options:
@@ -933,27 +1107,42 @@ class PWDImportWizard:
                     version_id = selected_version['id']
                     version_number = selected_version['number']
                     
-                    st.warning(f"""
-                    ⚠️ **YOU ARE ABOUT TO REPLACE THE FOLLOWING DATA IN VERSION {version_number}:**
+                    # Check if selected version has data
+                    selected_has_data = False
+                    for v in all_versions:
+                        if v.get('id') == version_id:
+                            selected_has_data = v.get('total_rates', 0) > 0 or v.get('total_children', 0) > 0
+                            break
                     
-                    | Item | Value |
-                    |------|-------|
-                    | **Edition Year** | {config['edition_year']} |
-                    | **Version** | {version_number} |
-                    | **Chapter** | **Chapter {config['chapter_num']}** |
-                    
-                    **What will be replaced:**
-                    - ✅ **ENTIRE Chapter {config['chapter_num']}** (all items in this chapter)
-                    - ✅ Other chapters will remain **UNCHANGED**
-                    
-                    **Data being imported:**
-                    - Total Items: {total_items}
-                    - Items with Rates: {items_with_rates}
-                    - Parent Headers: {parents}
-                    """)
+                    if not selected_has_data:
+                        st.warning(f"""
+                        ⚠️ **Version {version_number} is currently empty.**
+                        
+                        You are about to IMPORT data into this empty version.
+                        This will add Chapter {config['chapter_num']} data to this version.
+                        """)
+                    else:
+                        st.warning(f"""
+                        ⚠️ **YOU ARE ABOUT TO REPLACE THE FOLLOWING DATA IN VERSION {version_number}:**
+                        
+                        | Item | Value |
+                        |------|-------|
+                        | **Edition Year** | {config['edition_year']} |
+                        | **Version** | {version_number} |
+                        | **Chapter** | **Chapter {config['chapter_num']}** |
+                        
+                        **What will be replaced:**
+                        - ✅ **ENTIRE Chapter {config['chapter_num']}** (all items in this chapter)
+                        - ✅ Other chapters will remain **UNCHANGED**
+                        
+                        **Data being imported:**
+                        - Total Items: {total_items}
+                        - Items with Rates: {items_with_rates}
+                        - Parent Headers: {parents}
+                        """)
                     
                     confirm_update = st.checkbox(
-                        f"✓ I understand that I am REPLACING Chapter {config['chapter_num']} in Version {version_number}",
+                        f"✓ I understand that I am {'REPLACING' if selected_has_data else 'ADDING'} Chapter {config['chapter_num']} in Version {version_number}",
                         key="confirm_pwd_chapter_update"
                     )
                 else:
@@ -998,14 +1187,30 @@ class PWDImportWizard:
             if st.button("💾 **Import to Database**", type="primary", use_container_width=True, disabled=button_disabled):
                 
                 hierarchy = self._build_hierarchy_from_df(edited_df, config['chapter_num'])
+                # ✅ DEBUG: Print hierarchy before calling update
+                print("=" * 60)
+                print("🔍 HIERARCHY BEFORE UPDATE:")
+                print(f"   Parents: {len(hierarchy.get('parents', []))}")
+                print(f"   Children: {len(hierarchy.get('children', []))}")
+                if hierarchy.get('parents'):
+                    print("   First 3 parents:")
+                    for p in hierarchy['parents'][:3]:
+                        print(f"      {p}")
+                print("=" * 60)
                 
                 with st.spinner("Saving to database..."):
                     if import_mode == "update_chapter" and version_id:
-                        result = self._update_pwd_chapter(
-                            hierarchy, version_id, config['edition_year'], 
-                            config['chapter_num'], notes
+                        # Use db.update_pwd_chapter() - this now uses SystemRateCRUD
+                        result = self.db.update_pwd_chapter(
+                            version_id=version_id,
+                            chapter_num=config['chapter_num'],
+                            hierarchy=hierarchy,
+                            edition_year=config['edition_year'],
+                            notes=notes,
+                            updated_by=st.session_state.get('username', 'admin')
                         )
                     else:
+                        # Use db.save_pwd_hierarchy_enhanced()
                         try:
                             result_version_id = self.db.save_pwd_hierarchy_enhanced(
                                 hierarchy=hierarchy,
@@ -1023,116 +1228,62 @@ class PWDImportWizard:
                             result = {'success': False, 'message': str(e)}
                     
                     if result.get('success'):
+                    # ✅ AUTO-UPDATE STATISTICS
+                        try:
+                            version_id_to_update = None
+                            if import_mode == "update_chapter" and version_id:
+                                version_id_to_update = version_id
+                            elif result.get('version_id'):
+                                version_id_to_update = result.get('version_id')
+                            
+                            if version_id_to_update:
+                                print(f"🔍 Updating stats for version {version_id_to_update}")
+                                
+                                # ✅ Use the new update_version_stats method
+                                if hasattr(self.db, 'update_version_stats'):
+                                    print("📊 Using update_version_stats method...")
+                                    stats_result = self.db.update_version_stats(version_id_to_update)
+                                    if stats_result.get('success'):
+                                        counts = stats_result.get('counts', {})
+                                        print(f"✅ Stats updated: parents={counts.get('parents', 0)}, children={counts.get('children', 0)}, rates={counts.get('rates', 0)}")
+                                    else:
+                                        print(f"❌ Stats update failed: {stats_result.get('error', 'Unknown error')}")
+                                
+                                # Fallback to _update_version_stats
+                                elif hasattr(self.db, '_update_version_stats'):
+                                    print("📊 Using _update_version_stats method...")
+                                    self.db._update_version_stats(version_id_to_update)
+                                
+                                else:
+                                    print("⚠️ No stats update method found!")
+                                    
+                        except Exception as e:
+                            print(f"⚠️ Stats auto-update error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        
+                        # Clear cache after successful import
+                        self._clear_cache()
                         st.success("✅ Data imported successfully!")
                         st.balloons()
-                        st.session_state.pwd_wizard_step = 6
+                        st.session_state.pwd_wizard_step = 5
                         st.rerun()
-                    else:
-                        st.error(f"❌ Import failed: {result.get('message', 'Unknown error')}")
+
+
+
+
+
+
+    
     
 
     
-    def _build_hierarchy_from_df(self, df, chapter_num):
-        """Build hierarchy from DataFrame"""
-        hierarchy = {
-            'parents': [],
-            'children': []
-        }
-        
-        parent_codes = set()
-        
-        for _, row in df.iterrows():
-            if row.get('has_rates', False):
-                rates = {}
-                if pd.notna(row.get('zone_a')) and row.get('zone_a'):
-                    rates['Zone-A'] = row['zone_a']
-                if pd.notna(row.get('zone_b')) and row.get('zone_b'):
-                    rates['Zone-B'] = row['zone_b']
-                if pd.notna(row.get('zone_c')) and row.get('zone_c'):
-                    rates['Zone-C'] = row['zone_c']
-                if pd.notna(row.get('zone_d')) and row.get('zone_d'):
-                    rates['Zone-D'] = row['zone_d']
-                
-                parent_code = row.get('parent_code') if pd.notna(row.get('parent_code')) and row.get('parent_code') != '' else None
-                
-                hierarchy['children'].append({
-                    'pwd_code': row['item_code'],
-                    'parent_code': parent_code,
-                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
-                    'unit': row.get('unit', '') if pd.notna(row.get('unit')) else '',
-                    'rates': rates
-                })
-                
-                if parent_code:
-                    parent_codes.add(parent_code)
-            else:
-                hierarchy['parents'].append({
-                    'code': row['item_code'],
-                    'description': row.get('description', '') if pd.notna(row.get('description')) else '',
-                    'chapter': chapter_num
-                })
-                parent_codes.add(row['item_code'])
-        
-        for parent_code in parent_codes:
-            if not any(p['code'] == parent_code for p in hierarchy['parents']):
-                hierarchy['parents'].append({
-                    'code': parent_code,
-                    'description': f"Parent {parent_code}",
-                    'chapter': chapter_num
-                })
-        
-        return hierarchy
-    
-    def _update_pwd_chapter(self, hierarchy, version_id, edition_year, chapter_num, notes=""):
-        """Update ONLY one chapter in an existing version using SystemRateCRUD"""
-        try:
-            # ✅ Use SystemRateCRUD method
-            result = self.db.update_pwd_chapter(
-                version_id=version_id,
-                chapter_num=chapter_num,
-                hierarchy=hierarchy,
-                edition_year=edition_year,
-                notes=notes,
-                updated_by=st.session_state.get('username', 'admin')
-            )
-            
-            return result
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {'success': False, 'message': str(e)}
-    
     # =========================================================
-    # STEP 5: ROLLBACK
+    # STEP 5: COMPLETE
     # =========================================================
     
-    def _step5_rollback(self):
-        """Step 5: Rollback options"""
-        
-        st.markdown("### Step 5: Rollback & Recovery")
-        st.caption("Manage rollback points and recover previous versions")
-        
-        st.info("Rollback functionality: You can restore previous versions from the Rate Management section.")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("◀️ Back to Validate", use_container_width=True):
-                st.session_state.pwd_wizard_step = 4
-                st.rerun()
-        
-        with col2:
-            if st.button("➡️ Complete Import", type="primary", use_container_width=True):
-                st.session_state.pwd_wizard_step = 6
-                st.rerun()
-    
-    # =========================================================
-    # STEP 6: COMPLETE
-    # =========================================================
-    
-    def _step6_complete(self):
-        """Step 6: Completion"""
+    def _step5_complete(self):
+        """Step 5: Completion"""
         
         st.markdown("### ✅ Import Complete!")
         
@@ -1156,14 +1307,20 @@ class PWDImportWizard:
                 st.session_state.pwd_wizard_step = 1
                 st.session_state.pwd_excel_data = None
                 st.session_state.pwd_excel_edited_df = None
+                self._clear_cache()
                 st.rerun()
         
         with col2:
             if st.button("📊 Go to Rate Management", use_container_width=True):
                 st.session_state.pwd_wizard_step = 1
                 st.session_state.pwd_excel_data = None
+                st.session_state.pwd_excel_edited_df = None
                 st.rerun()
 
+
+# =========================================================
+# CONVENIENCE FUNCTION
+# =========================================================
 
 def render_pwd_import_wizard(db=None):
     """Convenience function to render PWD import wizard"""

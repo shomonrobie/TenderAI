@@ -360,12 +360,35 @@ class UserCRUD:
     def update_user_avatar(self, user_id: int, avatar_url: str) -> bool:
         """Update user avatar URL"""
         return self.update_user(user_id, {'avatar_url': avatar_url})
-    
     def update_user(self, user_id: int, updates: Dict[str, Any]) -> bool:
         """Update user information"""
         db = self._get_db()
         
         try:
+            print(f"🔍 DEBUG - update_user called with user_id: {user_id}")
+            print(f"🔍 DEBUG - updates: {updates}")
+            print(f"🔍 DEBUG - update_user called with user_id: {user_id}")
+            print(f"🔍 DEBUG - updates dictionary: {updates}")
+            print(f"🔍 DEBUG - company_id in updates: {updates.get('company_id')}")
+            current_user = db.query_one("SELECT company_id, role FROM users WHERE id = ?", (user_id,))
+            if current_user:
+                current_company_id = current_user.get('company_id')
+                current_role = current_user.get('role')
+                
+                # Get the new company_id and role from updates
+                new_company_id = updates.get('company_id', current_company_id)
+                new_role = updates.get('role', current_role)
+                
+                # Rule 1: If company_id is None or 0, role must be 'individual'
+                if (new_company_id is None or new_company_id == 0) and new_role != 'individual':
+                    print(f"⚠️ Validation failed: User with no company must have 'individual' role")
+                    return False
+                
+                # Rule 2: If company_id is set, role cannot be 'individual'
+                if (new_company_id is not None and new_company_id != 0) and new_role == 'individual':
+                    print(f"⚠️ Validation failed: User with company cannot have 'individual' role")
+                    return False
+
             allowed_fields = [
                 'username', 'email', 'full_name', 'phone', 'mobile_number',
                 'role', 'is_active', 'avatar_url', 'bio', 'location',
@@ -374,6 +397,39 @@ class UserCRUD:
                 'registration_complete', 'company_id'
             ]
             
+            # ✅ If using Supabase, use direct client for update
+            if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+                try:
+                    update_data = {}
+                    for key, value in updates.items():
+                        if key in allowed_fields:
+                            update_data[key] = value
+                            print(f"🔍 DEBUG - adding {key} = {value}")
+                    
+                    if not update_data:
+                        print("🔍 DEBUG - no fields to update")
+                        return True
+                    
+                    update_data['updated_at'] = datetime.now().isoformat()
+                    
+                    print(f"🔍 DEBUG - Supabase update_data: {update_data}")
+                    
+                    response = db.supabase.table('users').update(update_data).eq('id', user_id).execute()
+                    print(f"🔍 DEBUG - Supabase update response: {response.data}")
+                    
+                    # Verify the update
+                    verify = db.query_one("SELECT role, company_id FROM users WHERE id = ?", (user_id,))
+                    print(f"🔍 DEBUG - after update verification: {verify}")
+                    
+                    return True
+                    
+                except Exception as e:
+                    print(f"⚠️ Supabase update error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fall through to SQLite fallback
+            
+            # SQLite fallback
             set_clauses = []
             params = []
             
@@ -381,6 +437,7 @@ class UserCRUD:
                 if key in allowed_fields:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
+                    print(f"🔍 DEBUG - adding {key} = {value}")
             
             if not set_clauses:
                 return True
@@ -389,18 +446,25 @@ class UserCRUD:
             params.append(datetime.now().isoformat())
             params.append(user_id)
             
-            db.execute(f"""
+            sql = f"""
                 UPDATE users 
                 SET {', '.join(set_clauses)}
                 WHERE id = ?
-            """, tuple(params))
+            """
+            print(f"🔍 DEBUG - SQL: {sql}")
+            print(f"🔍 DEBUG - params: {params}")
+            
+            db.execute(sql, tuple(params))
             
             return True
             
         except Exception as e:
             logger.error(f"Error updating user: {e}")
+            print(f"🔍 DEBUG - update_user error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-    
+            
     def delete_user(self, user_id: int) -> bool:
         """Hard delete user (only allowed for non-admin users)"""
         db = self._get_db()
@@ -881,14 +945,14 @@ class UserCRUD:
             # Hash password
             hashed = self._hash_password(user_data['password'])
             
-            # Insert user
+            # ✅ FIXED: Ensure company_id is set in the INSERT
             db.execute("""
                 INSERT INTO users (
                     company_id, username, password, email, full_name, phone, mobile_number, role,
                     is_active, created_by, is_approved, account_type
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                company_id,
+                company_id,  # ✅ This is the critical fix - ensure company_id is passed
                 user_data['username'],
                 hashed,
                 user_data['email'],
@@ -918,6 +982,7 @@ class UserCRUD:
         except Exception as e:
             logger.error(f"Error creating company user: {e}")
             return False, str(e)
+
     
     # =========================================================================
     # SOCIAL LINKS OPERATIONS
@@ -1528,3 +1593,77 @@ class UserCRUD:
         except Exception as e:
             print(f"Error logging verification history: {e}")
             return False
+    def check_username_exists(self, username: str, exclude_id: int = None) -> bool:
+        """Check if username exists"""
+        db = self._get_db()
+        
+        # ✅ If using Supabase, use the proper syntax
+        if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+            try:
+                query = db.supabase.table('users').select('id').eq('username', username)
+                if exclude_id is not None:
+                    query = query.neq('id', exclude_id)
+                response = query.execute()
+                return len(response.data) > 0 if response.data else False
+            except Exception as e:
+                print(f"⚠️ Supabase check_username_exists error: {e}")
+                # Fall through to SQLite fallback
+        
+        # SQLite fallback
+        query = "SELECT id FROM users WHERE username = ?"
+        params = [username]
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        result = db.query_one(query, tuple(params))
+        return result is not None
+
+    def check_email_exists(self, email: str, exclude_id: int = None) -> bool:
+        """Check if email exists"""
+        db = self._get_db()
+        
+        # ✅ If using Supabase, use the proper syntax
+        if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+            try:
+                query = db.supabase.table('users').select('id').eq('email', email)
+                if exclude_id is not None:
+                    query = query.neq('id', exclude_id)
+                response = query.execute()
+                return len(response.data) > 0 if response.data else False
+            except Exception as e:
+                print(f"⚠️ Supabase check_email_exists error: {e}")
+                # Fall through to SQLite fallback
+        
+        # SQLite fallback
+        query = "SELECT id FROM users WHERE email = ?"
+        params = [email]
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        result = db.query_one(query, tuple(params))
+        return result is not None
+
+    def check_mobile_exists(self, mobile: str, exclude_id: int = None) -> bool:
+        """Check if mobile number exists"""
+        db = self._get_db()
+        
+        # ✅ If using Supabase, use the proper syntax
+        if hasattr(db, '_use_supabase') and db._use_supabase and hasattr(db, 'supabase') and db.supabase:
+            try:
+                query = db.supabase.table('users').select('id').eq('mobile_number', mobile)
+                if exclude_id is not None:
+                    query = query.neq('id', exclude_id)
+                response = query.execute()
+                return len(response.data) > 0 if response.data else False
+            except Exception as e:
+                print(f"⚠️ Supabase check_mobile_exists error: {e}")
+                # Fall through to SQLite fallback
+        
+        # SQLite fallback
+        query = "SELECT id FROM users WHERE mobile_number = ?"
+        params = [mobile]
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        result = db.query_one(query, tuple(params))
+        return result is not None

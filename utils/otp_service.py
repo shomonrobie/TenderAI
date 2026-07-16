@@ -13,6 +13,7 @@ from email.mime.multipart import MIMEMultipart
 
 from config.settings import Config
 from database.unified_db_manager import get_db_manager
+from utils.validators import validate_bangladesh_mobile, normalize_mobile
 
 logger = logging.getLogger(__name__)
 print(f"SMTP_USER: {Config.SMTP_USER}")
@@ -481,26 +482,26 @@ class OTPService:
             purpose='password_reset'
         )
     
-    @staticmethod
-    def validate_bangladesh_mobile(mobile: str) -> bool:
-        """Validate Bangladeshi mobile number"""
-        import re
-        mobile = re.sub(r'[\s\-+]', '', mobile)
-        if mobile.startswith('88'):
-            mobile = mobile[2:]
-        pattern = r'^01[3-9]\d{8}$'
-        return bool(re.match(pattern, mobile))
+    # @staticmethod
+    # def validate_bangladesh_mobile(mobile: str) -> bool:
+    #     """Validate Bangladeshi mobile number"""
+    #     import re
+    #     mobile = re.sub(r'[\s\-+]', '', mobile)
+    #     if mobile.startswith('88'):
+    #         mobile = mobile[2:]
+    #     pattern = r'^01[3-9]\d{8}$'
+    #     return bool(re.match(pattern, mobile))
     
-    @staticmethod
-    def normalize_mobile(mobile: str) -> str:
-        """Normalize mobile number to standard format"""
-        import re
-        mobile = re.sub(r'[\s\-+]', '', mobile)
-        if mobile.startswith('+88'):
-            mobile = mobile[3:]
-        elif mobile.startswith('88'):
-            mobile = mobile[2:]
-        return mobile
+    # @staticmethod
+    # def normalize_mobile(mobile: str) -> str:
+    #     """Normalize mobile number to standard format"""
+    #     import re
+    #     mobile = re.sub(r'[\s\-+]', '', mobile)
+    #     if mobile.startswith('+88'):
+    #         mobile = mobile[3:]
+    #     elif mobile.startswith('88'):
+    #         mobile = mobile[2:]
+    #     return mobile
     
     @staticmethod
     def mask_contact(contact: str) -> str:

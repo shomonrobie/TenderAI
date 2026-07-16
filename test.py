@@ -1,45 +1,38 @@
-# run_migration_now.py
-import sqlite3
+# debug_methods.py - Run this with streamlit
+import streamlit as st
+from database.unified_db_manager import get_db_manager
 
-def run_migration():
-    conn = sqlite3.connect('data/tender_system.db')
-    cursor = conn.cursor()
-    
-    # Check if is_active exists in tender_milestones
-    cursor.execute('PRAGMA table_info(tender_milestones)')
-    columns = [row[1] for row in cursor.fetchall()]
-    
-    if 'is_active' not in columns:
-        print('Adding is_active column...')
-        cursor.execute('ALTER TABLE tender_milestones ADD COLUMN is_active INTEGER DEFAULT 1')
-        print('✅ Added is_active')
-    
-    if 'completed_at' not in columns:
-        print('Adding completed_at column...')
-        cursor.execute('ALTER TABLE tender_milestones ADD COLUMN completed_at TIMESTAMP')
-        print('✅ Added completed_at')
-    
-    # Check tender_team_assignments table
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tender_team_assignments'")
-    if not cursor.fetchone():
-        print('Creating tender_team_assignments table...')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tender_team_assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tender_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_active INTEGER DEFAULT 1,
-                FOREIGN KEY (tender_id) REFERENCES company_tenders(id),
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        ''')
-        print('✅ Created tender_team_assignments')
-    
-    conn.commit()
-    conn.close()
-    print('✅ Migration completed!')
+st.set_page_config(page_title="Debug Methods", layout="wide")
 
-if __name__ == "__main__":
-    run_migration()
+st.title("🔍 Database Method Checker")
+
+try:
+    db = get_db_manager()
+    
+    # Get all methods
+    methods = [method for method in dir(db) if not method.startswith('_')]
+    
+    st.subheader("Available Methods")
+    st.code("\n".join(sorted(methods)), language="python")
+    
+    # Check specific methods
+    st.subheader("Specific Method Check")
+    important_methods = [
+        'get_company_experience',
+        'add_experience',
+        'delete_experience',
+        'get_company_licenses',
+        'get_company_financials',
+        'get_company_personnel',
+        'get_company_equipment',
+        'get_company_documents',
+        'update_company'
+    ]
+    
+    for method in important_methods:
+        status = "✅" if hasattr(db, method) else "❌"
+        st.write(f"{status} {method}")
+        
+except Exception as e:
+    st.error(f"Error: {e}")
+    st.code(str(e))

@@ -4,6 +4,7 @@ import sqlite3
 import json
 import logging
 import secrets
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any, Tuple, Union
 import bcrypt
@@ -21,7 +22,7 @@ from database.crud_user import UserCRUD
 from database.crud_system_rates import SystemRateCRUD
 from database.crud_subscription import SubscriptionManager
 from database.crud_autofill import AutoFillCRUD
-
+from database.crud_role import RoleCRUD
 import os
  
 
@@ -39,7 +40,7 @@ class DatabaseCRUD:
         # ✅ Initialize CRUD modules
         self._subscription_crud = SubscriptionManager(self)
         self._user_crud = UserCRUD(self)
-    
+        self._role_crud = RoleCRUD(self)
         self._tender_crud = TenderCRUD(self)
         self._system_rate_crud = SystemRateCRUD(self)
         self._rate_crud = RateCRUD(self)
@@ -54,6 +55,7 @@ class DatabaseCRUD:
         # ✅ Bind both Tender and Rate methods
         self._bind_subscription_methods()
         self._bind_user_methods()
+        self._bind_role_methods()
         self._bind_tender_methods()
         self._bind_system_rate_methods()  # ✅ Make sure this is called!     
         self._bind_rate_methods()  # ✅ Make sure this is called!        
@@ -88,6 +90,17 @@ class DatabaseCRUD:
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
                 #print(f"   ✅ Bound: {method_name}")
 
+    
+    def _bind_role_methods(self):
+        """Bind all RoleCRUD methods to this instance"""
+        # print("🔍 Binding RoleCRUD methods...")
+        for method_name in dir(self._role_crud):
+            if method_name.startswith('_'):
+                continue
+            method = getattr(self._role_crud, method_name)
+            if callable(method):
+                setattr(self, method_name, method.__get__(self, DatabaseCRUD))
+                #print(f"   ✅ Bound: {method_name}")
     def _bind_tender_methods(self):
         """Bind all TenderCRUD methods to this instance"""
         for method_name in dir(self._tender_crud):
@@ -98,15 +111,30 @@ class DatabaseCRUD:
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
     
     def _bind_system_rate_methods(self):
-        """Bind all RateCRUD methods to this instance"""
-       #print("🔍 Binding RateCRUD methods...")
+        """Bind all SystemRateCRUD methods to this instance"""
+        # ✅ FIXED: Include private methods (those starting with _)
         for method_name in dir(self._system_rate_crud):
-            if method_name.startswith('_'):
+            # Skip only special methods like __init__, __str__, etc.
+            if method_name.startswith('__') and method_name.endswith('__'):
                 continue
             method = getattr(self._system_rate_crud, method_name)
             if callable(method):
                 setattr(self, method_name, method.__get__(self, DatabaseCRUD))
-               # print(f"   ✅ Bound: {method_name}")
+                # Debug: print what's being bound
+                if method_name == '_update_version_stats':
+                    print(f"   ✅ Bound: {method_name}")
+
+
+    # def _bind_system_rate_methods(self):
+    #     """Bind all RateCRUD methods to this instance"""
+    #    #print("🔍 Binding RateCRUD methods...")
+    #     for method_name in dir(self._system_rate_crud):
+    #         if method_name.startswith('_'):
+    #             continue
+    #         method = getattr(self._system_rate_crud, method_name)
+    #         if callable(method):
+    #             setattr(self, method_name, method.__get__(self, DatabaseCRUD))
+    #            # print(f"   ✅ Bound: {method_name}")
     
     def _bind_rate_methods(self):
         """Bind all RateCRUD methods to this instance"""
@@ -565,26 +593,26 @@ class DatabaseCRUD:
 
     # ==================== HELPER METHODS ====================
     
-    def validate_bangladesh_mobile(self, mobile: str) -> bool:
-        """Validate Bangladeshi mobile number"""
-        if not mobile:
-            return False
-        mobile = re.sub(r'[\s\-+]', '', mobile)
-        if mobile.startswith('88'):
-            mobile = mobile[2:]
-        pattern = r'^01[3-9]\d{8}$'
-        return bool(re.match(pattern, mobile))
+    # def validate_bangladesh_mobile(self, mobile: str) -> bool:
+    #     """Validate Bangladeshi mobile number"""
+    #     if not mobile:
+    #         return False
+    #     mobile = re.sub(r'[\s\-+]', '', mobile)
+    #     if mobile.startswith('88'):
+    #         mobile = mobile[2:]
+    #     pattern = r'^01[3-9]\d{8}$'
+    #     return bool(re.match(pattern, mobile))
     
-    def normalize_mobile(self, mobile: str) -> str:
-        """Normalize mobile number to standard format"""
-        if not mobile:
-            return mobile
-        mobile = re.sub(r'[\s\-+]', '', mobile)
-        if mobile.startswith('+88'):
-            mobile = mobile[3:]
-        elif mobile.startswith('88'):
-            mobile = mobile[2:]
-        return mobile
+    # def normalize_mobile(self, mobile: str) -> str:
+    #     """Normalize mobile number to standard format"""
+    #     if not mobile:
+    #         return mobile
+    #     mobile = re.sub(r'[\s\-+]', '', mobile)
+    #     if mobile.startswith('+88'):
+    #         mobile = mobile[3:]
+    #     elif mobile.startswith('88'):
+    #         mobile = mobile[2:]
+    #     return mobile
 
     def create_user(self, company_id: int, user_data: Dict, created_by: int = None) -> tuple:
         """
@@ -951,10 +979,11 @@ class DatabaseCRUD:
             return False, str(e)
     
     def _create_google_user_supabase(self, user_data: Dict) -> Tuple[bool, any]:
-        """Supabase implementation"""
+        """Supabase implementation with auto-company creation for individual users"""
         try:
             google_id = user_data.get('google_id', '')
             email = user_data.get('email')
+            full_name = user_data.get('full_name', '')
             
             print(f"🔍 _create_google_user_supabase: email={email}")
             
@@ -989,7 +1018,7 @@ class DatabaseCRUD:
                 return True, user_id
             
             # Check if username exists
-            username = user_data['username']
+            username = user_data.get('username', email.split('@')[0])
             username_response = self.supabase.table('users')\
                 .select('id')\
                 .eq('username', username)\
@@ -1006,14 +1035,33 @@ class DatabaseCRUD:
             temp_password = secrets.token_urlsafe(16)
             hashed = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
-            # Create new user - DON'T specify ID, let Supabase auto-generate
+            # ✅ FIXED: Create company for individual user FIRST
+            company_name = f"{full_name if full_name else 'Individual'} - Individual"
+            
+            company_response = self.supabase.table('companies').insert({
+                'company_name': company_name,
+                'is_individual': True,
+                'is_active': True,
+                'status': 'active',
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            
+            if not company_response.data:
+                print(f"❌ Failed to create company for individual user")
+                return False, "Failed to create company"
+            
+            company_id = company_response.data[0].get('id')
+            print(f"✅ Company created with ID: {company_id}")
+            
+            # ✅ FIXED: Create user WITH company_id
             insert_data = {
                 'username': username,
                 'password': hashed,
                 'email': email,
-                'full_name': user_data.get('full_name', ''),
+                'full_name': full_name,
                 'role': 'individual',
                 'account_type': 'individual',
+                'company_id': company_id,  # ✅ CRITICAL: Link to company
                 'auth_provider': 'google',
                 'auth_provider_user_id': google_id,
                 'google_id': google_id,
@@ -1024,12 +1072,21 @@ class DatabaseCRUD:
                 'is_approved': True
             }
             
-            print(f"🔍 Inserting new user (without ID)")
+            print(f"🔍 Inserting new user with company_id: {company_id}")
             insert_response = self.supabase.table('users').insert(insert_data).execute()
             
             if insert_response.data:
                 user_id = insert_response.data[0].get('id')
-                print(f"✅ User created with ID: {user_id}")
+                print(f"✅ User created with ID: {user_id} and company_id: {company_id}")
+                
+                # ✅ Create default company profile
+                self.supabase.table('company_profile').insert({
+                    'company_id': company_id,
+                    'legal_name': full_name,
+                    'created_at': datetime.now().isoformat()
+                }).execute()
+                print(f"✅ Company profile created for company {company_id}")
+                
                 return True, user_id
             else:
                 print(f"❌ Insert failed: {insert_response}")
@@ -1042,14 +1099,16 @@ class DatabaseCRUD:
             return False, str(e)
 
     def _create_google_user_sqlite(self, user_data: Dict) -> Tuple[bool, any]:
-        """SQLite implementation"""
+        """SQLite implementation with auto-company creation for individual users"""
         try:
             google_id = user_data.get('google_id', '')
+            email = user_data.get('email')
+            full_name = user_data.get('full_name', '')
             
             # Check if email exists
             existing = self.query_one(
                 "SELECT id, auth_provider FROM users WHERE email = ?",
-                (user_data['email'],)
+                (email,)
             )
             
             if existing:
@@ -1064,11 +1123,11 @@ class DatabaseCRUD:
                             email_verified = 1,
                             google_picture = ?
                         WHERE id = ?
-                    """, (google_id, google_id, user_data['email'], user_data.get('picture', ''), user_id))
+                    """, (google_id, google_id, email, user_data.get('picture', ''), user_id))
                 return True, user_id
             
             # Check username
-            username = user_data['username']
+            username = user_data.get('username', email.split('@')[0])
             existing_username = self.query_one(
                 "SELECT id FROM users WHERE username = ?",
                 (username,)
@@ -1083,49 +1142,75 @@ class DatabaseCRUD:
             temp_password = secrets.token_urlsafe(16)
             hashed = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
-            # Insert user
+            # ✅ FIXED: Create company for individual user FIRST
+            company_name = f"{full_name if full_name else 'Individual'} - Individual"
+            
+            self.execute("""
+                INSERT INTO companies (company_name, is_individual, is_active, status, created_at)
+                VALUES (?, 1, 1, 'active', CURRENT_TIMESTAMP)
+            """, (company_name,))
+            
+            # Get company_id
+            company_result = self.query_one(
+                "SELECT id FROM companies WHERE company_name = ? ORDER BY id DESC LIMIT 1",
+                (company_name,)
+            )
+            company_id = company_result['id'] if company_result else None
+            
+            print(f"✅ Company created with ID: {company_id}")
+            
+            # ✅ FIXED: Create user WITH company_id
             insert_sql = """
                 INSERT INTO users (
                     username, password, email, full_name, phone, mobile_number,
                     role, is_active, is_approved, created_at, account_type,
                     auth_provider, google_id, google_email, email_verified,
-                    auth_provider_user_id, google_picture
+                    auth_provider_user_id, google_picture, company_id
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?,
                     'individual', 1, 1, CURRENT_TIMESTAMP, 'individual',
                     'google', ?, ?, 1,
-                    ?, ?
+                    ?, ?, ?
                 )
             """
             
             self.execute(insert_sql, (
                 username,
                 hashed,
-                user_data['email'],
-                user_data['full_name'],
+                email,
+                full_name,
                 user_data.get('phone', ''),
                 user_data.get('mobile_number', ''),
                 google_id,
-                user_data['email'],
+                email,
                 google_id,
-                user_data.get('picture', '')
+                user_data.get('picture', ''),
+                company_id  # ✅ CRITICAL: Link to company
             ))
             
             # Get user_id
             user = self.query_one(
                 "SELECT id FROM users WHERE email = ?",
-                (user_data['email'],)
+                (email,)
             )
             
             if user:
                 user_id = user['id']
+                
+                # ✅ Create default company profile
+                self.execute("""
+                    INSERT INTO company_profile (company_id, legal_name, created_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                """, (company_id, full_name))
+                print(f"✅ Company profile created for company {company_id}")
+                
                 # Insert into user_oauth
                 if google_id:
                     try:
                         self.execute("""
                             INSERT INTO user_oauth (user_id, provider_name, provider_user_id, provider_email)
                             VALUES (?, 'google', ?, ?)
-                        """, (user_id, google_id, user_data['email']))
+                        """, (user_id, google_id, email))
                     except:
                         pass
                 return True, user_id
@@ -1134,7 +1219,10 @@ class DatabaseCRUD:
             
         except Exception as e:
             print(f"❌ SQLite error: {e}")
+            import traceback
+            traceback.print_exc()
             return False, str(e)
+
     
     def create_google_user_bak(self, user_data: Dict) -> tuple:
         """
@@ -1780,53 +1868,53 @@ class DatabaseCRUD:
     #             ))
             
     #         return True
-    def get_all_users(self, company_id=None, role=None):
-        """Get all users as dictionaries"""
-        with self.get_connection() as conn:
-            cursor = self.db_conn.get_cursor(conn)
+    # def get_all_users(self, company_id=None, role=None):
+    #     """Get all users as dictionaries"""
+    #     with self.get_connection() as conn:
+    #         cursor = self.db_conn.get_cursor(conn)
             
-            query = '''
-            SELECT u.id, u.username, u.email, u.full_name, u.phone,
-                u.mobile_number, u.mobile_verified,  -- ✅ ADD THESE
-                u.role, u.is_active, u.created_at, u.last_login, 
-                c.company_name, u.is_approved
-            FROM users u
-            JOIN companies c ON u.company_id = c.id
-            WHERE 1=1
-            '''
-            params = []
+    #         query = '''
+    #         SELECT u.id, u.username, u.email, u.full_name, u.phone,
+    #             u.mobile_number, u.mobile_verified,  -- ✅ ADD THESE
+    #             u.role, u.is_active, u.created_at, u.last_login, 
+    #             c.company_name, u.is_approved
+    #         FROM users u
+    #         JOIN companies c ON u.company_id = c.id
+    #         WHERE 1=1
+    #         '''
+    #         params = []
             
-            if company_id:
-                query += " AND u.company_id = ?"
-                params.append(company_id)
-            if role:
-                query += " AND u.role = ?"
-                params.append(role)
+    #         if company_id:
+    #             query += " AND u.company_id = ?"
+    #             params.append(company_id)
+    #         if role:
+    #             query += " AND u.role = ?"
+    #             params.append(role)
             
-            query += " ORDER BY u.created_at DESC"
+    #         query += " ORDER BY u.created_at DESC"
             
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
+    #         cursor.execute(query, params)
+    #         rows = cursor.fetchall()
             
-            # Convert to list of dictionaries
-            users = []
-            for row in rows:
-                users.append({
-                    'id': row.get('id'),
-                    'username': row.get('username'),
-                    'email': row.get('email'),
-                    'full_name': row.get('full_name'),
-                    'phone': row.get('phone', ''),
-                    'mobile_number': row.get('mobile_number', ''),  # ✅ ADDED
-                    'mobile_verified': row.get('mobile_verified', 0),  # ✅ ADDED
-                    'role': row.get('role', 'viewer'),
-                    'is_active': row.get('is_active', 1),
-                    'created_at': row.get('created_at'),
-                    'last_login': row.get('last_login'),
-                    'company_name': row.get('company_name'),
-                    'is_approved': row.get('is_approved', 1)
-                })
-            return users
+    #         # Convert to list of dictionaries
+    #         users = []
+    #         for row in rows:
+    #             users.append({
+    #                 'id': row.get('id'),
+    #                 'username': row.get('username'),
+    #                 'email': row.get('email'),
+    #                 'full_name': row.get('full_name'),
+    #                 'phone': row.get('phone', ''),
+    #                 'mobile_number': row.get('mobile_number', ''),  # ✅ ADDED
+    #                 'mobile_verified': row.get('mobile_verified', 0),  # ✅ ADDED
+    #                 'role': row.get('role', 'viewer'),
+    #                 'is_active': row.get('is_active', 1),
+    #                 'created_at': row.get('created_at'),
+    #                 'last_login': row.get('last_login'),
+    #                 'company_name': row.get('company_name'),
+    #                 'is_approved': row.get('is_approved', 1)
+    #             })
+    #         return users
     
     
     # def _get_default_subscription(self) -> Dict:

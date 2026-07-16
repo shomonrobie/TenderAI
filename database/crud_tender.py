@@ -24,6 +24,12 @@ class TenderCRUD:
         """
         Get the database manager - works both as standalone and when bound to DatabaseCRUD
         """
+        
+        import traceback
+        print(f"🔍 TenderCRUD._get_db() called")
+        print(f"   - hasattr(self, 'query'): {hasattr(self, 'query')}")
+        print(f"   - hasattr(self, '_db_manager'): {hasattr(self, '_db_manager')}")
+        print(f"   - self._db_manager: {self._db_manager}")
         # If this instance has the methods directly (bound to DatabaseCRUD)
         if hasattr(self, 'query') and callable(getattr(self, 'query', None)):
             return self
@@ -88,6 +94,108 @@ class TenderCRUD:
             result['is_copy'] = result.get('is_copy', False)
         return result
     
+    def get_tender_by_db_id(self, tender_db_id: int, company_id: int) -> Optional[Dict]:
+        """Get a tender by its database ID (primary key)"""
+        import traceback
+        print(f"🔍 TenderCRUD.get_tender_by_db_id() called")
+        print(f"   - tender_db_id: {tender_db_id}")
+        print(f"   - company_id: {company_id}")
+        print(f"   - self._db_manager: {self._db_manager}")
+        print(f"   - Call stack: {traceback.format_stack()[-3:-1]}")
+        
+        db = self._get_db()
+        print(f"   - db returned: {type(db)}")
+        
+        # ✅ Use the database manager's query_one method
+        sql = """
+            SELECT tender_id FROM company_tenders 
+            WHERE id = ? AND company_id = ? AND is_active = TRUE
+        """
+        result = db.query_one(sql, (tender_db_id, company_id))
+        print(f"   - result: {result}")
+        
+        if not result:
+            return None
+        
+        tender_id_str = result.get('tender_id')
+        return self.get_tender_by_id(tender_id_str, company_id)
+
+
+    
+    def get_tender_analysis_by_id(self, analysis_id: int) -> Optional[Dict]:
+        """Get a tender analysis by ID"""
+        db = self._get_db()
+        
+        return db.query_one("""
+            SELECT 
+                id, user_id, company_id, tender_id, tender_title,
+                procuring_entity, division, district, construction_type,
+                official_estimate, recommended_bid, actual_bid,
+                success_probability, risk_level, competitor_count,
+                bid_status, analysis_date, competitor_bids,
+                risk_strategy, confidence_score, expected_profit,
+                expected_value, slt_threshold, nppi_factor,
+                weighted_average, analysis_type, final_submitted_bid,
+                is_final_submitted, actual_winning_bid, actual_winner,
+                our_rank_actual, total_bidders_actual, bid_accuracy_score,
+                lessons_learned, post_evaluation_date, is_demo,
+                data_source_type, is_archived
+            FROM tender_analyses 
+            WHERE id = ?
+        """, (analysis_id,))
+
+    def get_company_tender_analyses(self, company_id: int, tender_id: str = None, limit: int = 20) -> List[Dict]:
+        """Get tender analyses for a company"""
+        db = self._get_db()
+        
+        params = [company_id]
+        sql = """
+            SELECT id, tender_id, tender_title, recommended_bid, 
+                confidence_score, analysis_date, bid_status
+            FROM tender_analyses 
+            WHERE company_id = ?
+        """
+        
+        if tender_id:
+            sql += " AND tender_id = ?"
+            params.append(tender_id)
+        
+        sql += " ORDER BY analysis_date DESC LIMIT ?"
+        params.append(limit)
+        
+        return db.query(sql, tuple(params))
+
+    def get_company_monthly_analytics(self, company_id: int, months: int = 6) -> List[Dict]:
+        """Get monthly analytics trend for a company"""
+        db = self._get_db()
+        
+        # ✅ Use column alias with AS keyword for clarity
+        sql = """
+            SELECT 
+                strftime('%Y-%m', analysis_date) AS month,
+                COUNT(*) AS count,
+                ROUND(AVG(confidence_score), 1) AS avg_conf,
+                SUM(CASE WHEN bid_status = 'won' THEN 1 ELSE 0 END) AS wins
+            FROM tender_analyses
+            WHERE company_id = ?
+            GROUP BY strftime('%Y-%m', analysis_date)
+            ORDER BY month DESC
+            LIMIT ?
+        """
+        
+        results = db.query(sql, (company_id, months))
+        
+        # ✅ Ensure results are properly formatted with string keys
+        formatted_results = []
+        for row in results:
+            formatted_results.append({
+                'month': row.get('month', ''),
+                'count': row.get('count', 0),
+                'avg_conf': row.get('avg_conf', 0),
+                'wins': row.get('wins', 0)
+            })
+        
+        return formatted_results
     def create_tender(self, tender_data: Dict) -> int:
         """Create a new tender"""
         db = self._get_db()
@@ -315,7 +423,8 @@ class TenderCRUD:
     def update_tender_bid(self, tender_id: int, bid_amount: float, updated_by: int) -> bool:
         """Update bid amount with revision tracking"""
         # Check current bid
-        current = self.query_one("SELECT our_bid_amount FROM company_tenders WHERE id = ?", (tender_id,))
+        db = self._get_db()
+        current = db.query_one("SELECT our_bid_amount FROM company_tenders WHERE id = ?", (tender_id,))
         
         if current and current.get('our_bid_amount') is not None:
             current_amount = float(current['our_bid_amount'])
@@ -395,12 +504,13 @@ class TenderCRUD:
                              bid_amount: float, was_winner: bool = False) -> bool:
         """Update or insert competitor bid"""
         # Get company_id from tender
+        db = self._get_db()
         company_id = self._get_company_id_from_tender(tender_id)
         if not company_id:
             return False
         
         # Get official estimate
-        est_result = self.query_one(
+        est_result = db.query_one(
             "SELECT official_estimate FROM company_tenders WHERE tender_id = ?", 
             (tender_id,)
         )
@@ -413,7 +523,7 @@ class TenderCRUD:
             SELECT id FROM competitor_bid_history 
             WHERE tender_id = ? AND competitor_name = ?
         """
-        existing = self.query_one(check_sql, (tender_id, competitor_name))
+        existing = db.query_one(check_sql, (tender_id, competitor_name))
         
         if existing:
             sql = """
@@ -451,13 +561,17 @@ class TenderCRUD:
     
     def get_competitor_bids(self, tender_id: str, company_id: int) -> List[Dict]:
         """Get all competitor bids for a tender"""
+        db = self._get_db()  # ✅ Get the database manager
+        
         sql = """
             SELECT competitor_name, bid_amount, was_winner, bid_date
             FROM competitor_bid_history
             WHERE tender_id = ? AND company_id = ?
             ORDER BY bid_amount ASC
         """
-        return self.query(sql, (tender_id, company_id))
+        # ✅ Use db.query() instead of self.query()
+        return db.query(sql, (tender_id, company_id))
+
     
     # =========================================================================
     # BID REVISION OPERATIONS
@@ -468,7 +582,8 @@ class TenderCRUD:
         """Add bid revision history"""
         # Get next revision number
         rev_sql = "SELECT COALESCE(MAX(revision_number), 0) + 1 FROM bid_revisions WHERE tender_id = ?"
-        result = self.query_one(rev_sql, (tender_id,))
+        db = self._get_db()
+        result = db.query_one(rev_sql, (tender_id,))
         next_rev = result['coalesce'] if result and 'coalesce' in result else 1
         
         sql = """
@@ -482,28 +597,35 @@ class TenderCRUD:
     
     def get_bid_revisions(self, tender_id: int) -> List[Dict]:
         """Get bid revision history"""
+        
+        db = self._get_db()
         sql = """
             SELECT revision_number, bid_amount, revised_by, reason, revised_at
             FROM bid_revisions 
             WHERE tender_id = ?
             ORDER BY revision_number DESC
         """
-        return self.query(sql, (tender_id,))
+        return db.query(sql, (tender_id,))
     
     # =========================================================================
     # TEAM MANAGEMENT OPERATIONS
     # =========================================================================
-    
     def get_tender_team(self, tender_id: int) -> List[Dict]:
         """Get team members assigned to a tender"""
+        db = self._get_db()
+        
+        # ✅ Use TRUE/FALSE for boolean columns (Supabase compatible)
         sql = """
             SELECT u.id, u.full_name, u.role, ta.role as assigned_role, ta.assigned_at
             FROM tender_team_assignments ta
             JOIN users u ON ta.user_id = u.id
-            WHERE ta.tender_id = ? AND ta.is_active = 1
+            WHERE ta.tender_id = ? AND ta.is_active = TRUE
             ORDER BY ta.assigned_at DESC
         """
-        return self.query(sql, (tender_id,))
+        results = db.query(sql, (tender_id,))
+        
+        # ✅ Return list of dictionaries (not tuples)
+        return results if results else []
     
     def assign_team_member(self, tender_id: int, user_id: int, role: str) -> bool:
         """Assign a team member to a tender"""
@@ -512,7 +634,8 @@ class TenderCRUD:
             SELECT id FROM tender_team_assignments 
             WHERE tender_id = ? AND user_id = ? AND is_active = 1
         """
-        existing = self.query_one(check_sql, (tender_id, user_id))
+        db = self._get_db()
+        existing = db.query_one(check_sql, (tender_id, user_id))
         
         if existing:
             return True  # Already assigned
@@ -551,7 +674,9 @@ class TenderCRUD:
         return result if isinstance(result, int) else None
     
     def get_tender_milestones(self, tender_id: int) -> List[Dict]:
-        """Get milestones for a tender"""
+        """Get milestones for a tender - returns List[Dict]"""
+        db = self._get_db()
+        
         sql = """
             SELECT m.*, u.full_name as assigned_to_name
             FROM tender_milestones m
@@ -559,7 +684,11 @@ class TenderCRUD:
             WHERE m.tender_id = ? AND m.is_active = 1
             ORDER BY m.due_date ASC, m.completed DESC
         """
-        return self.query(sql, (tender_id,))
+        results = db.query(sql, (tender_id,))
+        
+        # ✅ Return list (not DataFrame)
+        return results if results else []
+
     
     def complete_milestone(self, milestone_id: int) -> bool:
         """Mark a milestone as completed"""
@@ -594,12 +723,12 @@ class TenderCRUD:
     #         WHERE company_id = ? AND is_active = 1
     #         ORDER BY full_name ASC
     #     """
-    #     return self.query(sql, (company_id,))
+    #     return db.query(sql, (company_id,))
     
     # def get_user_by_id(self, user_id: int) -> Optional[Dict]:
     #     """Get user by ID"""
     #     sql = "SELECT id, username, full_name, email, role FROM users WHERE id = ? AND is_active = 1"
-    #     return self.query_one(sql, (user_id,))
+    #     return db.query_one(sql, (user_id,))
     
     # =========================================================================
     # COMPETITOR STATS OPERATIONS
@@ -609,15 +738,17 @@ class TenderCRUD:
                                         bid_ratio: float, was_winner: bool) -> bool:
         """Update competitor statistics"""
         # Check if competitor exists
+        db = self._get_db()
         check_sql = """
             SELECT id FROM competitor_master 
             WHERE company_id = ? AND competitor_name = ?
         """
-        existing = self.query_one(check_sql, (company_id, competitor_name))
+        existing = db.query_one(check_sql, (company_id, competitor_name))
         
         if existing:
             # Get current total_bids for calculation
-            current = self.query_one(
+            
+            current = db.query_one(
                 "SELECT total_bids FROM competitor_master WHERE company_id = ? AND competitor_name = ?",
                 (company_id, competitor_name)
             )
@@ -664,6 +795,8 @@ class TenderCRUD:
     
     def get_competitor_master_list(self, company_id: int, active_only: bool = True) -> List[Dict]:
         """Get competitor master list"""
+        
+        db = self._get_db()
         sql = "SELECT * FROM competitor_master WHERE company_id = ?"
         params = [company_id]
         
@@ -671,7 +804,7 @@ class TenderCRUD:
             sql += " AND is_active = 1"
         
         sql += " ORDER BY competitor_name ASC"
-        return self.query(sql, tuple(params))
+        return db.query(sql, tuple(params))
     
     # =========================================================================
     # STATISTICS OPERATIONS
@@ -679,6 +812,8 @@ class TenderCRUD:
     
     def get_tender_summary_stats(self, company_id: int) -> Dict[str, Any]:
         """Get summary statistics for tenders"""
+        
+        db = self._get_db()
         sql = """
             SELECT 
                 COUNT(*) as total_tenders,
@@ -690,18 +825,20 @@ class TenderCRUD:
             FROM company_tenders
             WHERE company_id = ? AND is_active = 1
         """
-        result = self.query_one(sql, (company_id,))
+        result = db.query_one(sql, (company_id,))
         return result or {}
     
     def get_tender_count_by_status(self, company_id: int) -> Dict[str, int]:
         """Get count of tenders by status"""
+        
+        db = self._get_db()
         sql = """
             SELECT bid_status, COUNT(*) as count
             FROM company_tenders
             WHERE company_id = ? AND is_active = 1
             GROUP BY bid_status
         """
-        results = self.query(sql, (company_id,))
+        results = db.query(sql, (company_id,))
         return {r['bid_status']: r['count'] for r in results}
     
     # =========================================================================
@@ -710,8 +847,10 @@ class TenderCRUD:
     
     def _get_company_id_from_tender(self, tender_id: str) -> Optional[int]:
         """Helper to get company_id from tender_id"""
+        
+        db = self._get_db()
         sql = "SELECT company_id FROM company_tenders WHERE tender_id = ?"
-        result = self.query_one(sql, (tender_id,))
+        result = db.query_one(sql, (tender_id,))
         return result['company_id'] if result else None
     
     def get_tender_analyses(self, company_id: int, user_id: int, user_role: str = 'viewer', limit: int = 200) -> List[Dict]:

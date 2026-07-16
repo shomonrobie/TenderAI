@@ -137,10 +137,12 @@ def render_company_info_tab(company_id):
     
     st.markdown("### Company Information")
     
-    company = db.get_company_by_id(company_id)
+    # company = db.get_company_by_id(company_id)
     
-    if not company:
-        st.error("Company not found")
+    company_id = st.session_state.get('company_id')
+    user_role = st.session_state.get('user_role')
+    if not company_id or user_role not in ['system_admin', 'individual']:
+        st.warning("Please select a company first.")
         return
     
     with st.form("company_info_form"):

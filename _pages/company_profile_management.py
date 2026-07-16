@@ -1,5 +1,5 @@
 """
-Company Profile Management with Custom Field Support
+Autofill Data Management with Custom Field Support
 Complete company data management for e-GP bids with auto-fill capabilities
 """
 import streamlit as st
@@ -10,19 +10,83 @@ import os
 from database.unified_db_manager import get_db_manager
 
 
+def get_effective_company_id():
+    """Get effective company_id for the current user"""
+    db = get_db_manager()
+    
+    # If user has company_id in session, use it
+    if st.session_state.get('company_id'):
+        return st.session_state.company_id
+    
+    # If user is individual, create or get their company
+    if st.session_state.get('user_role') == 'individual':
+        user_id = st.session_state.get('user_id')
+        if user_id:
+            # Get user from database
+            user = db.get_user_by_id(user_id)
+            if user and user.get('company_id'):
+                # User already has a company
+                st.session_state.company_id = user['company_id']
+                return user['company_id']
+            
+            # User doesn't have a company - create one
+            full_name = st.session_state.get('full_name', 'Individual')
+            company_name = f"{full_name} - Individual"
+            
+            # Check if company already exists for this user
+            existing = db.query_one(
+                "SELECT id FROM companies WHERE company_name = ? AND is_individual = true",
+                (company_name,)
+            )
+            
+            if existing:
+                company_id = existing['id']
+            else:
+                # Create new company
+                company_id = db.create_company({
+                    'company_name': company_name,
+                    'is_individual': True,
+                    'is_active': True,
+                    'status': 'active'
+                })
+                
+                # Create company profile
+                if company_id:
+                    db.execute("""
+                        INSERT INTO company_profile (company_id, legal_name, created_at)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                    """, (company_id, full_name))
+            
+            if company_id:
+                # Update user with company_id
+                db.update_user(user_id, {'company_id': company_id})
+                st.session_state.company_id = company_id
+                return company_id
+    
+    return None
+
+
 def show():
-    """Company Profile Management - Complete company data for e-GP bids"""
+    """Autofill Data Management - Complete company data for e-GP bids"""
     
     # Check access
     if st.session_state.user_role not in ['admin', 'system_admin', 'company_admin', 'manager', 'analyst', 'individual']:
         st.error("🔒 Access denied. Company access required.")
         return
     
-    company_id = st.session_state.company_id
+    # ✅ Get effective company_id
+    company_id = get_effective_company_id()
+    
+    if not company_id:
+        st.warning("⚠️ No company found. Please contact support.")
+        return
+    
+    # Store in session for consistency
+    st.session_state.company_id = company_id
     
     st.markdown("""
     <div class="main-header">
-        <h1>🏢 Company Profile Management</h1>
+        <h1>🏢 Autofill Data Management</h1>
         <p>Manage all company information for e-GP tender submissions</p>
     </div>
     """, unsafe_allow_html=True)
@@ -72,7 +136,7 @@ def render_basic_info(company_id):
     company = db.get_company_by_id(company_id)
     
     if not company:
-        st.error("Company not found")
+        st.error(f"Company with ID {company_id} not found")
         return
     
     # Get field mappings for basic info
@@ -391,6 +455,7 @@ def render_key_personnel(company_id):
                 
                 if db.add_company_personnel(company_id, data):
                     st.success(f"✅ {name} added successfully!")
+                    st.balloons()
                     st.rerun()
                 else:
                     st.error("❌ Failed to add personnel")
@@ -523,7 +588,18 @@ def render_equipment(company_id):
     st.caption("Add equipment for tender submissions")
     
     db = get_db_manager()
-    equipment_list = db.get_company_equipment(company_id)
+    
+    # ✅ Try to get equipment using the correct method
+    try:
+        equipment_list = db.get_equipment_by_company(company_id)
+    except AttributeError:
+        # Fallback: try alternative method names
+        try:
+            equipment_list = db.get_company_equipment(company_id)
+        except AttributeError:
+            equipment_list = []
+            st.warning("Equipment management is not fully configured. Please contact support.")
+    
     mappings = db.get_field_mappings(company_id, 'equipment')
     
     # Display mapping info
@@ -561,11 +637,19 @@ def render_equipment(company_id):
                     'current_status': current_status
                 }
                 
-                if db.add_equipment(company_id, data):
-                    st.success(f"✅ {equipment_name} added successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to add equipment")
+                # ✅ Try to add equipment using available method
+                try:
+                    if hasattr(db, 'add_equipment'):
+                        if db.add_equipment(company_id, data):
+                            st.success(f"✅ {equipment_name} added successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to add equipment")
+                    else:
+                        # Try alternative method
+                        st.warning("Equipment add method not available. Please contact support.")
+                except Exception as e:
+                    st.error(f"Error adding equipment: {e}")
     
     # Display equipment
     if equipment_list:
@@ -601,15 +685,21 @@ def render_equipment(company_id):
                         st.rerun()
                 with col2:
                     if st.button(f"🗑️ Delete", key=f"del_equip_{e['id']}"):
-                        if db.delete_equipment(e['id']):
-                            st.success("✅ Equipment deleted successfully!")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to delete equipment")
+                        try:
+                            if hasattr(db, 'delete_equipment'):
+                                if db.delete_equipment(e['id']):
+                                    st.success("✅ Equipment deleted successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to delete equipment")
+                        except Exception as ex:
+                            st.error(f"Error deleting equipment: {ex}")
                 
                 # Edit form if this equipment is being edited
                 if st.session_state.get('edit_equipment') == e['id']:
                     render_equipment_edit_form(e, db)
+    else:
+        st.info("No equipment added. Add your equipment inventory.")
 
 
 def render_equipment_edit_form(equipment, db):
@@ -660,12 +750,15 @@ def render_equipment_edit_form(equipment, db):
                     'current_status': edit_status
                 }
                 
-                if db.update_equipment(equipment['id'], data):
-                    st.success("✅ Equipment updated successfully!")
-                    st.session_state.edit_equipment = None
-                    st.rerun()
+                if hasattr(db, 'update_equipment'):
+                    if db.update_equipment(equipment['id'], data):
+                        st.success("✅ Equipment updated successfully!")
+                        st.session_state.edit_equipment = None
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update equipment")
                 else:
-                    st.error("❌ Failed to update equipment")
+                    st.warning("Equipment update method not available")
         
         with col2:
             if st.form_submit_button("Cancel"):
@@ -680,15 +773,18 @@ def render_experience(company_id):
     
     db = get_db_manager()
     
-    # Get experiences
-    experiences = []
-    if hasattr(db, 'get_company_experience'):
-        experiences = db.get_company_experience(company_id)
-        if experiences is None:
+    # ✅ Try to get experiences using the correct method
+    try:
+        experiences = db.get_experience_by_company(company_id)
+    except AttributeError:
+        try:
+            experiences = db.get_company_experience(company_id)
+        except AttributeError:
             experiences = []
-    else:
-        st.error("Database method not available. Please contact support.")
-        return
+            st.warning("Experience management is not fully configured. Please contact support.")
+    
+    if experiences is None:
+        experiences = []
     
     mappings = db.get_field_mappings(company_id, 'experience')
     
@@ -742,14 +838,17 @@ def render_experience(company_id):
                     'is_completed': is_completed
                 }
                 
-                if hasattr(db, 'add_experience'):
-                    if db.add_experience(company_id, data):
-                        st.success(f"✅ {project_name} added successfully!")
-                        st.rerun()
+                try:
+                    if hasattr(db, 'add_experience'):
+                        if db.add_experience(company_id, data):
+                            st.success(f"✅ {project_name} added successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to add experience")
                     else:
-                        st.error("❌ Failed to add experience")
-                else:
-                    st.error("add_experience method not available")
+                        st.warning("Experience add method not available. Please contact support.")
+                except Exception as e:
+                    st.error(f"Error adding experience: {e}")
     
     # Display experiences
     if experiences and len(experiences) > 0:
@@ -813,12 +912,15 @@ def render_experience(company_id):
                     st.write(f"**PE Email:** {exp.get('procuring_entity_email', 'N/A')}")
                 
                 if st.button(f"🗑️ Delete", key=f"del_exp_{exp.get('id')}"):
-                    if hasattr(db, 'delete_experience'):
-                        if db.delete_experience(exp.get('id')):
-                            st.success("✅ Experience record deleted successfully!")
-                            st.rerun()
-                        else:
-                            st.error("❌ Failed to delete experience")
+                    try:
+                        if hasattr(db, 'delete_experience'):
+                            if db.delete_experience(exp.get('id')):
+                                st.success("✅ Experience record deleted successfully!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to delete experience")
+                    except Exception as e:
+                        st.error(f"Error deleting experience: {e}")
     else:
         st.info("No experience records added. Add your completed projects.")
 

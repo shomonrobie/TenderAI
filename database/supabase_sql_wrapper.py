@@ -111,7 +111,7 @@ class SupabaseSQLWrapper:
         self._executed_params = params
         
         # Debug: Log what's being executed
-        print(f"🔍 execute() called: db_type={self.db_type}, sql={sql[:1500]}...")
+        print(f"🔍 execute() called in supabase sql wrapper : db_type={self.db_type}, sql={sql[:105]}...")
         print(f"🔍 has_supabase_client={self._supabase_client is not None}")
         
         # Check if we're using Supabase
@@ -131,12 +131,12 @@ class SupabaseSQLWrapper:
             sql = sql.strip()
             sql_upper = sql.upper()
             
-            print(f"🔍 _execute_supabase: sql_upper starts with:")
-            print(f"   SELECT: {sql_upper.startswith('SELECT')}")
-            print(f"   INSERT: {sql_upper.startswith('INSERT')}")
-            print(f"   UPDATE: {sql_upper.startswith('UPDATE')}")
-            print(f"   DELETE: {sql_upper.startswith('DELETE')}")
-            print(f"   sql_upper[:1500]: {sql_upper[:1500]}")
+            # print(f"🔍 _execute_supabase: sql_upper starts with:")
+            # print(f"   SELECT: {sql_upper.startswith('SELECT')}")
+            # print(f"   INSERT: {sql_upper.startswith('INSERT')}")
+            # print(f"   UPDATE: {sql_upper.startswith('UPDATE')}")
+            # print(f"   DELETE: {sql_upper.startswith('DELETE')}")
+            # print(f"   sql_upper[:1500]: {sql_upper[:1500]}")
             
             # Handle SQLite-specific statements
             if sql_upper.startswith('PRAGMA'):
@@ -177,7 +177,7 @@ class SupabaseSQLWrapper:
         Returns:
             self (for method chaining)
         """
-        print(f"🔍 _execute_select_supabase called: sql={sql[:1500]}...")
+        # print(f"🔍 _execute_select_supabase called: sql={sql[:1500]}...")
         
         try:
             sql_lower = sql.lower()
@@ -479,7 +479,7 @@ class SupabaseSQLWrapper:
 
     def _execute_count_query(self, sql: str, params: tuple = None):
         """Handle COUNT(*) queries - with proper parameter handling"""
-        print(f"🔍 _execute_select_supabase called: sql={sql[:100]}...")
+        # print(f"🔍 _execute_count_query called: sql={sql[:1500]}...")
     
         # Check if this is the problematic date query
         if "NOW() - INTERVAL '7 days'" in sql or "CURRENT_DATE - INTERVAL" in sql:
@@ -711,9 +711,9 @@ class SupabaseSQLWrapper:
     def _execute_insert_supabase(self, sql: str, params: tuple = None):
         """Execute INSERT query on Supabase"""
         try:
-            print(f"🔍 ==== _execute_insert_supabase called ====")
-            print(f"🔍 SQL: {sql[:200]}...")
-            print(f"🔍 Params: {params}")
+            # print(f"🔍 ==== _execute_insert_supabase called ====")
+            # print(f"🔍 SQL: {sql[:200]}...")
+            # print(f"🔍 Params: {params}")
             
             # ✅ Clean the SQL - remove newlines and extra spaces
             cleaned_sql = ' '.join(sql.split())

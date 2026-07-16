@@ -61,6 +61,7 @@ class CompanyCRUD:
         """
         
         result = db.execute(query, tuple(params))
+        print(f"Company Update result: {result}")
         return result > 0
     
     def get_all_companies_filtered(self, search: str = None, status: int = None, 
@@ -560,3 +561,459 @@ class CompanyCRUD:
             except Exception as e:
                 logger.error(f"Error saving company profile: {e}")
                 return False
+    def check_company_name_exists(self, company_name: str, exclude_id: int = None) -> bool:
+        """Check if company name already exists"""
+        db = self._get_db()
+        query = "SELECT id FROM companies WHERE company_name = ?"
+        params = [company_name]
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        return db.query_one(query, tuple(params)) is not None
+
+    def check_company_mobile_exists(self, mobile: str, exclude_id: int = None) -> bool:
+        """Check if company mobile number already exists"""
+        db = self._get_db()
+        query = "SELECT id FROM companies WHERE mobile_number = ?"
+        params = [mobile]
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        return db.query_one(query, tuple(params)) is not None
+
+    def check_company_email_exists(self, email: str, exclude_id: int = None) -> bool:
+        """Check if company email already exists"""
+        if not email:
+            return False
+        db = self._get_db()
+        query = "SELECT id FROM companies WHERE email = ?"
+        params = [email]
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        return db.query_one(query, tuple(params)) is not None
+    # ============ Company Access Management ============
+    
+    def get_company_users(self, company_id: int) -> List[Dict]:
+        """Get all users associated with a company"""
+        db = self._get_db()
+        
+        return db.query("""
+            SELECT 
+                id,
+                username,
+                full_name,
+                email,
+                phone,
+                role,
+                is_active,
+                is_approved,
+                is_company_admin,
+                created_at,
+                last_login_at,
+                approved_by,
+                approved_at,
+                company_admin_approved_by,
+                company_admin_approved_at
+            FROM users
+            WHERE company_id = ? 
+                AND is_active = true
+            ORDER BY is_company_admin DESC, full_name
+        """, (company_id,))
+    # Updated CompanyCRUD methods for Supabase/PostgreSQL
+
+    def get_company_users(self, company_id: int) -> List[Dict]:
+        """Get all users associated with a company"""
+        db = self._get_db()
+        
+        return db.query("""
+            SELECT 
+                id,
+                username,
+                full_name,
+                email,
+                phone,
+                role,
+                is_active,
+                is_approved,
+                is_company_admin,
+                created_at,
+                last_login_at,
+                approved_by,
+                approved_at,
+                company_admin_approved_by,
+                company_admin_approved_at
+            FROM users
+            WHERE company_id = ? 
+                AND is_active = true
+            ORDER BY is_company_admin DESC, full_name
+        """, (company_id,))
+
+    def get_pending_access_requests(self, company_id: int) -> List[Dict]:
+        """Get pending access requests for a company"""
+        db = self._get_db()
+        
+        return db.query("""
+            SELECT 
+                id as user_id,
+                username,
+                full_name,
+                email,
+                phone,
+                role as current_role,
+                created_at as user_created_at,
+                is_approved,
+                is_company_admin,
+                company_admin_approved_by,
+                company_admin_approved_at
+            FROM users
+            WHERE company_id = ? 
+                AND is_approved = false
+                AND is_active = true
+                AND role != 'individual'
+            ORDER BY created_at DESC
+        """, (company_id,))
+
+    def get_company_access_stats(self, company_id: int) -> Dict:
+        """Get access statistics for a company"""
+        db = self._get_db()
+        
+        stats = {
+            'total_users': 0,
+            'approved_users': 0,
+            'pending_requests': 0,
+            'company_admins': 0,
+            'company_users': 0
+        }
+        
+        # Total users in company - use integer comparison with boolean
+        result = db.query_one(
+            "SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = true", 
+            (company_id,)
+        )
+        stats['total_users'] = result.get('count', 0) if result else 0
+        
+        # Approved users - is_approved = true
+        result = db.query_one(
+            "SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_approved = true AND is_active = true", 
+            (company_id,)
+        )
+        stats['approved_users'] = result.get('count', 0) if result else 0
+        
+        # Pending requests - is_approved = false and not individual
+        result = db.query_one(
+            "SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_approved = false AND is_active = true AND role != 'individual'", 
+            (company_id,)
+        )
+        stats['pending_requests'] = result.get('count', 0) if result else 0
+        
+        # Company admins - is_company_admin = true
+        result = db.query_one(
+            "SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_company_admin = true AND is_active = true", 
+            (company_id,)
+        )
+        stats['company_admins'] = result.get('count', 0) if result else 0
+        
+        # Company users (non-admins)
+        stats['company_users'] = stats['approved_users'] - stats['company_admins']
+        
+        return stats
+
+    def approve_user_access(self, user_id: int, company_id: int, admin_id: int, 
+                        make_admin: bool = False) -> bool:
+        """Approve a user's access to the company"""
+        db = self._get_db()
+        
+        try:
+            # Update user approval status - use boolean true/false for Supabase
+            result = db.execute("""
+                UPDATE users 
+                SET is_approved = true,
+                    approved_by = ?,
+                    approved_at = CURRENT_TIMESTAMP,
+                    is_company_admin = ?,
+                    company_admin_approved_by = ?,
+                    company_admin_approved_at = CURRENT_TIMESTAMP,
+                    role = ?
+                WHERE id = ? AND company_id = ?
+            """, (
+                admin_id, 
+                make_admin,  # true/false boolean
+                admin_id if make_admin else None,
+                'company_admin' if make_admin else 'company_user',
+                user_id, 
+                company_id
+            ))
+            
+            if result > 0:
+                # Log the action
+                self._log_access_action(
+                    user_id, company_id, admin_id, 'approved', 
+                    f"Access approved. Admin status: {make_admin}"
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to approve user access: {e}")
+            return False
+
+    def reject_user_access(self, user_id: int, company_id: int, admin_id: int) -> bool:
+        """Reject a user's access request"""
+        db = self._get_db()
+        
+        try:
+            # Remove user from company
+            result = db.execute("""
+                UPDATE users 
+                SET company_id = NULL,
+                    is_approved = false,
+                    approved_by = NULL,
+                    approved_at = NULL,
+                    is_company_admin = false,
+                    company_admin_approved_by = NULL,
+                    company_admin_approved_at = NULL,
+                    role = 'individual'
+                WHERE id = ? AND company_id = ?
+            """, (user_id, company_id))
+            
+            if result > 0:
+                self._log_access_action(
+                    user_id, company_id, admin_id, 'rejected', 
+                    "Access request rejected by admin"
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to reject user access: {e}")
+            return False
+
+    def revoke_user_access(self, user_id: int, company_id: int, admin_id: int) -> bool:
+        """Revoke a user's company access"""
+        db = self._get_db()
+        
+        try:
+            # Remove user from company
+            result = db.execute("""
+                UPDATE users 
+                SET company_id = NULL,
+                    is_approved = false,
+                    approved_by = NULL,
+                    approved_at = NULL,
+                    is_company_admin = false,
+                    company_admin_approved_by = NULL,
+                    company_admin_approved_at = NULL,
+                    role = 'individual'
+                WHERE id = ? AND company_id = ?
+            """, (user_id, company_id))
+            
+            if result > 0:
+                self._log_access_action(
+                    user_id, company_id, admin_id, 'revoked', 
+                    "Access revoked by admin"
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to revoke user access: {e}")
+            return False
+
+    def update_user_admin_status(self, user_id: int, company_id: int, 
+                                admin_id: int, make_admin: bool) -> bool:
+        """Update user's company admin status"""
+        db = self._get_db()
+        
+        try:
+            result = db.execute("""
+                UPDATE users 
+                SET is_company_admin = ?,
+                    company_admin_approved_by = ?,
+                    company_admin_approved_at = CURRENT_TIMESTAMP,
+                    role = ?
+                WHERE id = ? AND company_id = ?
+            """, (
+                make_admin,  # true/false boolean
+                admin_id if make_admin else None,
+                'company_admin' if make_admin else 'company_user',
+                user_id,
+                company_id
+            ))
+            
+            if result > 0:
+                self._log_access_action(
+                    user_id, company_id, admin_id, 'updated', 
+                    f"Admin status updated to: {'company_admin' if make_admin else 'company_user'}"
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to update user admin status: {e}")
+            return False
+
+    def check_user_company_access(self, user_id: int, company_id: int) -> Dict:
+        """Check if user has access to a company"""
+        db = self._get_db()
+        
+        user = db.query_one("""
+            SELECT 
+                id, 
+                is_approved, 
+                is_company_admin,
+                role,
+                is_active
+            FROM users 
+            WHERE id = ? AND company_id = ?
+        """, (user_id, company_id))
+        
+        if not user:
+            return {'has_access': False, 'reason': 'User not found in this company'}
+        
+        if not user.get('is_active'):
+            return {'has_access': False, 'reason': 'User is inactive'}
+        
+        if not user.get('is_approved'):
+            return {'has_access': False, 'reason': 'User access pending approval'}
+        
+        return {
+            'has_access': True,
+            'is_admin': user.get('is_company_admin', False) == True,
+            'role': user.get('role', 'company_user'),
+            'user_data': user
+        }
+    def invite_user_to_company(self, email: str, company_id: int, 
+                              admin_id: int, make_admin: bool = False) -> Dict:
+        """Invite a user to join the company"""
+        db = self._get_db()
+        
+        try:
+            # Check if user exists
+            user = db.query_one("SELECT id, company_id, is_approved FROM users WHERE email = ?", (email,))
+            
+            if user:
+                if user.get('company_id') == company_id:
+                    return {'success': False, 'message': 'User is already associated with this company.'}
+                elif user.get('company_id'):
+                    return {'success': False, 'message': 'User is already associated with another company.'}
+                else:
+                    # Update user's company
+                    result = db.execute("""
+                        UPDATE users 
+                        SET company_id = ?,
+                            is_approved = 0,
+                            approved_by = NULL,
+                            approved_at = NULL,
+                            is_company_admin = ?,
+                            company_admin_approved_by = ?,
+                            company_admin_approved_at = NULL
+                        WHERE id = ?
+                    """, (
+                        company_id,
+                        1 if make_admin else 0,
+                        admin_id if make_admin else None,
+                        user['id']
+                    ))
+                    
+                    if result > 0:
+                        return {'success': True, 'message': f'User {email} has been invited to the company!'}
+                    return {'success': False, 'message': 'Failed to invite user.'}
+            else:
+                return {'success': False, 'message': f'User with email {email} not found. Please ask them to register first.'}
+        except Exception as e:
+            logger.error(f"Failed to invite user: {e}")
+            return {'success': False, 'message': f'Error: {str(e)}'}
+    
+   
+    def get_user_companies(self, user_id: int) -> List[Dict]:
+        """Get all companies a user has access to"""
+        db = self._get_db()
+        
+        return db.query("""
+            SELECT 
+                c.id,
+                c.company_name,
+                c.registration_number,
+                c.email,
+                c.phone,
+                u.is_approved,
+                u.is_company_admin,
+                u.role,
+                u.approved_at
+            FROM companies c
+            JOIN users u ON u.company_id = c.id
+            WHERE u.id = ? AND u.is_approved = 1 AND u.is_active = 1
+            ORDER BY u.is_company_admin DESC, c.company_name
+        """, (user_id,))
+    
+    def _log_access_action(self, user_id: int, company_id: int, 
+                          admin_id: int, action: str, notes: str = ''):
+        """Log access action to audit trail"""
+        try:
+            db = self._get_db()
+            # Check if audit_logs table exists, if not, create a simple log
+            db.execute("""
+                INSERT INTO company_access_logs 
+                (user_id, company_id, admin_id, action, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (user_id, company_id, admin_id, action, notes))
+        except Exception as e:
+            # Table might not exist, just log to console
+            logger.info(f"Access action: {action} - User: {user_id}, Company: {company_id}, Admin: {admin_id}, Notes: {notes}")
+    
+    def get_access_logs(self, company_id: int, limit: int = 50) -> List[Dict]:
+        """Get access logs for a company"""
+        db = self._get_db()
+        
+        try:
+            return db.query("""
+                SELECT 
+                    l.*,
+                    u.full_name as user_name,
+                    u.email as user_email,
+                    a.full_name as admin_name,
+                    a.email as admin_email
+                FROM company_access_logs l
+                LEFT JOIN users u ON l.user_id = u.id
+                LEFT JOIN users a ON l.admin_id = a.id
+                WHERE l.company_id = ?
+                ORDER BY l.created_at DESC
+                LIMIT ?
+            """, (company_id, limit))
+        except Exception as e:
+            # Table might not exist
+            logger.warning(f"Access logs table may not exist: {e}")
+            return []
+    
+    def get_user_access_level(self, user_id: int, company_id: int) -> Optional[str]:
+        """Get user's access level for a company"""
+        db = self._get_db()
+        
+        user = db.query_one("""
+            SELECT 
+                CASE 
+                    WHEN is_company_admin = 1 THEN 'admin'
+                    WHEN role = 'company_admin' THEN 'admin'
+                    WHEN role = 'manager' THEN 'manager'
+                    WHEN role = 'analyst' THEN 'analyst'
+                    ELSE 'viewer'
+                END as access_level
+            FROM users 
+            WHERE id = ? AND company_id = ? AND is_approved = 1 AND is_active = 1
+        """, (user_id, company_id))
+        
+        return user.get('access_level') if user else None
+    
+    def can_user_edit_company_data(self, user_id: int, company_id: int) -> bool:
+        """Check if user can edit company data"""
+        db = self._get_db()
+        
+        user = db.query_one("""
+            SELECT is_company_admin, role
+            FROM users 
+            WHERE id = ? AND company_id = ? AND is_approved = 1 AND is_active = 1
+        """, (user_id, company_id))
+        
+        if not user:
+            return False
+        
+        # Admin or manager level roles can edit
+        return user.get('is_company_admin', 0) == 1 or user.get('role') in ['manager', 'company_admin']
+

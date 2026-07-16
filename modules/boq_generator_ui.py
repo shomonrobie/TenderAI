@@ -1,10 +1,11 @@
-# modules/boq_generator_ui.py - Refactored to use crud_boq and crud_rates
+# modules/boq_generator_ui.py - Refactored to use AdvancedBOQMatcher
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from database.unified_db_manager import get_db_manager
 from modules.boq_generator import BOQGenerator
+from modules.advanced_boq_generator import AdvancedBOQMatcher
 from modules.rbac import (
     rbac, can_view_boq, can_create_boq, can_edit_boq, 
     can_delete_boq, can_export_data, render_role_badge
@@ -12,12 +13,13 @@ from modules.rbac import (
 
 
 def render_boq_generator():
-    """BOQ Generator UI - Refactored to use crud_boq and crud_rates"""
+    """BOQ Generator UI - Uses AdvancedBOQMatcher for intelligent matching"""
     
     st.markdown("""
     <div class="main-header">
         <h1>📊 BOQ Generator</h1>
         <p>Upload BOQ file, match rates from your rate books, and generate complete BOQ</p>
+        <p style="font-size: 0.9rem; color: #64748b;">🔍 Automatically detects both standalone items and parent-child relationships</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -41,6 +43,7 @@ def render_boq_generator():
         return
     
     boq_gen = BOQGenerator(db)
+    matcher = AdvancedBOQMatcher()
     permissions = rbac.get_current_user_permissions()
     can_create = permissions.get('can_create_boq', False)
     
@@ -125,8 +128,7 @@ def render_boq_generator():
             st.dataframe(df_boq.head(10), use_container_width=True)
             st.caption(f"Total items: {len(df_boq)}")
         
-        # ========== ✅ ADD COLUMN DETECTION HERE ==========
-        # Detect columns for debugging
+        # ========== Column Detection ==========
         def find_column(df, possible_names):
             """Find a column in DataFrame by trying multiple possible names"""
             df_cols_lower = [col.lower().strip() for col in df.columns]
@@ -142,7 +144,6 @@ def render_boq_generator():
         qty_col = find_column(df_boq, ['Quantity', 'Qty', 'qty', 'quantity'])
         unit_col = find_column(df_boq, ['Measurement Unit', 'Unit', 'unit', 'UOM'])
         
-        # ✅ Add the debug expander here
         with st.expander("🔍 Column Detection", expanded=False):
             st.write("**Detected columns in your file:**")
             st.write(f"- Code column: **{code_col or 'Not found'}**")
@@ -187,13 +188,32 @@ def render_boq_generator():
         
         st.info(f"📊 Loaded {len(rates_df)} rates from {book_options.get(selected_book_id, '')} with {pricing_level} pricing")
         
+        # ========== Show Matching Strategy ==========
+        with st.expander("🔍 Matching Strategy", expanded=False):
+            st.markdown("""
+            **The matcher automatically handles both formats:**
+            
+            | Type | Description | Example |
+            |------|-------------|---------|
+            | **Standalone Item** | Full description with rates | `Brick work with first class bricks...` |
+            | **Parent-Child** | Parent description + child details | `Supplying combi closet... Approx. 695~719 X 340~395 mm size...` |
+            
+            **Matching Methods:**
+            1. Exact Code Match
+            2. Parent-Child Split Detection
+            3. Direct Fuzzy Match (Levenshtein + Sequence + Token)
+            4. TF-IDF Contextual Match
+            5. Key Terms Match (Fallback)
+            """)
+        
         if st.button("🚀 Match Items with Rates", type="primary", use_container_width=True):
-            with st.spinner("Matching items..."):
+            with st.spinner("Matching items using intelligent detection..."):
                 st.session_state.boq_selected_book_id = selected_book_id
                 st.session_state.boq_version_id = version.get('id')
                 st.session_state.boq_pricing_level = pricing_level
                 
-                result = boq_gen.match_boq_items(df_boq, rates_df)
+                # ✅ Use AdvancedBOQMatcher
+                result = matcher.match_boq_items(df_boq, rates_df)
                 
                 st.session_state.boq_match_result = result
                 st.session_state.boq_original_df = df_boq
@@ -211,21 +231,53 @@ def render_boq_generator():
         
         st.markdown("### 📊 Matching Results")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("✅ Matched", result['total_matched'])
         with col2:
             st.metric("❌ Unmatched", result['total_unmatched'])
         with col3:
             st.metric("💰 Total Cost", f"BDT {result['total_cost']:,.2f}")
+        with col4:
+            match_rate = (result['total_matched'] / (result['total_matched'] + result['total_unmatched']) * 100) if (result['total_matched'] + result['total_unmatched']) > 0 else 0
+            st.metric("📈 Match Rate", f"{match_rate:.1f}%")
+        
+        # ========== Show Match Summary ==========
+        if 'match_summary' in result:
+            with st.expander("📊 Match Details", expanded=True):
+                summary = result['match_summary']
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("🏷️ Standalone Matched", summary.get('Standalone Matched', 0))
+                with col2:
+                    st.metric("👪 Parent-Child Detected", summary.get('Parent-Child Detected', 0))
+                with col3:
+                    st.metric("📦 Total Items", summary.get('Total Items', 0))
         
         # Show matched items
         if result['matched']:
             with st.expander(f"✅ Matched Items ({result['total_matched']})", expanded=True):
                 df_matched = pd.DataFrame(result['matched'])
-                df_matched['Unit Rate'] = df_matched['Unit Rate'].apply(lambda x: f"{x:,.2f}")
-                df_matched['Total'] = df_matched['Total'].apply(lambda x: f"{x:,.2f}")
-                st.dataframe(df_matched, use_container_width=True)
+                
+                # Format columns
+                if 'Unit Rate' in df_matched.columns:
+                    df_matched['Unit Rate'] = df_matched['Unit Rate'].apply(lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x)
+                if 'Total' in df_matched.columns:
+                    df_matched['Total'] = df_matched['Total'].apply(lambda x: f"{x:,.2f}" if isinstance(x, (int, float)) else x)
+                if 'Parent Match Score' in df_matched.columns:
+                    df_matched['Parent Match Score'] = df_matched['Parent Match Score'].apply(lambda x: f"{x:.1%}" if isinstance(x, (int, float)) else x)
+                if 'Child Match Score' in df_matched.columns:
+                    df_matched['Child Match Score'] = df_matched['Child Match Score'].apply(lambda x: f"{x:.1%}" if isinstance(x, (int, float)) else x)
+                
+                # Select columns for display
+                display_cols = ['Item Code', 'Description', 'Unit', 'Quantity', 'Unit Rate', 'Total', 'Match Method']
+                available_cols = [col for col in display_cols if col in df_matched.columns]
+                st.dataframe(df_matched[available_cols], use_container_width=True)
+                
+                # Show parent-child breakdown
+                parent_child = df_matched[df_matched['Match Method'].str.contains('Parent-Child', na=False)]
+                if not parent_child.empty:
+                    st.caption(f"👪 {len(parent_child)} items matched using parent-child detection")
         
         # Show unmatched items
         if result['unmatched']:

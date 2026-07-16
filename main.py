@@ -79,6 +79,7 @@ from modules.advanced_bid_optimizer import get_three_tier_comparison
 from modules.forgot_password import render_forgot_password
 from modules.reset_password import render_reset_password
 from _pages.admin_dashboard import show as admin_dashboard_page
+
 from _pages.landing_page2 import show_landing_page as landing_page
 from _pages.about import show_about_page
 import random
@@ -596,8 +597,27 @@ def _import_and_call(module_path: str, function_name: str, *args, **kwargs):
     """Lazy import with graceful error handling"""
     try:
         module = importlib.import_module(module_path)
+        if not hasattr(module, function_name):
+            debug_print(f"❌ Function {function_name} not found in {module_path}")
+            st.error(f"⚠️ Configuration error: {function_name}")
+            return None
+        
         func = getattr(module, function_name)
-        return func(*args, **kwargs)
+        debug_print(f"✅ Calling {function_name} from {module_path}")
+        
+        # ✅ Call the function with proper error handling
+        try:
+            result = func(*args, **kwargs)
+            return result
+        except Exception as e:
+            debug_print(f"❌ Error calling {function_name}: {e}")
+            logger.error(f"Function call failed: {module_path}.{function_name}", exc_info=True)
+            st.error(f"⚠️ Error loading {function_name.replace('_', ' ').title()}")
+            if DEBUG_MODE:
+                with st.expander("🐛 Debug Traceback"):
+                    st.code(traceback.format_exc(), language="python")
+            return None
+            
     except ImportError as e:
         debug_print(f"❌ Failed to import {module_path}.{function_name}: {e}")
         logger.error(f"Module import failed: {module_path}", exc_info=True)
@@ -607,6 +627,7 @@ def _import_and_call(module_path: str, function_name: str, *args, **kwargs):
         debug_print(f"❌ Function {function_name} not found in {module_path}: {e}")
         st.error(f"⚠️ Configuration error: {function_name}")
         return None
+
 
 
 # =============================================================================

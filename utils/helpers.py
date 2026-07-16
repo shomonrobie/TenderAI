@@ -570,3 +570,20 @@ def safe_execute_query(db, sql, params=None):
             cursor.execute(sql)
         rows = cursor.fetchall()
         return rows_to_dicts(rows, cursor)
+def safe_strip(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                stripped = value.strip()
+                return stripped if stripped else None
+            return value
+        
+# Helper function to compare values safely
+def safe_compare(new_val, old_val):
+    if new_val is None and old_val is None:
+        return False
+    if new_val is None and old_val == '':
+        return False
+    if new_val == '' and old_val is None:
+        return False
+    return new_val != old_val

@@ -14,7 +14,7 @@ import sys
 from utils.helpers import format_currency_bd
 from modules.rbac import can_edit_tender
 from modules.tender_data_parser import parse_tender_url
-from database.unified_db_manager import UnifiedDatabaseManager
+from database.unified_db_manager import get_db_manager
 
 # =========================================================
 # CONSTANTS
@@ -442,7 +442,7 @@ def _handle_form_submission(tender_id: str, tender_title: str, procuring_entity:
     }
 
 
-    db = UnifiedDatabaseManager()
+    db = get_db_manager()
     try:
         if is_editing:
             success = db.update_tender(st.session_state.edit_tender_id, tender_data, st.session_state.user_id)

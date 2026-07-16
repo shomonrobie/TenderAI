@@ -1151,8 +1151,8 @@ class LGEDImportWizard:
                     else:
                         st.error(result.get('message', 'Import failed'))
     
-    def _build_hierarchy_from_df(self, df, config):
-        """Build hierarchy from DataFrame"""
+    def _build_hierarchy_from_df(self, df, chapter_num):
+        """Build hierarchy from DataFrame with proper zone handling"""
         hierarchy = {
             'parents': [],
             'children': []
@@ -1162,26 +1162,40 @@ class LGEDImportWizard:
         
         for _, row in df.iterrows():
             if row.get('has_rates', False):
+                # ✅ Build rates dictionary with proper zone values
                 rates = {}
-                if pd.notna(row.get('zone_a')) and row.get('zone_a'):
-                    rates['Zone-A'] = row['zone_a']
-                if pd.notna(row.get('zone_b')) and row.get('zone_b'):
-                    rates['Zone-B'] = row['zone_b']
-                if pd.notna(row.get('zone_c')) and row.get('zone_c'):
-                    rates['Zone-C'] = row['zone_c']
-                if pd.notna(row.get('zone_d')) and row.get('zone_d'):
-                    rates['Zone-D'] = row['zone_d']
+                
+                # Check each zone column
+                zone_a = row.get('zone_a')
+                if zone_a and pd.notna(zone_a) and zone_a > 0:
+                    rates['Zone-A'] = float(zone_a)
+                
+                zone_b = row.get('zone_b')
+                if zone_b and pd.notna(zone_b) and zone_b > 0:
+                    rates['Zone-B'] = float(zone_b)
+                
+                zone_c = row.get('zone_c')
+                if zone_c and pd.notna(zone_c) and zone_c > 0:
+                    rates['Zone-C'] = float(zone_c)
+                
+                zone_d = row.get('zone_d')
+                if zone_d and pd.notna(zone_d) and zone_d > 0:
+                    rates['Zone-D'] = float(zone_d)
+                
+                # Debug: print if rates are being captured
+                if rates:
+                    print(f"✅ Rates for {row['item_code']}: {rates}")
+                else:
+                    print(f"⚠️ No rates for {row['item_code']}")
                 
                 parent_code = row.get('parent_code') if pd.notna(row.get('parent_code')) and row.get('parent_code') != '' else None
                 
                 hierarchy['children'].append({
-                    'code': row['item_code'],
+                    'pwd_code': row['item_code'],
                     'parent_code': parent_code,
                     'description': row.get('description', '') if pd.notna(row.get('description')) else '',
                     'unit': row.get('unit', '') if pd.notna(row.get('unit')) else '',
-                    'rates': rates,
-                    'chapter_number': config['chapter_num'],
-                    'section_number': config.get('section_num', '')
+                    'rates': rates  # ✅ Now includes zone values
                 })
                 
                 if parent_code:
@@ -1190,19 +1204,21 @@ class LGEDImportWizard:
                 hierarchy['parents'].append({
                     'code': row['item_code'],
                     'description': row.get('description', '') if pd.notna(row.get('description')) else '',
-                    'chapter': config['chapter_num']
+                    'chapter': chapter_num
                 })
                 parent_codes.add(row['item_code'])
         
+        # Add any missing parents
         for parent_code in parent_codes:
             if not any(p['code'] == parent_code for p in hierarchy['parents']):
                 hierarchy['parents'].append({
                     'code': parent_code,
                     'description': f"Parent {parent_code}",
-                    'chapter': config['chapter_num']
+                    'chapter': chapter_num
                 })
         
         return hierarchy
+
     
     def _save_to_database_from_hierarchy(self, hierarchy, config, notes):
         """Save hierarchy to database using SystemRateCRUD"""
