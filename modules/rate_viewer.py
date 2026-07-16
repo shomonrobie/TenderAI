@@ -137,97 +137,154 @@ class RateViewer:
         self._render_pwd_rates(data, can_edit, can_export)
 
     def _render_pwd_rates(self, data: pd.DataFrame, can_edit: bool, can_export: bool):
-        """Render PWD rates with full features"""
+        """Render PWD rates with full features - Works with chapter filter"""
         
+        # Debug info
         if st.checkbox("Show Debug Info", key="pwd_debug"):
-            st.write("Data types:")
-            st.write(data.dtypes)
-            st.write("Sample data:")
-            st.dataframe(data.head())
+            st.write("Data columns:", data.columns.tolist())
+            st.write("Sample data:", data.head())
         
         st.markdown("#### 🔍 Filters")
-        col1, col2, col3, col4 = st.columns(4)
+        
+        # ========== 5 Columns for Filters ==========
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
+            # ✅ CHAPTER FILTER - Will detect 'chapter_number' column
             if 'chapter_number' in data.columns:
-                chapters = sorted(data['chapter_number'].dropna().unique())
-                selected_chapter = st.selectbox("Chapter", ["All"] + list(chapters), key="pwd_chapter")
+                # Convert all chapters to string for consistent display
+                chapters = sorted(data['chapter_number'].dropna().astype(str).unique())
+                chapter_options = ["All"] + chapters
+                selected_chapter = st.selectbox(
+                    "📚 Chapter", 
+                    chapter_options, 
+                    key="pwd_chapter_filter"
+                )
             else:
                 selected_chapter = "All"
+                st.info("No chapter column")
         
         with col2:
             if 'zone_name' in data.columns:
-                zones = data['zone_name'].dropna().unique().tolist()
-                selected_zone = st.selectbox("Zone", ["All"] + zones, key="pwd_zone")
+                zones = sorted(data['zone_name'].dropna().unique().tolist())
+                selected_zone = st.selectbox("📍 Zone", ["All"] + zones, key="pwd_zone_filter")
             else:
                 selected_zone = "All"
         
         with col3:
-            search_term = st.text_input("Search", placeholder="Code or description...", key="pwd_search")
+            search_term = st.text_input(
+                "🔍 Search", 
+                placeholder="Code or description...", 
+                key="pwd_search"
+            )
         
         with col4:
-            items_per_page = st.selectbox("Items per page", [10, 25, 50, 100, 200], key="pwd_items")
+            items_per_page = st.selectbox(
+                "📄 Items per page", 
+                [10, 25, 50, 100, 200], 
+                key="pwd_items_per_page"
+            )
         
+        with col5:
+            # Show count for selected chapter
+            if selected_chapter != "All" and 'chapter_number' in data.columns:
+                count = len(data[data['chapter_number'].astype(str) == selected_chapter])
+                st.metric("📊 Items", count)
+            else:
+                st.metric("📊 Total Items", len(data))
+        
+        # ========== APPLY FILTERS ==========
         filtered_data = data.copy()
         
-        if selected_chapter != "All":
-            filtered_data = filtered_data[filtered_data['chapter_number'] == selected_chapter]
-        
-        if selected_zone != "All":
-            filtered_data = filtered_data[filtered_data['zone_name'] == selected_zone]
-        
-        if search_term:
+        # 1. Chapter filter
+        if selected_chapter != "All" and 'chapter_number' in data.columns:
             filtered_data = filtered_data[
-                filtered_data['pwd_code'].astype(str).str.contains(search_term, case=False, na=False) |
-                filtered_data['specification_text'].astype(str).str.contains(search_term, case=False, na=False)
+                filtered_data['chapter_number'].astype(str) == selected_chapter
             ]
         
-        filtered_data['unit_rate'] = pd.to_numeric(filtered_data['unit_rate'], errors='coerce')
-        filtered_data = filtered_data.dropna(subset=['unit_rate'])
+        # 2. Zone filter
+        if selected_zone != "All" and 'zone_name' in data.columns:
+            filtered_data = filtered_data[filtered_data['zone_name'] == selected_zone]
+        
+        # 3. Search filter
+        if search_term:
+            search_lower = search_term.lower()
+            filtered_data = filtered_data[
+                filtered_data['pwd_code'].astype(str).str.contains(search_term, case=False, na=False) |
+                filtered_data['description'].astype(str).str.contains(search_term, case=False, na=False)
+            ]
+        
+        # Clean data
+        if 'unit_rate' in filtered_data.columns:
+            filtered_data['unit_rate'] = pd.to_numeric(filtered_data['unit_rate'], errors='coerce')
+            filtered_data = filtered_data.dropna(subset=['unit_rate'])
         
         if filtered_data.empty:
-            st.warning("No data found matching the filters")
+            st.warning(f"No data found for Chapter {selected_chapter if selected_chapter != 'All' else 'All'}")
             return
         
+        # ========== PIVOT DATA ==========
         try:
+            # Determine columns for pivot
+            desc_col = 'description' if 'description' in filtered_data.columns else 'specification_text'
+            unit_col = 'unit' if 'unit' in filtered_data.columns else 'measurement_unit'
+            
+            # Pivot columns
+            index_cols = ['pwd_code', desc_col, unit_col]
+            if 'chapter_number' in filtered_data.columns:
+                index_cols.append('chapter_number')
+            
             pivot_data = filtered_data.pivot_table(
-                index=['pwd_code', 'specification_text', 'measurement_unit'],
+                index=index_cols,
                 columns='zone_name',
                 values='unit_rate',
                 aggfunc='first'
             ).reset_index()
+            
         except Exception as e:
             st.error(f"Pivot error: {e}")
             st.dataframe(filtered_data, use_container_width=True, hide_index=True)
             return
         
+        # Clean up column names
         pivot_data.columns.name = None
         pivot_data = pivot_data.rename(columns={
             'pwd_code': 'Item Code',
-            'specification_text': 'Description',
-            'measurement_unit': 'Unit'
+            desc_col: 'Description',
+            unit_col: 'Unit'
         })
+        
+        if 'chapter_number' in pivot_data.columns:
+            pivot_data = pivot_data.rename(columns={'chapter_number': 'Chapter'})
         
         pivot_data = pivot_data.fillna('')
         
-        rate_columns = ['Dhaka', 'Chattogram', 'Khulna', 'Rajshahi']
-        for col in rate_columns:
+        # Format rate columns
+        zone_columns = ['Zone-A', 'Zone-B', 'Zone-C', 'Zone-D']
+        for col in zone_columns:
             if col in pivot_data.columns:
-                pivot_data[col] = pivot_data[col].apply(lambda x: f"৳{x:,.2f}" if x and x != '' else '')
+                pivot_data[col] = pivot_data[col].apply(
+                    lambda x: f"৳{x:,.2f}" if x and x != '' else ''
+                )
         
+        # ========== DISPLAY ==========
+        if 'Chapter' in pivot_data.columns:
+            st.caption(f"📚 Showing Chapter {selected_chapter if selected_chapter != 'All' else 'All Chapters'} - {len(pivot_data)} items")
+        
+        # ========== PAGINATION ==========
         total_items = len(pivot_data)
         total_pages = (total_items + items_per_page - 1) // items_per_page if total_items > 0 else 1
         
         if 'pwd_page_num' not in st.session_state:
             st.session_state.pwd_page_num = 1
         
+        # Reset page when filter changes
         current_filter = (selected_chapter, selected_zone, search_term)
         if st.session_state.get('pwd_last_filter') != current_filter:
             st.session_state.pwd_page_num = 1
             st.session_state.pwd_last_filter = current_filter
         
-        # ===== PAGINATION WITH STREAMLIT COMPONENTS (RELIABLE) =====
-        # Use 3 columns with proper ratios
+        # Pagination controls
         col1, col2, col3 = st.columns([1, 3, 1])
         
         with col1:
@@ -236,7 +293,6 @@ class RateViewer:
                 st.rerun()
         
         with col2:
-            # Center aligned page info
             st.markdown(
                 f"""
                 <div style='text-align: center; padding-top: 8px;'>
@@ -251,20 +307,17 @@ class RateViewer:
             )
         
         with col3:
-            # Create a container for the Next button with right alignment
-            next_container = st.container()
-            with next_container:
-                # Use columns within this container to push button right
-                next_col1, next_col2 = st.columns([2, 1])
-                with next_col2:
-                    if st.button("Next ▶", disabled=st.session_state.pwd_page_num >= total_pages, key="pwd_next"):
-                        st.session_state.pwd_page_num += 1
-                        st.rerun()
+            next_col1, next_col2 = st.columns([2, 1])
+            with next_col2:
+                if st.button("Next ▶", disabled=st.session_state.pwd_page_num >= total_pages, key="pwd_next"):
+                    st.session_state.pwd_page_num += 1
+                    st.rerun()
         
         start_idx = (st.session_state.pwd_page_num - 1) * items_per_page
         end_idx = min(start_idx + items_per_page, total_items)
         page_data = pivot_data.iloc[start_idx:end_idx]
         
+        # ========== DISPLAY DATA ==========
         if can_edit:
             edited_data = st.data_editor(
                 page_data,
@@ -282,11 +335,72 @@ class RateViewer:
         else:
             st.dataframe(page_data, use_container_width=True, hide_index=True)
         
+        # ========== EXPORT ==========
         if can_export:
             self._render_export_options(pivot_data, "pwd_rates_export")
         
+        # ========== SUMMARY STATISTICS ==========
         with st.expander("📊 Summary Statistics", expanded=False):
-            self._render_summary_stats(filtered_data, rate_columns)
+            self._render_summary_stats(filtered_data, zone_columns)
+
+
+    def _render_summary_stats(self, data: pd.DataFrame, zone_columns: List[str]):
+        """Render summary statistics for PWD rates"""
+        
+        st.markdown("#### 📊 Summary Statistics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_items = data['pwd_code'].nunique() if 'pwd_code' in data.columns else len(data)
+            st.metric("Total Items", total_items)
+        
+        with col2:
+            if 'zone_name' in data.columns:
+                zones = data['zone_name'].nunique()
+                st.metric("Zones", zones)
+            else:
+                st.metric("Zones", "N/A")
+        
+        with col3:
+            if 'chapter_number' in data.columns:
+                chapters = data['chapter_number'].nunique()
+                st.metric("Chapters", chapters)
+            else:
+                st.metric("Chapters", "N/A")
+        
+        with col4:
+            if 'unit_rate' in data.columns:
+                avg_rate = data['unit_rate'].mean()
+                st.metric("Avg Rate", f"৳{avg_rate:,.2f}")
+            else:
+                st.metric("Avg Rate", "N/A")
+        
+        # Chapter breakdown
+        if 'chapter_number' in data.columns:
+            st.markdown("##### 📚 Chapter Breakdown")
+            chapter_counts = data['chapter_number'].value_counts().sort_index()
+            st.bar_chart(chapter_counts)
+            
+            chapter_data = []
+            for chapter, count in chapter_counts.items():
+                chapter_data.append({
+                    'Chapter': chapter,
+                    'Items': count,
+                    'Percentage': f"{(count / len(data) * 100):.1f}%"
+                })
+            st.dataframe(pd.DataFrame(chapter_data), use_container_width=True, hide_index=True)
+        
+        # Zone distribution
+        if 'zone_name' in data.columns and 'unit_rate' in data.columns:
+            st.markdown("##### 📍 Zone Rate Distribution")
+            zone_stats = data.groupby('zone_name')['unit_rate'].agg(['mean', 'min', 'max', 'count']).reset_index()
+            zone_stats.columns = ['Zone', 'Average', 'Min', 'Max', 'Count']
+            zone_stats['Average'] = zone_stats['Average'].apply(lambda x: f"৳{x:,.2f}")
+            zone_stats['Min'] = zone_stats['Min'].apply(lambda x: f"৳{x:,.2f}")
+            zone_stats['Max'] = zone_stats['Max'].apply(lambda x: f"৳{x:,.2f}")
+            st.dataframe(zone_stats, use_container_width=True, hide_index=True)
+
     # =========================================================================
     # LGED MASTER RATES - Using RateCRUD
     # =========================================================================

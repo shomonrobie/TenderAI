@@ -1667,3 +1667,61 @@ class UserCRUD:
             params.append(exclude_id)
         result = db.query_one(query, tuple(params))
         return result is not None
+    
+    def get_user_analyses(self, user_id: int, company_id: int = None, role: str = 'user', limit: int = 50):
+        """Get user's tender analyses with role-based filtering"""
+        
+        # Use the correct context manager pattern
+        with self.get_connection() as conn:
+            cursor = self.db_conn.get_cursor(conn)
+            
+            print(f"🔍 get_user_analyses called with: user_id={user_id}, company_id={company_id}, role={role}")
+            
+            # System admin can see all analyses across all companies
+            if role in ['admin', 'system_admin']:
+                cursor.execute('''
+                    SELECT * FROM tender_analyses 
+                    ORDER BY analysis_date DESC LIMIT ?
+                ''', (limit,))
+            # Company admin and manager can see all analyses for their company
+            elif role in ['company_admin', 'manager'] and company_id:
+                cursor.execute('''
+                    SELECT * FROM tender_analyses 
+                    WHERE company_id = ? 
+                    ORDER BY analysis_date DESC LIMIT ?
+                ''', (company_id, limit))
+            # Regular users can only see their own analyses
+            else:
+                cursor.execute('''
+                    SELECT * FROM tender_analyses 
+                    WHERE user_id = ? AND company_id = ?
+                    ORDER BY analysis_date DESC LIMIT ?
+                ''', (user_id, company_id, limit))
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            data = cursor.fetchall()
+            
+            print(f"🔍 Found {len(data)} analyses for role={role}, company_id={company_id}")
+            
+            if data:
+                
+                df = pd.DataFrame(data, columns=columns)
+                
+                # Parse competitor_bids JSON if present
+                if 'competitor_bids' in df.columns:
+                    import json
+                    def parse_competitor_bids(value):
+                        if value is None:
+                            return []
+                        if isinstance(value, str):
+                            try:
+                                if value and value != 'null':
+                                    return json.loads(value)
+                            except:
+                                pass
+                        return []
+                    df['competitor_bids'] = df['competitor_bids'].apply(parse_competitor_bids)
+                
+                return df
+            return pd.DataFrame()

@@ -75,6 +75,8 @@ def render_top_navigation():
             ("👥 Team", "user_management"), ("💳 Plan", "subscription"),
             ("🚀 Onboarding", "company_onboarding"),             
             ("⚙️ Rate Mgmt", "company_rate_management"),
+            ("⚙️ Admin", "company_dashboard"), 
+            
             ("📖 Tutorial", "tutorial")
         ]
     elif is_manager or is_analyst:

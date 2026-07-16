@@ -234,7 +234,7 @@ class RateCRUDForms:
         with tab4:
             self._parent_crud(source, edition_year, show_debug)
         with tab5:
-            self._child_crud(source, edition_year, show_debug)
+            self.render_line_items(source, edition_year, show_debug)
         with tab6:
             self._version_crud(source, show_debug)
     
@@ -517,7 +517,963 @@ class RateCRUDForms:
                     else:
                         st.error("Please fill both fields")
 
+    def render_line_items(self, source: str, edition_year: int, show_debug: bool = False):
+        """Render line items (children) with spreadsheet-style grid view"""
+        
+        # Determine source type
+        is_lged = source.upper() == 'LGED'
+        is_pwd = source.upper() == 'PWD'
+        
+        st.markdown("### 📋 Line Items Management")
+        
+        if is_lged:
+            st.caption("📋 **LGED Structure:** Chapter → Section → Parent → Child → Rates")
+        else:
+            st.caption("📋 **PWD Structure:** Chapter → Parent → Child → Rates")
+        
+        can_edit = self._check_permission('update')
+        
+        # ===== GET DATA =====
+        if is_lged:
+            parents = self._get_cached_lged_parents(source)
+        else:
+            parents = self._get_cached_parents(source)
+        
+        if not parents:
+            st.warning("⚠️ No parents found. Please add parents first.")
+            return
+        
+        children = self._get_cached_children(source)
+        zones = self._get_cached_zones(source)
+        valid_zones = [z for z in zones if z.get('code')]
+        zone_names = [z.get('code', '') for z in valid_zones]
+        
+        if show_debug:
+            st.write(f"Debug: Loaded {len(children)} children from database")
+        
+        # ===== HEADER WITH ACTIONS =====
+        col1, col2, col3, col4, col5 = st.columns([1, 1.5, 1.5, 1.5, 0.8])
+        
+        with col1:
+            if st.button("➕ Add Line Item", key=f"line_add_{source}", type="primary", use_container_width=True):
+                st.session_state[f'editing_child_{source}'] = None
+                st.session_state[f'show_add_child_{source}'] = not st.session_state.get(f'show_add_child_{source}', False)
+                st.rerun()
+        
+        with col2:
+            # Chapter filter
+            chapters = set()
+            for child in children:
+                if child.get('chapter_number'):
+                    chapters.add(str(child.get('chapter_number')))
+            
+            chapter_options = ["All"] + sorted(list(chapters)) if chapters else ["All"]
+            selected_chapter = st.selectbox(
+                "📚 Chapter",
+                options=chapter_options,
+                key=f"line_chapter_filter_{source}",
+                label_visibility="collapsed"
+            )
+        
+        with col3:
+            # Parent filter (or Section for LGED)
+            if is_lged:
+                sections = set()
+                for child in children:
+                    if child.get('section_number'):
+                        sections.add(str(child.get('section_number')))
+                section_options = ["All Sections"] + sorted(list(sections)) if sections else ["All Sections"]
+                selected_filter = st.selectbox(
+                    "📑 Section",
+                    options=section_options,
+                    key=f"line_section_filter_{source}",
+                    label_visibility="collapsed"
+                )
+            else:
+                parent_codes = [p.get('code', '') for p in parents if p.get('code')]
+                parent_options = ["All Parents"] + sorted(parent_codes) if parent_codes else ["All Parents"]
+                selected_filter = st.selectbox(
+                    "👪 Parent",
+                    options=parent_options,
+                    key=f"line_parent_filter_{source}",
+                    label_visibility="collapsed"
+                )
+        
+        with col4:
+            search_term = st.text_input(
+                "🔍 Search",
+                placeholder="Code or description...",
+                key=f"line_search_{source}",
+                label_visibility="collapsed"
+            )
+        
+        with col5:
+            st.session_state[f'line_per_page_{source}'] = st.selectbox(
+                "Rows",
+                options=[5, 10, 25, 50, 100],
+                index=[5, 10, 25, 50, 100].index(st.session_state.get(f'line_per_page_{source}', 10)),
+                key=f"line_per_page_select_{source}",
+                label_visibility="collapsed"
+            )
+        
+        st.divider()
+        
+        # ===== APPLY FILTERS =====
+        filtered_children = children.copy()
+        
+        if selected_chapter != "All":
+            filtered_children = [
+                c for c in filtered_children 
+                if str(c.get('chapter_number', '')) == selected_chapter
+            ]
+        
+        if is_lged and selected_filter != "All Sections":
+            filtered_children = [
+                c for c in filtered_children 
+                if str(c.get('section_number', '')) == selected_filter
+            ]
+        elif not is_lged and selected_filter != "All Parents":
+            filtered_children = [
+                c for c in filtered_children 
+                if c.get('parent_code', '') == selected_filter
+            ]
+        
+        if search_term:
+            search_lower = search_term.lower()
+            filtered_children = [
+                c for c in filtered_children
+                if search_lower in str(c.get('code', '')).lower()
+                or search_lower in str(c.get('description', '')).lower()
+            ]
+        
+        total = len(filtered_children)
+        
+        if show_debug:
+            st.write(f"Debug: Filtered to {total} children")
+        
+        if not filtered_children:
+            st.info("No line items found matching the filters.")
+            return
+        
+        # ===== METRICS =====
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Items", total)
+        with col2:
+            # Count items with rates
+            items_with_rates = sum(1 for c in filtered_children if c.get('rates') and any(c.get('rates', {}).values()))
+            st.metric("With Rates", items_with_rates)
+        with col3:
+            # Count unique parents
+            unique_parents = len(set(c.get('parent_code', '') for c in filtered_children if c.get('parent_code')))
+            st.metric("Parents", unique_parents)
+        with col4:
+            # Count unique chapters
+            unique_chapters = len(set(str(c.get('chapter_number', '')) for c in filtered_children if c.get('chapter_number')))
+            st.metric("Chapters", unique_chapters)
+        
+        st.markdown("---")
+        
+        # ===== BUILD DATAFRAME =====
+        df_data = []
+        for child in filtered_children:
+            row = {
+                'code': child.get('code', ''),
+                'parent': child.get('parent_code', ''),
+                'description': child.get('description', ''),
+                'unit': child.get('unit', ''),
+                'chapter': child.get('chapter_number', ''),
+            }
+            
+            # LGED: Add section
+            if is_lged:
+                row['section'] = child.get('section_number', '')
+            
+            # Add rates
+            rates = child.get('rates', {})
+            for zone in zone_names:
+                if zone:
+                    row[zone] = rates.get(zone, 0)
+            
+            # Add hidden fields for editing
+            row['_child_data'] = child
+            
+            df_data.append(row)
+        
+        df = pd.DataFrame(df_data)
+        
+        # Format zone columns
+        for zone in zone_names:
+            if zone in df.columns:
+                df[zone] = pd.to_numeric(df[zone], errors='coerce').fillna(0)
+        
+        # ===== SORT =====
+        if f'line_sort_col_{source}' not in st.session_state:
+            st.session_state[f'line_sort_col_{source}'] = 'code'
+        if f'line_sort_asc_{source}' not in st.session_state:
+            st.session_state[f'line_sort_asc_{source}'] = True
+        
+        sort_col = st.session_state.get(f'line_sort_col_{source}', 'code')
+        sort_asc = st.session_state.get(f'line_sort_asc_{source}', True)
+        
+        if sort_col in df.columns:
+            df = df.sort_values(by=sort_col, ascending=sort_asc)
+            df = df.reset_index(drop=True)
+        
+        # ===== DISPLAY COLUMNS =====
+        display_cols = ['code', 'parent', 'description', 'unit', 'chapter']
+        if is_lged:
+            display_cols.insert(3, 'section')
+        display_cols.extend(zone_names)
+        
+        # Create display DataFrame
+        display_df = df[display_cols].copy()
+        
+        # Format zone columns for display
+        for zone in zone_names:
+            if zone in display_df.columns:
+                display_df[zone] = display_df[zone].apply(
+                    lambda x: f"{x:,.2f}" if x and x != 0 else ''
+                )
+        
+        # ===== STYLING =====
+        def color_zone(val):
+            if val and val != '':
+                try:
+                    num_val = float(val.replace(',', ''))
+                    if num_val > 10000:
+                        return 'color: #065f46; background-color: #d1fae5; font-weight: bold;'
+                    elif num_val > 5000:
+                        return 'color: #92400e; background-color: #fef3c7;'
+                    elif num_val > 1000:
+                        return 'color: #1e40af; background-color: #dbeafe;'
+                    else:
+                        return 'color: #475569;'
+                except:
+                    pass
+            return ''
+        
+        styled_df = display_df.style
+        
+        # Apply zone coloring
+        for zone in zone_names:
+            if zone in display_df.columns:
+                styled_df = styled_df.map(color_zone, subset=[zone])
+        
+        # ===== DISPLAY DATAFRAME =====
+        column_config = {
+            "code": st.column_config.Column("Code", width="small"),
+            "parent": st.column_config.Column("Parent", width="small"),
+            "description": st.column_config.Column("Description", width="large"),
+            "unit": st.column_config.Column("Unit", width="small"),
+            "chapter": st.column_config.Column("Chapter", width="small"),
+        }
+        
+        if is_lged:
+            column_config["section"] = st.column_config.Column("Section", width="small")
+        
+        for zone in zone_names:
+            if zone:
+                column_config[zone] = st.column_config.Column(zone, width="small")
+        
+        event = st.dataframe(
+            styled_df,
+            selection_mode="single-row",
+            on_select="rerun",
+            use_container_width=True,
+            hide_index=True,
+            column_config=column_config
+        )
+        
+        # ===== HANDLE SELECTION =====
+        if event.selection and event.selection['rows']:
+            selected_idx = event.selection['rows'][0]
+            if selected_idx < len(df):
+                row_data = df.iloc[selected_idx]
+                child_data = row_data.get('_child_data')
+                if child_data:
+                    st.session_state[f'selected_child_{source}'] = child_data
+                    st.session_state[f'selected_child_code_{source}'] = row_data.get('code')
+                    st.session_state[f'show_child_detail_{source}'] = True
+                    st.rerun()
+        
+        # ===== DETAIL VIEW =====
+        if st.session_state.get(f'show_child_detail_{source}', False):
+            child_data = st.session_state.get(f'selected_child_{source}')
+            child_code = st.session_state.get(f'selected_child_code_{source}')
+            
+            if child_data:
+                st.markdown("---")
+                st.markdown(f"### 📋 Detail View: {child_code}")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown(f"**Code:** {child_data.get('code', 'N/A')}")
+                    st.markdown(f"**Parent:** {child_data.get('parent_code', 'N/A')}")
+                    st.markdown(f"**Unit:** {child_data.get('unit', 'N/A')}")
+                    st.markdown(f"**Chapter:** {child_data.get('chapter_number', 'N/A')}")
+                    if is_lged:
+                        st.markdown(f"**Section:** {child_data.get('section_number', 'N/A')}")
+                
+                with col2:
+                    st.markdown("**Description:**")
+                    st.markdown(f"_{child_data.get('description', 'N/A')}_")
+                
+                # Display rates
+                rates = child_data.get('rates', {})
+                if rates:
+                    st.markdown("**Zone Rates:**")
+                    rate_data = []
+                    for zone in zone_names:
+                        if zone:
+                            rate_data.append({
+                                'Zone': zone,
+                                'Rate': f"৳{rates.get(zone, 0):,.2f}" if rates.get(zone, 0) else 'N/A'
+                            })
+                    st.dataframe(pd.DataFrame(rate_data), use_container_width=True, hide_index=True)
+                
+                # Action buttons
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if st.button("✏️ Edit", key=f"edit_line_{source}_{child_code}", use_container_width=True):
+                        st.session_state[f'editing_child_{source}'] = child_data
+                        st.session_state[f'edit_child_code_{source}'] = child_code
+                        st.session_state[f'show_child_detail_{source}'] = False
+                        st.rerun()
+                
+                with col2:
+                    if can_edit and st.button("🗑️ Delete", key=f"delete_line_{source}_{child_code}", use_container_width=True):
+                        try:
+                            self.db.delete_child(source, child_code)
+                            self._log_audit('DELETE', 'child', child_code, None, None)
+                            st.success(f"✅ Deleted: {child_code}")
+                            st.session_state[f'show_child_detail_{source}'] = False
+                            st.session_state[f'selected_child_{source}'] = None
+                            self._clear_cache()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting: {e}")
+                
+                with col3:
+                    if st.button("❌ Close", key=f"close_line_detail_{source}", use_container_width=True):
+                        st.session_state[f'show_child_detail_{source}'] = False
+                        st.session_state[f'selected_child_{source}'] = None
+                        st.rerun()
+        
+        # ===== PAGINATION =====
+        per_page = st.session_state.get(f'line_per_page_{source}', 10)
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+        
+        if f'line_page_{source}' not in st.session_state:
+            st.session_state[f'line_page_{source}'] = 1
+        
+        if st.session_state[f'line_page_{source}'] > total_pages and total_pages > 0:
+            st.session_state[f'line_page_{source}'] = total_pages
+        
+        start_idx = (st.session_state[f'line_page_{source}'] - 1) * per_page
+        end_idx = min(start_idx + per_page, total)
+        
+        st.markdown("---")
+        
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+        
+        with col1:
+            st.caption(f"Showing {start_idx + 1}–{end_idx} of {total} items")
+        
+        with col2:
+            if st.button("◀ Prev", key=f"line_prev_{source}", disabled=(st.session_state[f'line_page_{source}'] <= 1), use_container_width=True):
+                st.session_state[f'line_page_{source}'] -= 1
+                st.rerun()
+        
+        with col3:
+            if st.button("Next ▶", key=f"line_next_{source}", disabled=(st.session_state[f'line_page_{source}'] >= total_pages), use_container_width=True):
+                st.session_state[f'line_page_{source}'] += 1
+                st.rerun()
+        
+        with col4:
+            jump_to = st.number_input(
+                "Jump to page",
+                min_value=1,
+                max_value=total_pages if total_pages > 0 else 1,
+                value=st.session_state[f'line_page_{source}'],
+                step=1,
+                key=f"line_jump_to_{source}",
+                label_visibility="collapsed"
+            )
+            if jump_to != st.session_state[f'line_page_{source}'] and 1 <= jump_to <= total_pages:
+                st.session_state[f'line_page_{source}'] = jump_to
+                st.rerun()
+        
+        # ===== ADD FORM =====
+        if st.session_state.get(f'show_add_child_{source}', False):
+            st.markdown("---")
+            st.markdown("### ➕ Add New Line Item")
+            self._render_add_child_form(source, edition_year, valid_zones, is_lged, parents)
+        
+        # ===== EDIT FORM =====
+        if st.session_state.get(f'editing_child_{source}'):
+            self._render_child_edit_form(source, edition_year, valid_zones, is_lged, parents)
+
+
     def _child_crud(self, source, edition_year, show_debug):
+        """Child CRUD with editable table - Supports both PWD and LGED"""
+        
+        # Determine source type
+        is_lged = source.upper() == 'LGED'
+        is_pwd = source.upper() == 'PWD'
+        
+        st.markdown("### 👶 Manage Child Items")
+        
+        if is_lged:
+            st.info("📋 **LGED Structure:** Chapter → Section → Parent → Child → Rates")
+        else:
+            st.info("📋 **PWD Structure:** Chapter → Parent → Child → Rates")
+        
+        can_edit = self._check_permission('update')
+        
+        # ✅ Get parents (different for PWD vs LGED)
+        if is_lged:
+            parents = self._get_cached_lged_parents(source)
+        else:
+            parents = self._get_cached_parents(source)
+        
+        if not parents:
+            st.warning("⚠️ No parents found. Please add parents first in the 'Parents' tab.")
+            return
+        
+        # ✅ Get children
+        children = self._get_cached_children(source)
+        
+        if show_debug:
+            st.write(f"Debug: Loaded {len(children)} children from database")
+        
+        if children:
+            # ========== FILTERS ==========
+            st.markdown("#### 🔍 Filters")
+            
+            # Determine number of filter columns
+            if is_lged:
+                col1, col2, col3, col4 = st.columns(4)
+            else:
+                col1, col2, col3 = st.columns(3)
+            
+            # Extract unique chapters
+            chapters = set()
+            for child in children:
+                if child.get('chapter_number'):
+                    chapters.add(str(child.get('chapter_number')))
+            
+            with col1:
+                if chapters:
+                    chapter_options = ["All"] + sorted(list(chapters))
+                    selected_chapter = st.selectbox(
+                        "📚 Chapter",
+                        options=chapter_options,
+                        key=f"child_chapter_filter_{source}"
+                    )
+                else:
+                    selected_chapter = "All"
+                    st.info("No chapter data")
+            
+            with col2:
+                # ✅ LGED: Section filter
+                if is_lged:
+                    sections = set()
+                    for child in children:
+                        if child.get('section_number'):
+                            sections.add(str(child.get('section_number')))
+                    
+                    if sections:
+                        section_options = ["All Sections"] + sorted(list(sections))
+                        selected_section = st.selectbox(
+                            "📑 Section",
+                            options=section_options,
+                            key=f"child_section_filter_{source}"
+                        )
+                    else:
+                        selected_section = "All Sections"
+                        st.info("No section data")
+                else:
+                    # PWD: Parent filter
+                    parent_codes = [p.get('code', '') for p in parents if p.get('code')]
+                    if parent_codes:
+                        parent_options = ["All Parents"] + sorted(parent_codes)
+                        selected_parent_filter = st.selectbox(
+                            "👪 Parent",
+                            options=parent_options,
+                            key=f"child_parent_filter_{source}"
+                        )
+                    else:
+                        selected_parent_filter = "All Parents"
+            
+            # LGED: Parent filter (in column 3)
+            if is_lged:
+                with col3:
+                    parent_codes = [p.get('code', '') for p in parents if p.get('code')]
+                    if parent_codes:
+                        parent_options = ["All Parents"] + sorted(parent_codes)
+                        selected_parent_filter = st.selectbox(
+                            "👪 Parent",
+                            options=parent_options,
+                            key=f"child_parent_filter_{source}"
+                        )
+                    else:
+                        selected_parent_filter = "All Parents"
+            
+            # Search filter (last column)
+            search_col = col4 if is_lged else col3
+            with search_col:
+                search_term = st.text_input(
+                    "🔍 Search",
+                    placeholder="Code or description...",
+                    key=f"child_search_{source}"
+                )
+            
+            # ========== APPLY FILTERS ==========
+            filtered_children = children.copy()
+            
+            # Chapter filter
+            if selected_chapter != "All":
+                filtered_children = [
+                    c for c in filtered_children 
+                    if str(c.get('chapter_number', '')) == selected_chapter
+                ]
+            
+            # Section filter (LGED only)
+            if is_lged and selected_section != "All Sections":
+                filtered_children = [
+                    c for c in filtered_children 
+                    if str(c.get('section_number', '')) == selected_section
+                ]
+            
+            # Parent filter
+            if selected_parent_filter != "All Parents":
+                filtered_children = [
+                    c for c in filtered_children 
+                    if c.get('parent_code', '') == selected_parent_filter
+                ]
+            
+            # Search filter
+            if search_term:
+                search_lower = search_term.lower()
+                filtered_children = [
+                    c for c in filtered_children
+                    if search_lower in str(c.get('code', '')).lower()
+                    or search_lower in str(c.get('description', '')).lower()
+                ]
+            
+            if show_debug:
+                st.write(f"Debug: Filtered to {len(filtered_children)} children")
+            
+            if not filtered_children:
+                st.warning(f"No children found matching the filters")
+                return
+            
+            st.markdown("#### Existing Children (Click on a row to view/edit details)")
+            
+            zones = self._get_cached_zones(source)
+            valid_zones = [z for z in zones if z.get('code')]
+            zone_names = [z.get('code', '') for z in valid_zones]
+            
+            # ========== BUILD DATAFRAME ==========
+            data = []
+            append = data.append
+            for child in filtered_children:
+                row = {
+                    'Code': child.get('code', ''),
+                    'Parent': child.get('parent_code', ''),
+                    'Description': child.get('description', '')[:80] + '...' if len(child.get('description', '')) > 80 else child.get('description', ''),
+                    'Unit': child.get('unit', ''),
+                    'Chapter': child.get('chapter_number', ''),
+                    '_full_description': child.get('description', ''),
+                    '_child_data': child
+                }
+                
+                # ✅ LGED: Add Section column
+                if is_lged:
+                    row['Section'] = child.get('section_number', '')
+                
+                rates = child.get('rates', {})
+                for zone in zone_names:
+                    if zone:
+                        row[zone] = rates.get(zone, 0)
+                append(row)
+            
+            if data:
+                df = pd.DataFrame(data)
+                
+                for zone in zone_names:
+                    if zone and zone in df.columns:
+                        df[zone] = pd.to_numeric(df[zone], errors='coerce').fillna(0)
+                
+                # Display columns
+                display_cols = ['Code', 'Parent', 'Description', 'Unit', 'Chapter']
+                if is_lged:
+                    display_cols.insert(3, 'Section')  # Insert Section after Parent
+                display_cols.extend(zone_names)
+                
+                display_df = df[display_cols].copy()
+                
+                # Format zone columns
+                for zone in zone_names:
+                    if zone in display_df.columns:
+                        display_df[zone] = display_df[zone].apply(lambda x: f"৳{x:,.2f}" if x and x != 0 else '')
+                
+                # ========== ROW SELECTION ==========
+                st.markdown("""
+                <style>
+                .row-clickable:hover {
+                    background-color: #f0f2f6 !important;
+                    cursor: pointer;
+                }
+                .row-selected {
+                    background-color: #e6f3ff !important;
+                    border-left: 4px solid #1f77b4;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+                
+                if f'selected_child_{source}' not in st.session_state:
+                    st.session_state[f'selected_child_{source}'] = None
+                
+                # Display rows with clickable selection
+                for idx, row in display_df.iterrows():
+                    # Determine column layout based on source
+                    if is_lged:
+                        col1, col2, col3, col4, col5, col6, col7 = st.columns([0.3, 1.0, 1.0, 2.5, 0.8, 0.8, 0.8])
+                    else:
+                        col1, col2, col3, col4, col5, col6 = st.columns([0.3, 1.2, 2.5, 0.8, 0.8, 0.8])
+                    
+                    with col1:
+                        is_selected = st.checkbox(
+                            "",
+                            key=f"child_select_{source}_{idx}",
+                            value=(st.session_state.get(f'selected_child_{source}') == idx)
+                        )
+                        if is_selected:
+                            st.session_state[f'selected_child_{source}'] = idx
+                        elif st.session_state.get(f'selected_child_{source}') == idx and not is_selected:
+                            st.session_state[f'selected_child_{source}'] = None
+                    
+                    with col2:
+                        st.markdown(f"**{row['Code']}**")
+                    
+                    with col3:
+                        st.markdown(row['Description'])
+                    
+                    with col4:
+                        st.markdown(row['Unit'])
+                    
+                    with col5:
+                        st.markdown(f"📚 {row['Chapter']}")
+                    
+                    # LGED: Section column
+                    if is_lged:
+                        with col6:
+                            st.markdown(f"📑 {row['Section']}")
+                    
+                    # Zone rate (quick preview) - show Zone-A in last column
+                    if is_lged:
+                        with col7:
+                            zone_a = row.get('Zone-A', '')
+                            st.markdown(f"💰 {zone_a}" if zone_a else "💰 -")
+                    else:
+                        with col6:
+                            zone_a = row.get('Zone-A', '')
+                            st.markdown(f"💰 {zone_a}" if zone_a else "💰 -")
+                    
+                    # ========== DETAIL VIEW ==========
+                    if st.session_state.get(f'selected_child_{source}') == idx:
+                        with st.expander(f"📊 Details for {row['Code']}", expanded=True):
+                            child_data = df.iloc[idx]['_child_data']
+                            full_description = df.iloc[idx]['_full_description']
+                            
+                            st.markdown(f"**Full Description:** {full_description}")
+                            
+                            # Show additional info based on source
+                            if is_lged:
+                                st.markdown(f"**Section:** {child_data.get('section_number', 'N/A')}")
+                            st.markdown(f"**Chapter:** {child_data.get('chapter_number', 'N/A')}")
+                            st.markdown(f"**Parent:** {child_data.get('parent_code', 'N/A')}")
+                            
+                            # Display all rates
+                            st.markdown("**Zone Rates:**")
+                            rate_data = []
+                            for zone in zone_names:
+                                if zone in df.columns:
+                                    rate_value = df.iloc[idx][zone]
+                                    rate_data.append({
+                                        'Zone': zone,
+                                        'Rate': f"৳{rate_value:,.2f}" if rate_value and rate_value != 0 else 'N/A'
+                                    })
+                            
+                            if rate_data:
+                                st.dataframe(pd.DataFrame(rate_data), use_container_width=True, hide_index=True)
+                            
+                            # Action buttons
+                            col_edit1, col_edit2 = st.columns(2)
+                            
+                            with col_edit1:
+                                if st.button(f"✏️ Edit {row['Code']}", key=f"edit_child_{source}_{idx}", use_container_width=True):
+                                    st.session_state[f'editing_child_{source}'] = child_data
+                                    st.session_state[f'edit_child_code_{source}'] = row['Code']
+                                    st.rerun()
+                            
+                            with col_edit2:
+                                if can_edit and st.button(f"🗑️ Delete {row['Code']}", key=f"delete_child_{source}_{idx}", use_container_width=True):
+                                    try:
+                                        self.db.delete_child(source, row['Code'])
+                                        self._log_audit('DELETE', 'child', row['Code'], None, None)
+                                        st.success(f"✅ Deleted child: {row['Code']}")
+                                        self._clear_cache()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error deleting child: {e}")
+                    
+                    st.markdown("---")
+                
+                # ========== BULK EDIT ==========
+                if can_edit and st.button("✏️ Edit Selected Child", use_container_width=True):
+                    selected_idx = st.session_state.get(f'selected_child_{source}')
+                    if selected_idx is not None and selected_idx < len(df):
+                        child_data = df.iloc[selected_idx]['_child_data']
+                        st.session_state[f'editing_child_{source}'] = child_data
+                        st.session_state[f'edit_child_code_{source}'] = df.iloc[selected_idx]['Code']
+                        st.rerun()
+                    else:
+                        st.warning("Please select a child first by clicking the checkbox on the left.")
+                
+                # ========== EDIT FORM ==========
+                if st.session_state.get(f'editing_child_{source}'):
+                    self._render_child_edit_form(source, edition_year, valid_zones, is_lged, parents)
+                
+                # ========== EXPORT ==========
+                if st.button("📥 Export Filtered Children", use_container_width=True):
+                    export_df = display_df.copy()
+                    csv = export_df.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download CSV",
+                        csv,
+                        f"children_{source}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        "text/csv",
+                        use_container_width=True
+                    )
+        
+        st.markdown("---")
+        
+        # ========== ADD NEW CHILD FORM ==========
+        self._render_add_child_form(source, edition_year, valid_zones, is_lged, parents)
+
+
+    def _render_child_edit_form(self, source, edition_year, valid_zones, is_lged, parents):
+        """Render the child edit form (handles both PWD and LGED)"""
+        
+        child_to_edit = st.session_state.get(f'editing_child_{source}')
+        edit_code = st.session_state.get(f'edit_child_code_{source}')
+        
+        st.markdown("---")
+        st.markdown(f"### ✏️ Editing Child: {edit_code}")
+        
+        with st.form(f"edit_child_form_{source}"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                edit_code = st.text_input("Child Code", value=child_to_edit.get('code', ''), disabled=True, key=f"edit_code_{source}")
+                
+                parent_options = ["-- Select Parent --"] + [f"{p.get('code', '')} - {p.get('description', '')[:50]}..." for p in parents if p.get('code')]
+                current_parent = child_to_edit.get('parent_code', '')
+                default_parent_index = 0
+                for i, opt in enumerate(parent_options):
+                    if opt.startswith(current_parent):
+                        default_parent_index = i
+                        break
+                selected_parent = st.selectbox("Parent", parent_options, index=default_parent_index, key=f"edit_parent_{source}")
+                if selected_parent != "-- Select Parent --":
+                    parent_code = selected_parent.split(" - ")[0]
+                else:
+                    parent_code = ""
+                
+                unit = st.selectbox(
+                    "Unit",
+                    ["", "cum", "sqm", "meter", "each", "job", "set", "kg", "hour", "month", "day", "km"],
+                    index=["", "cum", "sqm", "meter", "each", "job", "set", "kg", "hour", "month", "day", "km"].index(child_to_edit.get('unit', '')),
+                    key=f"edit_unit_{source}"
+                )
+                
+                # Chapter input
+                chapter_value = child_to_edit.get('chapter_number', '')
+                edit_chapter = st.text_input("Chapter", value=str(chapter_value) if chapter_value else '', key=f"edit_chapter_{source}")
+            
+            with col2:
+                edit_desc = st.text_area("Description", value=child_to_edit.get('description', ''), height=100, key=f"edit_desc_{source}")
+                
+                # ✅ LGED: Section input
+                if is_lged:
+                    section_value = child_to_edit.get('section_number', '')
+                    edit_section = st.text_input("Section", value=str(section_value) if section_value else '', key=f"edit_section_{source}")
+            
+            # Zone rates
+            if valid_zones:
+                st.markdown("##### Rates by Zone")
+                rate_cols = st.columns(len(valid_zones))
+                edit_rates = {}
+                current_rates = child_to_edit.get('rates', {})
+                for i, zone in enumerate(valid_zones):
+                    zone_code = zone.get('code', '')
+                    zone_name = zone.get('name', zone_code)
+                    with rate_cols[i]:
+                        edit_rates[zone_code] = st.number_input(
+                            f"{zone_name}",
+                            value=float(current_rates.get(zone_code, 0)),
+                            step=100.0,
+                            format="%.2f",
+                            key=f"edit_rate_{zone_code}_{source}"
+                        )
+            else:
+                st.warning("⚠️ No zones available.")
+                edit_rates = {}
+            
+            col_edit1, col_edit2, col_edit3 = st.columns(3)
+            
+            with col_edit1:
+                if st.form_submit_button("💾 Save Changes", use_container_width=True):
+                    try:
+                        # Build update data
+                        update_data = {
+                            'code': edit_code,
+                            'parent_code': parent_code,
+                            'description': edit_desc,
+                            'unit': unit,
+                            'edition_year': edition_year,
+                            'rates': edit_rates,
+                            'chapter_number': edit_chapter if edit_chapter else None
+                        }
+                        
+                        # ✅ LGED: Add section
+                        if is_lged:
+                            update_data['section_number'] = edit_section if edit_section else None
+                        
+                        self.db.save_child(source=source, **update_data)
+                        
+                        self._log_audit('UPDATE', 'child', edit_code, child_to_edit, update_data)
+                        st.success(f"✅ Updated child: {edit_code}")
+                        st.session_state[f'editing_child_{source}'] = None
+                        st.session_state[f'edit_child_code_{source}'] = None
+                        self._clear_cache()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating child: {e}")
+            
+            with col_edit2:
+                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                    st.session_state[f'editing_child_{source}'] = None
+                    st.session_state[f'edit_child_code_{source}'] = None
+                    st.rerun()
+            
+            with col_edit3:
+                if st.form_submit_button("🗑️ Delete", use_container_width=True):
+                    try:
+                        self.db.delete_child(source, edit_code)
+                        self._log_audit('DELETE', 'child', edit_code, None, None)
+                        st.success(f"✅ Deleted child: {edit_code}")
+                        st.session_state[f'editing_child_{source}'] = None
+                        st.session_state[f'edit_child_code_{source}'] = None
+                        self._clear_cache()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error deleting child: {e}")
+
+
+    def _render_add_child_form(self, source, edition_year, valid_zones, is_lged, parents):
+        """Render the add child form (handles both PWD and LGED)"""
+        
+        st.markdown("#### ➕ Add New Child Item")
+        
+        with st.form(f"add_child_form_{source}", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                child_code = st.text_input("Child Code", placeholder="01.1.1 or 1.01.01", key=f"child_code_{source}")
+                
+                parent_options = ["-- Select Parent --"] + [f"{p.get('code', '')} - {p.get('description', '')[:50]}..." for p in parents if p.get('code')]
+                selected_parent = st.selectbox("Select Parent", parent_options, key=f"child_parent_{source}")
+                
+                if selected_parent != "-- Select Parent --":
+                    parent_code = selected_parent.split(" - ")[0]
+                    if child_code and not child_code.startswith(parent_code):
+                        st.warning(f"⚠️ Child code should start with '{parent_code}'")
+                else:
+                    parent_code = ""
+                
+                unit = st.selectbox("Unit", ["", "cum", "sqm", "meter", "each", "job", "set", "kg", "hour", "month", "day", "km"], key=f"child_unit_{source}")
+                
+                # Chapter input
+                chapter_number = st.text_input("Chapter", placeholder="e.g., 01, 02, 26", key=f"child_chapter_{source}")
+                
+                # ✅ LGED: Section input
+                if is_lged:
+                    section_number = st.text_input("Section", placeholder="e.g., 3.01, 3.02", key=f"child_section_{source}")
+            
+            with col2:
+                child_desc = st.text_area("Description", placeholder="Item description", height=100, key=f"child_desc_{source}")
+            
+            # Zone rates
+            if valid_zones:
+                st.markdown("##### Rates by Zone")
+                rate_cols = st.columns(len(valid_zones))
+                rates = {}
+                for i, zone in enumerate(valid_zones):
+                    zone_code = zone.get('code', '')
+                    zone_name = zone.get('name', zone_code)
+                    safe_key = f"new_child_rate_{zone_code}_{source}" if zone_code else f"new_child_rate_{i}_{source}"
+                    with rate_cols[i]:
+                        rates[zone_code] = st.number_input(
+                            f"{zone_name}", 
+                            value=0.0, 
+                            step=100.0, 
+                            format="%.2f", 
+                            key=safe_key
+                        )
+            else:
+                st.warning("⚠️ No zones available.")
+                rates = {}
+            
+            submitted = st.form_submit_button("➕ Add Child Item", use_container_width=True)
+            
+            if submitted and child_code and child_desc and parent_code:
+                if not child_code.startswith(parent_code):
+                    st.error(f"Child code must start with parent code '{parent_code}'")
+                else:
+                    try:
+                        # Build child data
+                        child_data = {
+                            'code': child_code,
+                            'parent_code': parent_code,
+                            'description': child_desc,
+                            'unit': unit,
+                            'edition_year': edition_year,
+                            'rates': rates,
+                            'chapter_number': chapter_number if chapter_number else None
+                        }
+                        
+                        # ✅ LGED: Add section
+                        if is_lged:
+                            child_data['section_number'] = section_number if section_number else None
+                        
+                        self.db.save_child(source=source, **child_data)
+                        
+                        self._log_audit('CREATE', 'child', child_code, None, child_data)
+                        st.success(f"✅ Added Child: {child_code} under parent {parent_code}")
+                        self._clear_cache()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving child: {e}")
+            elif submitted:
+                st.error("Please fill all required fields (Code, Description, and Parent)")
+    def _child_crud_bak(self, source, edition_year, show_debug):
         """Child CRUD with editable table"""
         
         st.markdown("### 👶 Manage Child Items")

@@ -180,9 +180,9 @@ def render_tender_grid_view():
     if st.session_state.get('debug_mode', False):
         st.sidebar.write(f"Company ID: {company_id}")
         st.sidebar.write(f"User Role: {user_role}")
-    if not company_id or user_role not in ['system_admin', 'individual']:
-        st.warning("Please select a company first. ")
-        return
+    # if not company_id or user_role !='individual':
+    #     st.warning(f"Please select a company first. Your role is : {user_role} and your Company ID is {company_id}")
+    #     return
     
     st.markdown("### 📋 My Tenders/Proposals")
     
@@ -190,12 +190,12 @@ def render_tender_grid_view():
     col1, col2, col3, col4 = st.columns([1, 1.5, 2, 1])
     
     with col1:
-        if st.button("➕ Create New Tender", key="tender_add_btn", type="primary", use_container_width=True):
+        if st.button("➕ Create New Tender X", key="tender_add_btn", type="primary", use_container_width=True):
             st.session_state.edit_mode = False
             st.session_state.edit_tender_id = None
             st.session_state.extracted_data = None
             st.session_state.skip_review = False
-            st.session_state.page = "tender_form"
+            st.session_state.page = "render_tender_form"
             st.rerun()
     
     with col2:

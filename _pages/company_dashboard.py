@@ -687,8 +687,8 @@ def render_company_tenders(company_id: int):
         )
     
     with col3:
-        if st.button("➕ Create New Tender", key="comp_create_tender", type="primary", use_container_width=True):
-            st.session_state.page = "tender_management"
+        if st.button("➕ Create New Tender 2", key="comp_create_tender", type="primary", use_container_width=True):
+            st.session_state.page = "render_tender_form"
             st.rerun()
     
     st.divider()

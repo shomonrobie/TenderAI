@@ -100,7 +100,7 @@ from modules.competitor_master import render_competitor_master_page
 from modules.historical_data import render_historical_data_page
 from modules.analysis_history import show_analysis_history
 from modules.post_evaluation import render_post_evaluation_page, render_intelligent_suggestions
-from modules.tender_management import render_tender_management
+from modules.tender_management import show as render_tender_management
 from modules.egp_boq_workspace import render_boq_workspace
 from modules.tutorials import render_tutorial
 from modules.boq_generator_ui import render_boq_generator
@@ -682,7 +682,7 @@ class PageRoutes:
     COMPETITIVE_INTEL = "competitive_intel"
     AI_ADVISOR = "ai_advisor"
     COMPANY_CONFIG = "company_config"
-    TENDER_FORM = 'tender_form'  # ✅ ADD THIS NEW ROUTE
+    TENDER_FORM = 'render_tender_form'  # ✅ ADD THIS NEW ROUTE
 
     # ─── Admin System Pages ──────────────────────────────────────────────────
     ADMIN_DASHBOARD = 'admin_dashboard'
@@ -1404,7 +1404,7 @@ def _render_authenticated_pages() -> None:
         
         PageRoutes.RATE_VIEWER: lambda: _import_and_call('modules.rate_viewer', 'render_rate_viewer'),
         PageRoutes.TENDER_FORM: lambda: _import_and_call('modules.tender_form', 'render_tender_form'),
-
+            
         # Advanced modules (lazy import)
         PageRoutes.TENDER_MANAGEMENT: lambda: _import_and_call('modules.tender_management', 'render_tender_management'),
         PageRoutes.POST_EVALUATION: lambda: _import_and_call('modules.post_evaluation', 'render_post_evaluation_page'),
