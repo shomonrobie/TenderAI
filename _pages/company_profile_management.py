@@ -42,13 +42,18 @@ def get_effective_company_id():
             if existing:
                 company_id = existing['id']
             else:
-                # Create new company
-                company_id = db.create_company({
-                    'company_name': company_name,
-                    'is_individual': True,
-                    'is_active': True,
-                    'status': 'active'
-                })
+                # ✅ Create new company using direct SQL
+                db.execute("""
+                    INSERT INTO companies (company_name, is_individual, is_active, status, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (company_name, True, True, 'active'))
+                
+                # Get the company_id
+                company_result = db.query_one(
+                    "SELECT id FROM companies WHERE company_name = ? AND is_individual = true",
+                    (company_name,)
+                )
+                company_id = company_result['id'] if company_result else None
                 
                 # Create company profile
                 if company_id:
@@ -58,7 +63,7 @@ def get_effective_company_id():
                     """, (company_id, full_name))
             
             if company_id:
-                # Update user with company_id
+                # ✅ Update user with company_id using the correct method
                 db.update_user(user_id, {'company_id': company_id})
                 st.session_state.company_id = company_id
                 return company_id

@@ -40,7 +40,7 @@ def render_boq_generator():
     
     if not company_id:
         st.error("No company found. Please contact support.")
-        return
+        #  return
     
     boq_gen = BOQGenerator(db)
     matcher = AdvancedBOQMatcher()
