@@ -14,17 +14,17 @@ def render_top_navigation():
     # Define navigation items
     if is_admin:
         nav_items = [
-            {"label": "🏠 Dashboard", "page": "dashboard", "icon": "🏠"},
+            {"label": "🏠 Dashboard", "page": "frontend/dashboard", "icon": "🏠"},
             {"label": "📝 Rate Mgmt", "page": "rate_management", "icon": "📝"},
             {"label": "📥 Import", "page": "import_wizard", "icon": "📥"},
             {"label": "👥 Users", "page": "user_management", "icon": "👥"},
             {"label": "📋 Tenders", "page": "tender_management", "icon": "📋"},
             {"label": "💳 Subscriptions", "page": "subscription", "icon": "💳"},
-            {"label": "⚙️ Admin", "page": "admin_dashboard", "icon": "⚙️"}
+            {"label": "⚙️ Admin", "page": "frontend/admin_dashboard", "icon": "⚙️"}
         ]
     else:
         nav_items = [
-            {"label": "🏠 Dashboard", "page": "dashboard", "icon": "🏠"},
+            {"label": "🏠 Dashboard", "page": "frontend/dashboard", "icon": "🏠"},
             {"label": "📋 Tenders", "page": "tender_management", "icon": "📋"},
             {"label": "📊 BOQ", "page": "boq_generator", "icon": "📊"},
             {"label": "🎯 Optimizer", "page": "boq_bid_optimizer", "icon": "🎯"},

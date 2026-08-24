@@ -78,10 +78,10 @@ from modules.advanced_bid_optimizer import get_three_tier_comparison
 # debug_print(f"🚀 App render | Page: {st.session_state.page} | Auth: {st.session_state.logged_in}")
 from modules.forgot_password import render_forgot_password
 from modules.reset_password import render_reset_password
-from _pages.admin_dashboard import show as admin_dashboard_page
+from frontend.admin_dashboard import show as admin_dashboard_page
 
-from _pages.landing_page2 import show_landing_page as landing_page
-from _pages.about import show_about_page
+from public.landing_page import show_landing_page as landing_page
+from public.about import show_about_page
 import random
 from modules.report_generator import generate_unified_report, generate_html_content_only
 
@@ -106,9 +106,9 @@ from modules.tutorials import render_tutorial
 from modules.boq_generator_ui import render_boq_generator
 from modules.boq_admin_report import render_boq_admin_report
 from modules.boq_bid_bridge import render_boq_bid_integration
-from _pages.company_subscription import show as show_company_subscription
-from _pages.company_dashboard import show as show_company_dashboard
-from _pages.dashboard import show as dashboard_page
+from public.company_subscription import show as show_company_subscription
+from frontend.company_dashboard import show as show_company_dashboard
+from frontend.dashboard import show as dashboard_page
 #from modules.navigation import render_top_navigation, render_page_header
 from modules.ui_components import (
     render_app_header,      
@@ -122,19 +122,19 @@ from modules.tender_analysis import render_tender_analysis
 from modules.subscription_manager import SubscriptionManager
 from modules.rbac import init_rbac
 
-#from _pages.enhanced_company_dashboard import show as show_enhanced_company_dashboard
-from _pages.extension_admin import show as show_extension_admin
-from _pages.extension_usage import show as show_extension_usage
+#from frontend.enhanced_company_dashboard import show as show_enhanced_company_dashboard
+from frontend.extension_admin import show as show_extension_admin
+from public.extension_usage import show as show_extension_usage
 from modules.company_knowledge_repo import render_company_knowledge_repo
-from _pages.company_profile_management import show as show_enhanced_company_dashboard 
+from frontend.company_profile_management import show as show_enhanced_company_dashboard 
 if st.query_params.get("health") == "check":
     st.json({"status": "healthy", "timestamp": datetime.now().isoformat()})
     st.stop()
-from _pages.login_page import show as login_page
-from _pages.registration_page import show as register_page
-from _pages.pricing_page import show as pricing_page
-from _pages.contact_page import show as contact_page
-from _pages.extension_features import show as auto_fill_extension_features
+from public.login_page import show as login_page
+from public.registration_page import show as register_page
+from public.pricing_page import show as pricing_page
+from public.contact_page import show as contact_page
+from public.extension_features import show as auto_fill_extension_features
 from modules.competitive_bid_simulator import render_competitive_bid_simulator_ui
 from modules.company_rate_management import render_company_rate_management
 from modules.company_onboarding import render_company_onboarding
@@ -641,9 +641,9 @@ class PageRoutes:
     HOME = 'home'
     LOGIN = 'login'
     REGISTER = 'register'
-    PRICING = 'pricing'
-    ABOUT = 'about'
-    CONTACT = 'contact'
+    PRICING = 'public/pricing'
+    ABOUT = 'public/about'
+    CONTACT = 'public/contact'
     INDIVIDUAL_REGISTER = 'individual_register'
     INDIVIDUAL_LOGIN = 'individual_login'
     
@@ -1242,7 +1242,7 @@ def _render_sidebar_menu_bak():
 def _render_public_pages() -> None:
     """Render pages for non-authenticated users"""
     from modules.individual_registration import render_individual_registration, render_individual_login
-    from _pages.extension_features import show as extension_features_page
+    from public.extension_features import show as extension_features_page
     
     # ========== CRITICAL: CHECK REGISTRATION FLAG FIRST ==========
     # If registration flag is set, don't process OIDC again - let the page handle it
@@ -1304,9 +1304,9 @@ def _render_public_pages() -> None:
         'home': landing_page,
         'login': login_page,
         'register': register_page,
-        'pricing': pricing_page,
-        'about': lambda: show_about_page(),
-        'contact': contact_page,
+        'public/pricing': pricing_page,
+        'public/about': lambda: show_about_page(),
+        'public/contact': contact_page,
         'individual_register': render_individual_registration,
         'individual_login': render_individual_login,
         'extension_features': extension_features_page,
@@ -1327,16 +1327,16 @@ def _render_public_pages() -> None:
 def _render_public_pages_bak() -> None:
     """Render pages for non-authenticated users"""
     from modules.individual_registration import render_individual_registration, render_individual_login
-    from _pages.extension_features import show as extension_features_page
+    from public.extension_features import show as extension_features_page
     
     page_handlers = {
         # Main pages
         'home': landing_page,
         'login': login_page,
         'register': register_page,
-        'pricing': pricing_page,
-        'about': lambda: show_about_page(),
-        'contact': contact_page,
+        'public/pricing': pricing_page,
+        'public/about': lambda: show_about_page(),
+        'public/contact': contact_page,
         
         # Individual user pages
         'individual_register': render_individual_registration,
@@ -1415,7 +1415,7 @@ def _render_authenticated_pages() -> None:
         PageRoutes.COMPETITOR_MASTER: lambda: render_competitor_master_page(db, SubscriptionManager(db)),
         PageRoutes.USER_APPROVAL: lambda: _import_and_call('modules.user_approval', 'render_user_approval_page'),
         PageRoutes.ROLE_MANAGEMENT: lambda: _import_and_call('modules.user_management', 'render_role_management'),
-        PageRoutes.COMPANY_DASHBOARD: lambda: _import_and_call('_pages.company_dashboard', 'show'),        
+        PageRoutes.COMPANY_DASHBOARD: lambda: _import_and_call('frontend.company_dashboard', 'show'),        
         PageRoutes.EGP_BOQ_WORKSPACE: lambda: _import_and_call('modules.egp_boq_workspace', 'render_boq_workspace'),
         PageRoutes.TUTORIAL: lambda: _import_and_call('modules.tutorials', 'render_tutorial'),
         PageRoutes.BOQ_GENERATOR: lambda: _import_and_call('modules.boq_generator_ui', 'render_boq_generator'),
@@ -1426,11 +1426,11 @@ def _render_authenticated_pages() -> None:
         PageRoutes.COMPANY_KNOWLEDGE: show_enhanced_company_dashboard,
         PageRoutes.AUTO_FILL_EXTENSION_ADMIN: show_extension_admin,
         PageRoutes.AUTO_FILL_EXTENSION_USAGE: show_extension_usage,
-        PageRoutes.AUTO_FILL_EXTENSION_DOWNLOAD: lambda: _import_and_call('_pages.extension_download', 'show'),  
-        PageRoutes.AUTO_FILL_EXTENSION_FEATURES: lambda: _import_and_call('_pages.extension_features', 'show'), 
+        PageRoutes.AUTO_FILL_EXTENSION_DOWNLOAD: lambda: _import_and_call('public.extension_download', 'show'),  
+        PageRoutes.AUTO_FILL_EXTENSION_FEATURES: lambda: _import_and_call('public.extension_features', 'show'), 
         PageRoutes.COMPETITIVE_BID_SIMULATOR: lambda: render_competitive_bid_simulator_ui(db, SubscriptionManager(db)),
-        PageRoutes.ADMIN_ANALYTICS: lambda: _import_and_call('_pages.admin_analytics_dashboard', 'show'),
-        PageRoutes.COMPANY_ANALYTICS: lambda: _import_and_call('_pages.company_analytics_dashboard', 'show'),
+        PageRoutes.ADMIN_ANALYTICS: lambda: _import_and_call('frontend.admin_analytics_dashboard', 'show'),
+        PageRoutes.COMPANY_ANALYTICS: lambda: _import_and_call('frontend.company_analytics_dashboard', 'show'),
         PageRoutes.COMPANY_ONBOARDING: lambda: render_company_onboarding(db),        
         PageRoutes.QUICK_BID: lambda: render_quick_bid_check(db, SubscriptionManager),
         PageRoutes.ADVANCED_BID: lambda: render_advanced_bid_analysis(db, SubscriptionManager),
@@ -1873,7 +1873,7 @@ def _handle_company_dashboard():
 
 def _handle_admin_dashboard():
     """Handle admin dashboard with proper navigation"""
-    from _pages.admin_dashboard import show as show_admin_dashboard
+    from frontend.admin_dashboard import show as show_admin_dashboard
     show_admin_dashboard()
 
 
@@ -2009,7 +2009,7 @@ if __name__ == "__main__":
         st.error("💥 Application error. Please refresh or contact support.")
         # if DEBUG_MODE:
         #     required_routes = [
-        #         'home', 'login', 'register', 'pricing', 'about', 'contact',
+        #         'home', 'login', 'register', public/pricing, public/about, public/contact,
         #         'dashboard', 'new_analysis', 'history', 'profile', 'subscription',
         #         'user_management', 'tender_management', 'post_evaluation', 'intelligent_suggestions',
         #         'historical_data', 'analysis_history', 'company_analytics', 'competitor_tracking',

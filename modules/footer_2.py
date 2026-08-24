@@ -210,8 +210,8 @@ def render_public_footer():
     
     sections = [
         ("🏗️ TenderAI", [
-            ("🏠 Home", "home"), ("ℹ️ About Us", "about"),
-            ("⚡ Features", "features"), ("💰 Pricing", "pricing")
+            ("🏠 Home", "public/landing_page"), ("ℹ️ About Us", "public/about"),
+            ("⚡ Features", "features"), ("💰 Pricing", "public/pricing")
         ]),
         ("📚 Resources", [
             ("📖 Knowledge Base", "knowledge_base"), ("❓ FAQ", "faq"),
@@ -222,7 +222,7 @@ def render_public_footer():
             ("🍪 Cookie Policy", "cookies"), ("🛡️ GDPR Compliance", "gdpr")
         ]),
         ("📞 Contact", [
-            ("📬 Contact Us", "contact"), ("📅 Book a Demo", "book_demo")
+            ("📬 Contact Us", "public/contact"), ("📅 Book a Demo", "book_demo")
         ])
     ]
 

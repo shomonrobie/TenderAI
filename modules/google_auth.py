@@ -244,11 +244,11 @@ def render_google_registration_form(db_instance):
                 st.session_state.show_google_registration = False
                 user_role = st.session_state.get('user_role', 'viewer')
                 if user_role in ['admin', 'system_admin']:
-                    navigate_to("admin_dashboard")
+                    navigate_to("frontend/admin_dashboard")
                 elif user_role == 'company_admin':
-                    navigate_to("company_dashboard")
+                    navigate_to("frontend/company_dashboard")
                 else:
-                    navigate_to("dashboard")
+                    navigate_to("frontend/dashboard")
                 return
     
     # ========== REGISTRATION FORM ==========
@@ -382,11 +382,11 @@ def render_google_registration_form(db_instance):
                             if login_user(user, None, True):
                                 user_role = st.session_state.get('user_role', 'viewer')
                                 if user_role in ['admin', 'system_admin']:
-                                    navigate_to("admin_dashboard")
+                                    navigate_to("frontend/admin_dashboard")
                                 elif user_role == 'company_admin':
-                                    navigate_to("company_dashboard")
+                                    navigate_to("frontend/company_dashboard")
                                 else:
-                                    navigate_to("dashboard")
+                                    navigate_to("frontend/dashboard")
                                 return
                         return
                         
