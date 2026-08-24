@@ -109,7 +109,7 @@ from modules.boq_bid_bridge import render_boq_bid_integration
 from public.company_subscription import show as show_company_subscription
 from frontend.company_dashboard import show as show_company_dashboard
 from frontend.dashboard import show as dashboard_page
-#from modules.top_navigation_optimized import render_top_navigation, render_page_header
+#, render_page_header
 from modules.ui_components import (
     render_app_header,      
     apply_theme, 
@@ -1383,10 +1383,10 @@ def can_manage_company_data():
 def _render_authenticated_pages() -> None:
     """Render pages for authenticated users with top navigation"""
     
-    from modules.top_navigation_optimized import render_top_navigation
     
-    # Render top navigation bar (appears on all authenticated pages)
-    render_top_navigation()
+    
+    # Sidebar handles navigation (no top bar)
+    render_sidebar()
     
     # Page handlers (your existing code)
     PAGE_HANDLERS: Dict[str, Callable] = {
