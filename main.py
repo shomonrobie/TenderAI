@@ -1386,7 +1386,6 @@ def _render_authenticated_pages() -> None:
     
     
     # Sidebar handles navigation (no top bar)
-    render_sidebar()
     
     # Page handlers (your existing code)
     PAGE_HANDLERS: Dict[str, Callable] = {
@@ -1645,7 +1644,6 @@ def main() -> None:
     render_app_header()
     if st.session_state.logged_in:
         with st.sidebar:
-            render_sidebar()
     else:
         render_header_nav()
     
@@ -1790,7 +1788,6 @@ def main_bak() -> None:
     render_app_header()
     if st.session_state.logged_in:
         with st.sidebar:
-            render_sidebar()
     else:
         render_header_nav()
     
