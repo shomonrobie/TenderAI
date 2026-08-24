@@ -1643,7 +1643,7 @@ def main() -> None:
     
     render_app_header()
     if st.session_state.logged_in:
-        # sidebar handled globally
+        pass  # sidebar handled globally
     else:
         render_header_nav()
     
@@ -1787,7 +1787,7 @@ def main_bak() -> None:
     
     render_app_header()
     if st.session_state.logged_in:
-        # sidebar handled globally
+        pass  # sidebar handled globally
     else:
         render_header_nav()
     
