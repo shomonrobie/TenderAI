@@ -1624,7 +1624,6 @@ def main() -> None:
     # Hide Streamlit's default chrome elements
     st.markdown("""
     <style>
-        div[data-testid="stSidebarNav"] { display: none; }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         .stApp { max-width: 100%; }
@@ -1768,7 +1767,6 @@ def main_bak() -> None:
     # Hide Streamlit's default chrome elements
     st.markdown("""
     <style>
-        div[data-testid="stSidebarNav"] { display: none; }
         #MainMenu { visibility: hidden; }
         footer { visibility: hidden; }
         .stApp { max-width: 100%; }
