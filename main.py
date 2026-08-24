@@ -922,7 +922,7 @@ def render_sidebar() -> None:
         with col1:
             st.markdown("### 👤 Account")
         with col2:
-            if st.button("🚪", key=f"nav_logout_icon_{st.session_state.get("user_id","anon")}", help="Sign Out", use_container_width=True):
+            if st.button("🚪", key=f"nav_logout_icon_{st.session_state.get("user_id","anon")}_{id(st)}", help="Sign Out", use_container_width=True):
                 logout_user()
                 for key in list(st.session_state.keys()):
                     if key not in ['debug_mode', 'page']:
